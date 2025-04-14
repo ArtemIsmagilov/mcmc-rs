@@ -1052,6 +1052,9 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// # let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
+    /// let result = conn.get_multi(&[b"k8"]).await?;
+    /// assert_eq!(result[0].key, "k8");
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1087,6 +1090,9 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// # let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k7", 0, 0, false, b"v7").await?);
+    /// let result = conn.gets_multi(&[b"k7"]).await?;
+    /// assert_eq!(result[0].key, "k7");
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1122,6 +1128,9 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// # let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
+    /// let result = conn.gat_multi(0, &[b"k6"]).await?;
+    /// assert_eq!(result[0].key, "k6");
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1160,8 +1169,11 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
-    /// # Ok::<(), io::Error>(())
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k5", 0, 0, false, b"v5").await?);
+    /// let result = conn.gats_multi(0, &[b"k5"]).await?;
+    /// assert_eq!(result[0].key, "k5");
+    /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gats_multi(
