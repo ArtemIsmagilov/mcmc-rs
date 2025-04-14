@@ -185,7 +185,6 @@ where
         b"\r\n",
     ]
     .concat();
-
     s.write_all(&cmd).await?;
     s.flush().await?;
     let mut line = String::new();

@@ -11,7 +11,7 @@ fn main() -> io::Result<()> {
     block_on(async {
         let mut conn = Connection::default().await?;
         conn.set(b"key", 0, -1, true, b"value").await?;
-        let item = conn.get(b"key").await?.unwrap();
+        let item: Item = conn.get(b"key").await?.unwrap();
         conn.delete(b"key", true).await?;
         conn.get_multi(&[b"key1", b"key2"]).await?;
         conn.version().await?;
