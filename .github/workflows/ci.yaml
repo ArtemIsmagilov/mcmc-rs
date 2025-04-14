@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -16,7 +19,8 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
       - name: Install Memcached
-        run |: if ${{ matrix.os }} == "ubuntu-latest"; then
+        run: |
+          if ${{ matrix.os }} == "ubuntu-latest"; then
           apt install memcached
           else
           brew install memcached
