@@ -10,27 +10,14 @@ env:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    name: Run tests. OS ${{ matrix.os }}.
+    runs-on: ubuntu-latest
+    name: Run tests.
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
-      - name: Install Memcached
-        run: |
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          sudo apt install memcached
-          else
-          brew install memcached
-          fi
       - name: Run servers
         run: |
-          memcached -p 11211 -d
-          memcached -p 11212 -A -d
-          memcached -p 11213 -S -Y sasl.txt
-          memcached -s /tmp/memcached.sock -d
+          docker compose up -d
       - name: Run tests
         run: |
           cargo check

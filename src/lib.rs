@@ -177,7 +177,7 @@ where
 {
     let cmd = [
         b"set _ _ _ ",
-        (username.len() + password.len()).to_string().as_bytes(),
+        (username.len() + password.len() + 1).to_string().as_bytes(),
         b"\r\n",
         username,
         b" ",
@@ -456,7 +456,7 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
+    /// let mut conn = Connection::tcp_connect("127.0.0.1:11213").await?;
     /// conn.shutdown(true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -829,7 +829,7 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// #     let mut conn = Connection::tcp_connect("127.0.0.1:11213").await?;
+    /// #     let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
     /// conn.auth(b"a", b"a").await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
