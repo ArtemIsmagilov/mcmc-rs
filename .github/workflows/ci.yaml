@@ -21,7 +21,7 @@ jobs:
       - name: Install Memcached
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          apt install memcached
+          sudo apt install memcached
           else
           brew install memcached
           fi
