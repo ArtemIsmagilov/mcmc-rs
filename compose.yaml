@@ -1,0 +1,25 @@
+services:
+  md-tcp0:
+    image: "memcached:alpine"
+    ports:
+      - "11211:11211"
+
+  md-unix0:
+    image: "memcached:alpine"
+    command: ["-s", "/tmp/memcached.sock"]
+    volumes:
+      - "/tmp:/tmp"
+
+  md-tcp1:
+    image: "memcached:alpine"
+    command: ["-p", "11212", "-S", "-Y", "/app/sasl.txt"]
+    volumes:
+      - "./sasl.txt:/app/sasl.txt:ro"
+    ports:
+      - "11212:11212"
+
+  md-tcp2:
+    image: "memcached:alpine"
+    ports:
+      - "11213:11213"
+    command: ["-p", "11213", "-A"]
