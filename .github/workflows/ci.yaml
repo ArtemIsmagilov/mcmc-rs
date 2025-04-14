@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Memcached
         run: |
-          if "${{ matrix.os }}" == "ubuntu-latest"; then
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           apt install memcached
           else
           brew install memcached
