@@ -1239,7 +1239,7 @@ mod tests {
 
             let mut c = Cursor::new(b"version\r\nERROR\r\n".to_vec());
             assert!(version_cmd(&mut c).await.is_err())
-        });
+        })
     }
 
     #[test]

@@ -14,7 +14,8 @@ fn main() -> io::Result<()> {
         let item: Item = conn.get(b"key").await?.unwrap();
         conn.delete(b"key", true).await?;
         conn.get_multi(&[b"key1", b"key2"]).await?;
-        conn.version().await?;
+        let version = conn.version().await?;
+        println!("{version:#?}");
         Ok(())
     })
 }
