@@ -44,10 +44,10 @@ where
     Ok(())
 }
 
-async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
-    s: &mut S,
-    graceful: bool,
-) -> io::Result<()> {
+async fn shutdown_cmd<S>(s: &mut S, graceful: bool) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
     let cmd: &[u8] = if graceful {
         b"shutdown graceful\r\n"
     } else {
