@@ -419,16 +419,11 @@ where
     }
 }
 
-async fn lru_crawler_tocrawl_cmd<S>(s: &mut S, number: u32) -> io::Result<()>
+async fn lru_crawler_tocrawl_cmd<S>(s: &mut S, arg: u32) -> io::Result<()>
 where
     S: AsyncBufRead + AsyncWrite + Unpin,
 {
-    let cmd = [
-        b"lru_crawler tocrawl ",
-        number.to_string().as_bytes(),
-        b"\r\n",
-    ]
-    .concat();
+    let cmd = [b"lru_crawler tocrawl ", arg.to_string().as_bytes(), b"\r\n"].concat();
     s.write_all(&cmd).await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
@@ -1387,10 +1382,10 @@ impl Connection {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru_crawler_tocrawl(&mut self, microseconds: u32) -> io::Result<()> {
+    pub async fn lru_crawler_tocrawl(&mut self, arg: u32) -> io::Result<()> {
         match self {
-            Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, microseconds).await,
-            Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, microseconds).await,
+            Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, arg).await,
+            Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Udp(s) => todo!(),
         }
     }
