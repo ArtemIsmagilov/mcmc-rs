@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::panic::UnwindSafe;
 
 use smol::io::{self, BufReader};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
@@ -18,6 +17,11 @@ pub enum SlabsAutomoveArg {
     Zero,
     One,
     Two,
+}
+
+pub enum LruCrawlerArg {
+    Enable,
+    Disable,
 }
 
 #[derive(Debug, PartialEq)]
@@ -368,6 +372,24 @@ where
     };
     let cmd = [b"slabs automove ", a, b"\r\n"].concat();
     s.write_all(&cmd).await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+async fn lru_crawler_cmd<S>(s: &mut S, arg: LruCrawlerArg) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let cmd: &[u8] = match arg {
+        LruCrawlerArg::Enable => b"lru_crawler enable\r\n",
+        LruCrawlerArg::Disable => b"lru_crawler disable\r\n",
+    };
+    s.write_all(cmd).await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -1272,6 +1294,26 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.lru_crawler(LruCrawlerArg::Disable).await?;
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn lru_crawler(&mut self, arg: LruCrawlerArg) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => lru_crawler_cmd(s, arg).await,
+            Connection::Unix(s) => lru_crawler_cmd(s, arg).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1528,6 +1570,21 @@ mod tests {
             let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
             assert!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::One)
+                    .await
+                    .is_err()
+            )
+        })
+    }
+
+    #[test]
+    fn test_lru_crawler() {
+        block_on(async {
+            let mut c = Cursor::new(b"lru_crawler enable\r\nOK\r\n".to_vec());
+            assert!(lru_crawler_cmd(&mut c, LruCrawlerArg::Enable).await.is_ok());
+
+            let mut c = Cursor::new(b"lru_crawler disable\r\nERROR\r\n".to_vec());
+            assert!(
+                lru_crawler_cmd(&mut c, LruCrawlerArg::Disable)
                     .await
                     .is_err()
             )
