@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::panic::UnwindSafe;
 
 use smol::io::{self, BufReader};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
@@ -11,6 +12,12 @@ pub enum StatsArg {
     Sizes,
     Slabs,
     Conns,
+}
+
+pub enum SlabsAutomoveArg {
+    Zero,
+    One,
+    Two,
 }
 
 #[derive(Debug, PartialEq)]
@@ -348,6 +355,26 @@ async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
         };
     }
     Ok(items)
+}
+
+async fn slabs_automove_cmd<S>(s: &mut S, arg: SlabsAutomoveArg) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let a: &[u8] = match arg {
+        SlabsAutomoveArg::Zero => b"0",
+        SlabsAutomoveArg::One => b"1",
+        SlabsAutomoveArg::Two => b"2",
+    };
+    let cmd = [b"slabs automove ", a, b"\r\n"].concat();
+    s.write_all(&cmd).await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
 }
 
 pub enum Connection {
@@ -1224,6 +1251,27 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// use mcmc_rs::SlabsAutomoveArg;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.slabs_automove(SlabsAutomoveArg::Zero).await?;
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn slabs_automove(&mut self, arg: SlabsAutomoveArg) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => slabs_automove_cmd(s, arg).await,
+            Connection::Unix(s) => slabs_automove_cmd(s, arg).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1463,6 +1511,25 @@ mod tests {
                     ("version".to_string(), "1.2.3".to_string()),
                     ("threads".to_string(), "4".to_string()),
                 ])
+            )
+        })
+    }
+
+    #[test]
+    fn test_slabs_automove() {
+        block_on(async {
+            let mut c = Cursor::new(b"slabs automove 0\r\nOK\r\n".to_vec());
+            assert!(
+                slabs_automove_cmd(&mut c, SlabsAutomoveArg::Zero)
+                    .await
+                    .is_ok()
+            );
+
+            let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
+            assert!(
+                slabs_automove_cmd(&mut c, SlabsAutomoveArg::One)
+                    .await
+                    .is_err()
             )
         })
     }
