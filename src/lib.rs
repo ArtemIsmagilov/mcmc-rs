@@ -419,6 +419,26 @@ where
     }
 }
 
+async fn lru_crawler_tocrawl_cmd<S>(s: &mut S, number: u32) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let cmd = [
+        b"lru_crawler tocrawl ",
+        number.to_string().as_bytes(),
+        b"\r\n",
+    ]
+    .concat();
+    s.write_all(&cmd).await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     Unix(BufReader<UnixStream>),
@@ -1354,6 +1374,26 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.lru_crawler_tocrawl(0).await?;
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn lru_crawler_tocrawl(&mut self, microseconds: u32) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, microseconds).await,
+            Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, microseconds).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1639,6 +1679,17 @@ mod tests {
 
             let mut c = Cursor::new(b"lru_crawler sleep 0\r\nERROR\r\n".to_vec());
             assert!(lru_crawler_sleep_cmd(&mut c, 0).await.is_err())
+        })
+    }
+
+    #[test]
+    fn test_lru_crawler_tocrawl() {
+        block_on(async {
+            let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nOK\r\n".to_vec());
+            assert!(lru_crawler_tocrawl_cmd(&mut c, 0).await.is_ok());
+
+            let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nERROR\r\n".to_vec());
+            assert!(lru_crawler_tocrawl_cmd(&mut c, 0).await.is_err())
         })
     }
 }
