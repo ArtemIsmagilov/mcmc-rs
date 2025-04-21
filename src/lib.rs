@@ -434,6 +434,34 @@ where
     }
 }
 
+async fn lru_crawler_crawl_cmd<S>(s: &mut S, arg: LruCrawlerCrawlArg<'_>) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let a = match arg {
+        LruCrawlerCrawlArg::Classids(ids) => ids
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        LruCrawlerCrawlArg::All => "all".to_string(),
+    };
+    let cmd = [b"lru_crawler crawl ", a.as_bytes(), b"\r\n"].concat();
+    s.write_all(&cmd).await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+pub enum LruCrawlerCrawlArg<'a> {
+    Classids(&'a [usize]),
+    All,
+}
+
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     Unix(BufReader<UnixStream>),
@@ -1338,7 +1366,8 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.lru_crawler(LruCrawlerArg::Disable).await?;
+    /// let result = conn.lru_crawler(LruCrawlerArg::Enable).await;
+    /// assert!(result.is_err());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1386,6 +1415,26 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerCrawlArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn lru_crawler_crawl(&mut self, arg: LruCrawlerCrawlArg<'_>) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => lru_crawler_crawl_cmd(s, arg).await,
+            Connection::Unix(s) => lru_crawler_crawl_cmd(s, arg).await,
             Connection::Udp(s) => todo!(),
         }
     }
@@ -1685,6 +1734,25 @@ mod tests {
 
             let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nERROR\r\n".to_vec());
             assert!(lru_crawler_tocrawl_cmd(&mut c, 0).await.is_err())
+        })
+    }
+
+    #[test]
+    fn test_lru_crawler_crawl() {
+        block_on(async {
+            let mut c = Cursor::new(b"lru_crawler crawl 1,2,3\r\nOK\r\n".to_vec());
+            assert!(
+                lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::Classids(&[1, 2, 3]))
+                    .await
+                    .is_ok()
+            );
+
+            let mut c = Cursor::new(b"lru_crawler crawl all\r\nERROR\r\n".to_vec());
+            assert!(
+                lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::All)
+                    .await
+                    .is_err()
+            )
         })
     }
 }
