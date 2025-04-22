@@ -24,6 +24,11 @@ pub enum LruCrawlerArg {
     Disable,
 }
 
+pub enum LruCrawlerCrawlArg<'a> {
+    Classids(&'a [usize]),
+    All,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -457,9 +462,26 @@ where
     }
 }
 
-pub enum LruCrawlerCrawlArg<'a> {
-    Classids(&'a [usize]),
-    All,
+async fn slabs_reassign_cmd<S>(s: &mut S, source_class: usize, dest_class: usize) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let cmd = [
+        b"slabs reassign ",
+        source_class.to_string().as_bytes(),
+        b" ",
+        dest_class.to_string().as_bytes(),
+        b"\r\n",
+    ]
+    .concat();
+    s.write_all(&cmd).await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
 }
 
 pub enum Connection {
@@ -1438,6 +1460,31 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.slabs_reassign(1, 2).await;
+    /// assert!(result.is_err());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn slabs_reassign(
+        &mut self,
+        source_class: usize,
+        dest_class: usize,
+    ) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
+            Connection::Unix(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1753,6 +1800,17 @@ mod tests {
                     .await
                     .is_err()
             )
+        })
+    }
+
+    #[test]
+    fn test_slabs_reassign() {
+        block_on(async {
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nOK\r\n".to_vec());
+            assert!(slabs_reassign_cmd(&mut c, 1, 10).await.is_ok());
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nERROR\r\n".to_vec());
+            assert!(slabs_reassign_cmd(&mut c, 1, 10).await.is_err())
         })
     }
 }
