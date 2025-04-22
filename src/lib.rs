@@ -29,6 +29,12 @@ pub enum LruCrawlerCrawlArg<'a> {
     All,
 }
 
+pub enum LruCrawlerMetadumpArg<'a> {
+    Classids(&'a [usize]),
+    All,
+    Hash,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -41,7 +47,8 @@ async fn version_cmd<S>(s: &mut S) -> io::Result<String>
 where
     S: AsyncBufRead + AsyncWrite + Unpin,
 {
-    s.write_all(b"version\r\n").await.unwrap();
+    s.write_all(b"version\r\n").await?;
+    s.flush().await?;
     let mut line = String::new();
     let n = s.read_line(&mut line).await?;
     if line.starts_with("VERSION") {
@@ -377,6 +384,7 @@ where
     };
     let cmd = [b"slabs automove ", a, b"\r\n"].concat();
     s.write_all(&cmd).await?;
+    s.flush().await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -395,6 +403,7 @@ where
         LruCrawlerArg::Disable => b"lru_crawler disable\r\n",
     };
     s.write_all(cmd).await?;
+    s.flush().await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -415,6 +424,7 @@ where
     ]
     .concat();
     s.write_all(&cmd).await?;
+    s.flush().await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -430,6 +440,7 @@ where
 {
     let cmd = [b"lru_crawler tocrawl ", arg.to_string().as_bytes(), b"\r\n"].concat();
     s.write_all(&cmd).await?;
+    s.flush().await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -453,6 +464,7 @@ where
     };
     let cmd = [b"lru_crawler crawl ", a.as_bytes(), b"\r\n"].concat();
     s.write_all(&cmd).await?;
+    s.flush().await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -475,10 +487,45 @@ where
     ]
     .concat();
     s.write_all(&cmd).await?;
+    s.flush().await?;
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
         Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+async fn lru_crawler_metadump_cmd<S>(
+    s: &mut S,
+    arg: LruCrawlerMetadumpArg<'_>,
+) -> io::Result<Vec<String>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let a = match arg {
+        LruCrawlerMetadumpArg::Classids(ids) => ids
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        LruCrawlerMetadumpArg::All => "all".to_string(),
+        LruCrawlerMetadumpArg::Hash => "hash".to_string(),
+    };
+    let cmd = [b"lru_crawler metadump ", a.as_bytes(), b"\r\n"].concat();
+    s.write_all(&cmd).await?;
+    s.flush().await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    let mut items = Vec::new();
+    while line.starts_with("key=") {
+        items.push(line.trim_end().to_string());
+        line.clear();
+        s.read_line(&mut line).await?;
+    }
+    if line == "END\r\n" {
+        Ok(items)
     } else {
         Err(io::Error::other(line))
     }
@@ -1485,6 +1532,30 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerMetadumpArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.lru_crawler_metadump(LruCrawlerMetadumpArg::Classids(&[2])).await?;
+    /// assert!(result.is_empty());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn lru_crawler_metadump(
+        &mut self,
+        arg: LruCrawlerMetadumpArg<'_>,
+    ) -> io::Result<Vec<String>> {
+        match self {
+            Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
+            Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1811,6 +1882,29 @@ mod tests {
 
             let mut c = Cursor::new(b"slabs reassign 1 10\r\nERROR\r\n".to_vec());
             assert!(slabs_reassign_cmd(&mut c, 1, 10).await.is_err())
+        })
+    }
+
+    #[test]
+    fn test_lru_crawler_metadump() {
+        block_on(async {
+            let mut c = Cursor::new(b"lru_crawler metadump all\r\nkey=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::All)
+                    .await
+                    .unwrap(),
+                [
+                    "key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0",
+                    "key=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0"
+                ]
+            );
+
+            let mut c = Cursor::new(b"lru_crawler metadump 1,2,3\r\nERROR\r\n".to_vec());
+            assert!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3]))
+                    .await
+                    .is_err()
+            )
         })
     }
 }
