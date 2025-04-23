@@ -35,6 +35,12 @@ pub enum LruCrawlerMetadumpArg<'a> {
     Hash,
 }
 
+pub enum LruCrawlerMgdumpArg<'a> {
+    Classids(&'a [usize]),
+    All,
+    Hash,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -525,6 +531,42 @@ where
         s.read_line(&mut line).await?;
     }
     if line == "END\r\n" {
+        Ok(items)
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+async fn lru_crawler_mgdump_cmd<S>(
+    s: &mut S,
+    arg: LruCrawlerMgdumpArg<'_>,
+) -> io::Result<Vec<String>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let a = match arg {
+        LruCrawlerMgdumpArg::Classids(ids) => ids
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        LruCrawlerMgdumpArg::All => "all".to_string(),
+        LruCrawlerMgdumpArg::Hash => "hash".to_string(),
+    };
+    let cmd = [b"lru_crawler mgdump ", a.as_bytes(), b"\r\n"].concat();
+    s.write_all(&cmd).await?;
+    s.flush().await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    let mut items = Vec::new();
+    while line.starts_with("mg ") {
+        let mut split = line.split(' ');
+        split.next();
+        items.push(split.next().unwrap().trim_end().to_string());
+        line.clear();
+        s.read_line(&mut line).await?;
+    }
+    if line == "EN\r\n" {
         Ok(items)
     } else {
         Err(io::Error::other(line))
@@ -1556,6 +1598,30 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerMgdumpArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3])).await?;
+    /// assert!(result.is_empty());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn lru_crawler_mgdump(
+        &mut self,
+        arg: LruCrawlerMgdumpArg<'_>,
+    ) -> io::Result<Vec<String>> {
+        match self {
+            Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
+            Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1902,6 +1968,27 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler metadump 1,2,3\r\nERROR\r\n".to_vec());
             assert!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3]))
+                    .await
+                    .is_err()
+            )
+        })
+    }
+
+    #[test]
+    fn test_lru_crawler_mgdump() {
+        block_on(async {
+            let mut c =
+                Cursor::new(b"lru_crawler mgdump 3\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Classids(&[3]))
+                    .await
+                    .unwrap(),
+                ["key", "key2"]
+            );
+
+            let mut c = Cursor::new(b"lru_crawler mgdump all\r\nERROR\r\n".to_vec());
+            assert!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All)
                     .await
                     .is_err()
             )
