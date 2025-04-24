@@ -2,6 +2,12 @@
 name = "mcmc-rs"
 version = "0.1.0"
 edition = "2024"
+description = "Minimal rust client for memcached"
+readme = "README.md"
+repository = "https://github.com/ArtemIsmagilov/mcmc-rs"
+license = "MIT"
+keywords = ["memcached"]
+categories = ["database-clients", "caching"]
 
 [dependencies]
 smol = "2.0.2"
