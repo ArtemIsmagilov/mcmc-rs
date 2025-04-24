@@ -573,6 +573,21 @@ where
     }
 }
 
+async fn mn_cmd<S>(s: &mut S) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    s.write_all(b"mn\r\n").await?;
+    s.flush().await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "MN\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     Unix(BufReader<UnixStream>),
@@ -1169,7 +1184,7 @@ impl Connection {
     /// # Example
     ///
     /// ```rust
-    /// # use mcmc_rs::{Connection, Item};
+    /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
@@ -1622,6 +1637,26 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.mn().await.is_ok());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn mn(&mut self) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => mn_cmd(s).await,
+            Connection::Unix(s) => mn_cmd(s).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1992,6 +2027,17 @@ mod tests {
                     .await
                     .is_err()
             )
+        })
+    }
+
+    #[test]
+    fn test_mn() {
+        block_on(async {
+            let mut c = Cursor::new(b"mn\r\nMN\r\n".to_vec());
+            assert!(mn_cmd(&mut c).await.is_ok());
+
+            let mut c = Cursor::new(b"mn\r\nERROR\r\n".to_vec());
+            assert!(mn_cmd(&mut c).await.is_err())
         })
     }
 }
