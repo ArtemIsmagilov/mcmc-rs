@@ -588,6 +588,23 @@ where
     }
 }
 
+async fn me_cmd<S>(s: &mut S, key: &[u8]) -> io::Result<Option<String>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    let cmd = [b"me ", key, b"\r\n"].concat();
+    s.write_all(&cmd).await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "EN\r\n" {
+        Ok(None)
+    } else if line.starts_with("ME") {
+        Ok(Some(line[4 + key.len()..line.len() - 2].to_string()))
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     Unix(BufReader<UnixStream>),
@@ -1657,6 +1674,27 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
+    /// assert!(conn.me(b"k6").await?.is_some());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+        match self {
+            Connection::Tcp(s) => me_cmd(s, key.as_ref()).await,
+            Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2038,6 +2076,25 @@ mod tests {
 
             let mut c = Cursor::new(b"mn\r\nERROR\r\n".to_vec());
             assert!(mn_cmd(&mut c).await.is_err())
+        })
+    }
+
+    #[test]
+    fn test_me() {
+        block_on(async {
+            let mut c = Cursor::new(b"me key\r\nEN\r\n".to_vec());
+            assert!(me_cmd(&mut c, b"key").await.unwrap().is_none());
+
+            let mut c = Cursor::new(
+                b"me key\r\nME key exp=-1 la=3 cas=2 fetch=no cls=1 size=63\r\n".to_vec(),
+            );
+            assert_eq!(
+                me_cmd(&mut c, b"key").await.unwrap().unwrap(),
+                "exp=-1 la=3 cas=2 fetch=no cls=1 size=63"
+            );
+
+            let mut c = Cursor::new(b"me key\r\nERROR\r\n".to_vec());
+            assert!(me_cmd(&mut c, b"key").await.is_err());
         })
     }
 }
