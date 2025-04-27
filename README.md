@@ -21,6 +21,25 @@ fn main() -> io::Result<()> {
 }
 ```
 
+```rust
+use smol::{block_on, io};
+
+use mcmc_rs::{ClientCrc32, Connection, Item};
+
+fn main() -> io::Result<()> {
+    block_on(async {
+        let mut client = ClientCrc32::new(vec![
+            Connection::default().await?,
+            Connection::tcp_connect("127.0.0.1:11212").await?,
+        ]);
+        client.set(b"key", 0, 0, false, b"value").await?;
+        let item: Item = client.get(b"key").await?.unwrap();
+        println!("{item:#?}");
+        Ok(())
+    })
+}
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
