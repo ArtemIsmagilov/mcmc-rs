@@ -1714,7 +1714,6 @@ impl ClientCrc32 {
     /// let mut client = ClientCrc32::new(
     ///     vec![
     ///     Connection::default().await?,
-    ///     Connection::tcp_connect("127.0.0.1:11213").await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
     ///     ]
     /// );
@@ -1741,7 +1740,6 @@ impl ClientCrc32 {
     /// let mut client = ClientCrc32::new(
     ///     vec![
     ///     Connection::default().await?,
-    ///     Connection::tcp_connect("127.0.0.1:11213").await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
     ///     ]
     /// );
