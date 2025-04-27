@@ -1639,7 +1639,7 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached.sock").await?;
     /// let result = conn.lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3])).await?;
     /// assert!(result.is_empty());
     /// # Ok::<(), io::Error>(())
