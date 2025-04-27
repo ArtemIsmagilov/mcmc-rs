@@ -40,6 +40,15 @@ fn main() -> io::Result<()> {
 }
 ```
 
+## Tests
+
+```bash
+docker compose up -d
+docker exec mcmc-rs-md-unix0-1 sh -c "chmod a+rw /tmp/memcached.sock"
+cargo test
+docker compose down
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
