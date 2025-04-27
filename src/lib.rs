@@ -1712,7 +1712,11 @@ impl ClientCrc32 {
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(
-    ///     vec![Connection::default().await?, Connection::tcp_connect("127.0.0.1:11213").await?]
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::tcp_connect("127.0.0.1:11213").await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
     /// );
     ///
     /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
@@ -1735,7 +1739,11 @@ impl ClientCrc32 {
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(
-    ///     vec![Connection::default().await?, Connection::tcp_connect("127.0.0.1:11213").await?]
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::tcp_connect("127.0.0.1:11213").await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
     /// );
     ///
     /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
