@@ -10,4 +10,5 @@ keywords = ["memcached"]
 categories = ["database", "caching", "asynchronous"]
 
 [dependencies]
+crc32fast = "1.4.2"
 smol = "2.0.2"

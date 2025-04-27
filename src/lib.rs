@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crc32fast;
 use smol::io::{self, BufReader};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
 use smol::prelude::*;
@@ -1694,6 +1695,65 @@ impl Connection {
             Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
             Connection::Udp(s) => todo!(),
         }
+    }
+}
+
+pub struct ClientCrc32(Vec<Connection>);
+impl ClientCrc32 {
+    pub fn new(conns: Vec<Connection>) -> Self {
+        Self(conns)
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![Connection::default().await?, Connection::tcp_connect("127.0.0.1:11213").await?]
+    /// );
+    ///
+    /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
+    /// assert_eq!(client.get(b"k7").await?.unwrap().key, "k7");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .get(key.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![Connection::default().await?, Connection::tcp_connect("127.0.0.1:11213").await?]
+    /// );
+    ///
+    /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn set(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
     }
 }
 
