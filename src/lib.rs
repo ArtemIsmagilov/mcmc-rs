@@ -1700,6 +1700,20 @@ impl Connection {
 
 pub struct ClientCrc32(Vec<Connection>);
 impl ClientCrc32 {
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///```
     pub fn new(conns: Vec<Connection>) -> Self {
         Self(conns)
     }
@@ -2000,7 +2014,22 @@ mod tests {
                     ("version".to_string(), "1.2.3".to_string()),
                     ("threads".to_string(), "4".to_string()),
                 ])
-            )
+            );
+
+            let mut c = Cursor::new(b"stats settings\r\nERROR\r\n".to_vec());
+            assert!(stats_cmd(&mut c, StatsArg::Settings).await.is_err());
+
+            let mut c = Cursor::new(b"stats items\r\nERROR\r\n".to_vec());
+            assert!(stats_cmd(&mut c, StatsArg::Items).await.is_err());
+
+            let mut c = Cursor::new(b"stats sizes\r\nERROR\r\n".to_vec());
+            assert!(stats_cmd(&mut c, StatsArg::Sizes).await.is_err());
+
+            let mut c = Cursor::new(b"stats slabs\r\nERROR\r\n".to_vec());
+            assert!(stats_cmd(&mut c, StatsArg::Slabs).await.is_err());
+
+            let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
+            assert!(stats_cmd(&mut c, StatsArg::Conns).await.is_err())
         })
     }
 
@@ -2017,6 +2046,13 @@ mod tests {
             let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
             assert!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::One)
+                    .await
+                    .is_err()
+            );
+
+            let mut c = Cursor::new(b"slabs automove 2\r\nERROR\r\n".to_vec());
+            assert!(
+                slabs_automove_cmd(&mut c, SlabsAutomoveArg::Two)
                     .await
                     .is_err()
             )
@@ -2109,6 +2145,13 @@ mod tests {
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3]))
                     .await
                     .is_err()
+            );
+
+            let mut c = Cursor::new(b"lru_crawler metadump hash\r\nERROR\r\n".to_vec());
+            assert!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Hash)
+                    .await
+                    .is_err()
             )
         })
     }
@@ -2128,6 +2171,13 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler mgdump all\r\nERROR\r\n".to_vec());
             assert!(
                 lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All)
+                    .await
+                    .is_err()
+            );
+
+            let mut c = Cursor::new(b"lru_crawler mgdump hash\r\nERROR\r\n".to_vec());
+            assert!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Hash)
                     .await
                     .is_err()
             )
