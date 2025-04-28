@@ -1713,6 +1713,8 @@ impl ClientCrc32 {
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
     ///     ]
     /// );
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
     ///```
     pub fn new(conns: Vec<Connection>) -> Self {
         Self(conns)
