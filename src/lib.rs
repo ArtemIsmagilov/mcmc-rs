@@ -887,7 +887,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => version_cmd(s).await,
             Connection::Unix(s) => version_cmd(s).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -907,7 +907,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => quit_cmd(s).await,
             Connection::Unix(s) => quit_cmd(s).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -927,7 +927,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => shutdown_cmd(s, graceful).await,
             Connection::Unix(s) => shutdown_cmd(s, graceful).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -947,7 +947,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => cache_memlimit_cmd(s, limit, noreply).await,
             Connection::Unix(s) => cache_memlimit_cmd(s, limit, noreply).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -967,7 +967,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => flush_all_cmd(s, exptime, noreply).await,
             Connection::Unix(s) => flush_all_cmd(s, exptime, noreply).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1019,7 +1019,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1071,7 +1071,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1123,7 +1123,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1175,7 +1175,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1227,7 +1227,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1280,7 +1280,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1304,7 +1304,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
             Connection::Unix(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1325,7 +1325,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => delete_cmd(s, key.as_ref(), noreply).await,
             Connection::Unix(s) => delete_cmd(s, key.as_ref(), noreply).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1350,7 +1350,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
             Connection::Unix(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1376,7 +1376,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
             Connection::Unix(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1402,7 +1402,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
             Connection::Unix(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1424,7 +1424,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1450,7 +1450,7 @@ impl Connection {
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gets", None, &[key.as_ref()])
                 .await?
                 .pop()),
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1476,7 +1476,7 @@ impl Connection {
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gat", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1502,7 +1502,7 @@ impl Connection {
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gats", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1540,7 +1540,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1578,7 +1578,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1620,7 +1620,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1662,7 +1662,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1684,7 +1684,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => stats_cmd(s, arg).await,
             Connection::Unix(s) => stats_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1705,7 +1705,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => slabs_automove_cmd(s, arg).await,
             Connection::Unix(s) => slabs_automove_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1726,7 +1726,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1746,7 +1746,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_sleep_cmd(s, microseconds).await,
             Connection::Unix(s) => lru_crawler_sleep_cmd(s, microseconds).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1766,7 +1766,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1786,7 +1786,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_crawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_crawl_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1811,7 +1811,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
             Connection::Unix(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1835,7 +1835,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1859,7 +1859,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1879,7 +1879,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => mn_cmd(s).await,
             Connection::Unix(s) => mn_cmd(s).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -1900,7 +1900,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => me_cmd(s, key.as_ref()).await,
             Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -2027,7 +2027,7 @@ impl<'a> Pipeline<'a> {
         match self.0 {
             Connection::Tcp(s) => execute_cmd(s, &self.1).await,
             Connection::Unix(s) => execute_cmd(s, &self.1).await,
-            Connection::Udp(s) => todo!(),
+            Connection::Udp(_s) => todo!(),
         }
     }
 
@@ -3312,7 +3312,12 @@ mod tests {
                         "key exp=-1 la=3 cas=2 fetch=no cls=1 size=63".to_string()
                     ))
                 ]
-            )
+            );
+
+            let cmds = [b"version\r\n".to_vec(), b"quit\r\n".to_vec()];
+            let rps = [b"ERROR\r\n".to_vec(), b"OK\r\n".to_vec()];
+            let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
+            assert!(execute_cmd(&mut c, &cmds).await.is_err());
         })
     }
 }
