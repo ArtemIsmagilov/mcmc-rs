@@ -1,5 +1,8 @@
 # Minimal Rust client for Memcached
 
+[![CI](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml)
+[![crates.io](https://img.shields.io/crates/v/bitflags.svg)](https://crates.io/crates/mcmc-rs)
+
 ## Example
 
 ### Connection mode
