@@ -50,125 +50,22 @@ pub struct Item {
     pub data_block: Vec<u8>,
 }
 
-async fn version_cmd<S>(s: &mut S) -> io::Result<String>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    s.write_all(b"version\r\n").await?;
-    s.flush().await?;
-    let mut line = String::new();
-    let n = s.read_line(&mut line).await?;
-    if line.starts_with("VERSION") {
-        Ok(line[8..n - 2].to_string())
-    } else {
-        Err(io::Error::other(line))
-    }
+#[derive(Debug, PartialEq)]
+pub enum PipelineResponse {
+    Bool(bool),
+    Item(Item),
+    String(String),
+    OptionString(Option<String>),
+    VecString(Vec<String>),
+    Unit(()),
+    Value(Option<u64>),
+    HashMap(HashMap<String, String>),
 }
 
-async fn quit_cmd<S>(s: &mut S) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    s.write_all(b"quit\r\n").await?;
-    s.flush().await?;
-    Ok(())
-}
-
-async fn shutdown_cmd<S>(s: &mut S, graceful: bool) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd: &[u8] = if graceful {
-        b"shutdown graceful\r\n"
-    } else {
-        b"shutdown\r\n"
-    };
-    s.write_all(cmd).await?;
-    s.flush().await?;
-    Ok(())
-}
-
-async fn cache_memlimit_cmd<S>(s: &mut S, limit: usize, noreply: bool) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    let cmd = [b"cache_memlimit ", limit.to_string().as_bytes(), n, b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    if noreply {
-        return Ok(());
-    };
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn flush_all_cmd<S>(s: &mut S, exptime: Option<i64>, noreply: bool) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let d = match exptime {
-        Some(x) => format!(" {x}"),
-        None => "".to_string(),
-    };
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    let cmd = [b"flush_all", d.as_bytes(), n, b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    if noreply {
-        return Ok(());
-    };
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn storage_cmd<S>(
+async fn parse_storage_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    command_name: &[u8],
-    key: &[u8],
-    flags: u32,
-    exptime: i64,
-    cas_unique: Option<u64>,
     noreply: bool,
-    data_block: &[u8],
-) -> io::Result<bool>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    let cas = match cas_unique {
-        Some(x) => format!(" {x}"),
-        None => "".to_string(),
-    };
-    let cmd = [
-        command_name,
-        b" ",
-        key,
-        b" ",
-        flags.to_string().as_bytes(),
-        b" ",
-        exptime.to_string().as_bytes(),
-        b" ",
-        data_block.len().to_string().as_bytes(),
-        cas.as_bytes(),
-        n,
-        b"\r\n",
-        data_block,
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
+) -> io::Result<bool> {
     if noreply {
         return Ok(true);
     };
@@ -181,138 +78,9 @@ where
     }
 }
 
-async fn delete_cmd<S>(s: &mut S, key: &[u8], noreply: bool) -> io::Result<bool>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    let cmd = [b"delete ", key, n, b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    if noreply {
-        return Ok(true);
-    };
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    match line.as_str() {
-        "DELETED\r\n" => Ok(true),
-        "NOT_FOUND\r\n" => Ok(false),
-        _ => Err(io::Error::other(line)),
-    }
-}
-
-async fn auth_cmd<S>(s: &mut S, username: &[u8], password: &[u8]) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd = [
-        b"set _ _ _ ",
-        (username.len() + password.len() + 1).to_string().as_bytes(),
-        b"\r\n",
-        username,
-        b" ",
-        password,
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "STORED\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn incr_decr_cmd<S>(
+async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    command_name: &[u8],
-    key: &[u8],
-    value: u64,
-    noreply: bool,
-) -> io::Result<Option<u64>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    let cmd = [
-        command_name,
-        b" ",
-        key,
-        b" ",
-        value.to_string().as_bytes(),
-        n,
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    if noreply {
-        return Ok(None);
-    };
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    match line.trim_end().parse::<u64>() {
-        Ok(v) => Ok(Some(v)),
-        Err(_) => Err(io::Error::other(line)),
-    }
-}
-
-async fn touch_cmd<S>(s: &mut S, key: &[u8], exptime: i64, noreply: bool) -> io::Result<bool>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    let cmd = [
-        b"touch ",
-        key,
-        b" ",
-        exptime.to_string().as_bytes(),
-        n,
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    if noreply {
-        return Ok(true);
-    };
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "TOUCHED\r\n" {
-        Ok(true)
-    } else if line == "NOT_FOUND\r\n" {
-        Ok(false)
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn retrieval_cmd<S>(
-    s: &mut S,
-    command_name: &[u8],
-    exptime: Option<i64>,
-    keys: &[&[u8]],
-) -> io::Result<Vec<Item>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let t = match exptime {
-        Some(x) => format!("{x} "),
-        None => "".to_string(),
-    };
-    let cmd = [
-        command_name,
-        b" ",
-        t.as_bytes(),
-        keys.join(b" ".as_slice()).as_slice(),
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
+) -> io::Result<Vec<Item>> {
     let mut items = Vec::new();
     let mut line = String::new();
     s.read_line(&mut line).await?;
@@ -344,21 +112,96 @@ where
     }
 }
 
-async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+async fn parse_version_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
+    let mut line = String::new();
+    let n = s.read_line(&mut line).await?;
+    if line.starts_with("VERSION") {
+        Ok(line[8..n - 2].to_string())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+async fn parse_ok_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    arg: StatsArg,
-) -> io::Result<HashMap<String, String>> {
-    let a: &[u8] = match arg {
-        StatsArg::Empty => b"",
-        StatsArg::Settings => b" settings",
-        StatsArg::Items => b" items",
-        StatsArg::Sizes => b" sizes",
-        StatsArg::Slabs => b" slabs",
-        StatsArg::Conns => b" conns",
+    noreply: bool,
+) -> io::Result<()> {
+    if noreply {
+        return Ok(());
     };
-    let cmd = [b"stats", a, b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+async fn parse_delete_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    noreply: bool,
+) -> io::Result<bool> {
+    if noreply {
+        return Ok(true);
+    };
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    match line.as_str() {
+        "DELETED\r\n" => Ok(true),
+        "NOT_FOUND\r\n" => Ok(false),
+        _ => Err(io::Error::other(line)),
+    }
+}
+
+async fn parse_auth_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    match line.as_str() {
+        "STORED\r\n" => Ok(()),
+        _ => Err(io::Error::other(line)),
+    }
+}
+
+async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    noreply: bool,
+) -> io::Result<Option<u64>> {
+    if noreply {
+        return Ok(None);
+    };
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "NOT_FOUND\r\n" {
+        return Ok(None);
+    };
+    match line.trim_end().parse::<u64>() {
+        Ok(v) => Ok(Some(v)),
+        Err(_) => Err(io::Error::other(line)),
+    }
+}
+
+async fn parse_touch_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    noreply: bool,
+) -> io::Result<bool> {
+    if noreply {
+        return Ok(true);
+    };
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "TOUCHED\r\n" {
+        Ok(true)
+    } else if line == "NOT_FOUND\r\n" {
+        Ok(false)
+    } else {
+        Err(io::Error::other(line))
+    }
+}
+
+async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+) -> io::Result<HashMap<String, String>> {
     let mut lines = s.lines();
     let mut items = HashMap::new();
     while let Some(line) = lines.next().await {
@@ -380,149 +223,9 @@ async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     Ok(items)
 }
 
-async fn slabs_automove_cmd<S>(s: &mut S, arg: SlabsAutomoveArg) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let a: &[u8] = match arg {
-        SlabsAutomoveArg::Zero => b"0",
-        SlabsAutomoveArg::One => b"1",
-        SlabsAutomoveArg::Two => b"2",
-    };
-    let cmd = [b"slabs automove ", a, b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn lru_crawler_cmd<S>(s: &mut S, arg: LruCrawlerArg) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd: &[u8] = match arg {
-        LruCrawlerArg::Enable => b"lru_crawler enable\r\n",
-        LruCrawlerArg::Disable => b"lru_crawler disable\r\n",
-    };
-    s.write_all(cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn lru_crawler_sleep_cmd<S>(s: &mut S, microseconds: usize) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd = [
-        b"lru_crawler sleep ",
-        microseconds.to_string().as_bytes(),
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn lru_crawler_tocrawl_cmd<S>(s: &mut S, arg: u32) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd = [b"lru_crawler tocrawl ", arg.to_string().as_bytes(), b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn lru_crawler_crawl_cmd<S>(s: &mut S, arg: LruCrawlerCrawlArg<'_>) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let a = match arg {
-        LruCrawlerCrawlArg::Classids(ids) => ids
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
-        LruCrawlerCrawlArg::All => "all".to_string(),
-    };
-    let cmd = [b"lru_crawler crawl ", a.as_bytes(), b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn slabs_reassign_cmd<S>(s: &mut S, source_class: usize, dest_class: usize) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd = [
-        b"slabs reassign ",
-        source_class.to_string().as_bytes(),
-        b" ",
-        dest_class.to_string().as_bytes(),
-        b"\r\n",
-    ]
-    .concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
-    let mut line = String::new();
-    s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
-    }
-}
-
-async fn lru_crawler_metadump_cmd<S>(
+async fn parse_lru_crawler_metadump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    arg: LruCrawlerMetadumpArg<'_>,
-) -> io::Result<Vec<String>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let a = match arg {
-        LruCrawlerMetadumpArg::Classids(ids) => ids
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
-        LruCrawlerMetadumpArg::All => "all".to_string(),
-        LruCrawlerMetadumpArg::Hash => "hash".to_string(),
-    };
-    let cmd = [b"lru_crawler metadump ", a.as_bytes(), b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
+) -> io::Result<Vec<String>> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     let mut items = Vec::new();
@@ -538,25 +241,9 @@ where
     }
 }
 
-async fn lru_crawler_mgdump_cmd<S>(
+async fn parse_lru_crawler_mgdump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    arg: LruCrawlerMgdumpArg<'_>,
-) -> io::Result<Vec<String>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let a = match arg {
-        LruCrawlerMgdumpArg::Classids(ids) => ids
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
-        LruCrawlerMgdumpArg::All => "all".to_string(),
-        LruCrawlerMgdumpArg::Hash => "hash".to_string(),
-    };
-    let cmd = [b"lru_crawler mgdump ", a.as_bytes(), b"\r\n"].concat();
-    s.write_all(&cmd).await?;
-    s.flush().await?;
+) -> io::Result<Vec<String>> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     let mut items = Vec::new();
@@ -574,12 +261,7 @@ where
     }
 }
 
-async fn mn_cmd<S>(s: &mut S) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    s.write_all(b"mn\r\n").await?;
-    s.flush().await?;
+async fn parse_mn_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "MN\r\n" {
@@ -589,21 +271,546 @@ where
     }
 }
 
-async fn me_cmd<S>(s: &mut S, key: &[u8]) -> io::Result<Option<String>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
-    let cmd = [b"me ", key, b"\r\n"].concat();
-    s.write_all(&cmd).await?;
+async fn parse_me_r<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<Option<String>> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "EN\r\n" {
         Ok(None)
     } else if line.starts_with("ME") {
-        Ok(Some(line[4 + key.len()..line.len() - 2].to_string()))
+        Ok(Some(line[3..line.len() - 2].to_string()))
     } else {
         Err(io::Error::other(line))
     }
+}
+
+fn build_storage_cmd(
+    command_name: &[u8],
+    key: &[u8],
+    flags: u32,
+    exptime: i64,
+    cas_unique: Option<u64>,
+    noreply: bool,
+    data_block: &[u8],
+) -> Vec<u8> {
+    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let cas = match cas_unique {
+        Some(x) => format!(" {x}"),
+        None => "".to_string(),
+    };
+    [
+        command_name,
+        b" ",
+        key,
+        b" ",
+        flags.to_string().as_bytes(),
+        b" ",
+        exptime.to_string().as_bytes(),
+        b" ",
+        data_block.len().to_string().as_bytes(),
+        cas.as_bytes(),
+        n,
+        b"\r\n",
+        data_block,
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_retrieval_cmd(command_name: &[u8], exptime: Option<i64>, keys: &[&[u8]]) -> Vec<u8> {
+    let t = match exptime {
+        Some(x) => format!("{x} "),
+        None => "".to_string(),
+    };
+    [
+        command_name,
+        b" ",
+        t.as_bytes(),
+        keys.join(b" ".as_slice()).as_slice(),
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_version_cmd() -> &'static [u8] {
+    b"version\r\n"
+}
+
+fn build_quit_cmd() -> &'static [u8] {
+    b"quit\r\n"
+}
+
+fn build_shutdown_cmd(graceful: bool) -> &'static [u8] {
+    if graceful {
+        b"shutdown graceful\r\n"
+    } else {
+        b"shutdown\r\n"
+    }
+}
+
+fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
+    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    [b"cache_memlimit ", limit.to_string().as_bytes(), n, b"\r\n"].concat()
+}
+
+fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
+    let d = match exptime {
+        Some(x) => format!(" {x}"),
+        None => "".to_string(),
+    };
+    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    [b"flush_all", d.as_bytes(), n, b"\r\n"].concat()
+}
+
+fn build_delete_cmd(key: &[u8], noreply: bool) -> Vec<u8> {
+    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    [b"delete ", key, n, b"\r\n"].concat()
+}
+
+fn build_auth_cmd(username: &[u8], password: &[u8]) -> Vec<u8> {
+    [
+        b"set _ _ _ ",
+        (username.len() + password.len() + 1).to_string().as_bytes(),
+        b"\r\n",
+        username,
+        b" ",
+        password,
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: bool) -> Vec<u8> {
+    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    [
+        command_name,
+        b" ",
+        key,
+        b" ",
+        value.to_string().as_bytes(),
+        n,
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
+    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    [
+        b"touch ",
+        key,
+        b" ",
+        exptime.to_string().as_bytes(),
+        n,
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_stats_cmd(arg: StatsArg) -> Vec<u8> {
+    let a: &[u8] = match arg {
+        StatsArg::Empty => b"",
+        StatsArg::Settings => b" settings",
+        StatsArg::Items => b" items",
+        StatsArg::Sizes => b" sizes",
+        StatsArg::Slabs => b" slabs",
+        StatsArg::Conns => b" conns",
+    };
+    [b"stats", a, b"\r\n"].concat()
+}
+
+fn build_slabs_automove_cmd(arg: SlabsAutomoveArg) -> Vec<u8> {
+    let a: &[u8] = match arg {
+        SlabsAutomoveArg::Zero => b"0",
+        SlabsAutomoveArg::One => b"1",
+        SlabsAutomoveArg::Two => b"2",
+    };
+    [b"slabs automove ", a, b"\r\n"].concat()
+}
+
+fn build_lru_crawler_cmd(arg: LruCrawlerArg) -> &'static [u8] {
+    match arg {
+        LruCrawlerArg::Enable => b"lru_crawler enable\r\n",
+        LruCrawlerArg::Disable => b"lru_crawler disable\r\n",
+    }
+}
+
+fn build_lru_clawler_sleep_cmd(microseconds: usize) -> Vec<u8> {
+    [
+        b"lru_crawler sleep ",
+        microseconds.to_string().as_bytes(),
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_lru_crawler_tocrawl_cmd(arg: u32) -> Vec<u8> {
+    [b"lru_crawler tocrawl ", arg.to_string().as_bytes(), b"\r\n"].concat()
+}
+
+fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
+    let a = match arg {
+        LruCrawlerCrawlArg::Classids(ids) => ids
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        LruCrawlerCrawlArg::All => "all".to_string(),
+    };
+    [b"lru_crawler crawl ", a.as_bytes(), b"\r\n"].concat()
+}
+
+fn build_slabs_reassign(source_class: usize, dest_class: usize) -> Vec<u8> {
+    [
+        b"slabs reassign ",
+        source_class.to_string().as_bytes(),
+        b" ",
+        dest_class.to_string().as_bytes(),
+        b"\r\n",
+    ]
+    .concat()
+}
+
+fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
+    let a = match arg {
+        LruCrawlerMetadumpArg::Classids(ids) => ids
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        LruCrawlerMetadumpArg::All => "all".to_string(),
+        LruCrawlerMetadumpArg::Hash => "hash".to_string(),
+    };
+    [b"lru_crawler metadump ", a.as_bytes(), b"\r\n"].concat()
+}
+
+fn build_lru_clawler_mgdump_cmd(arg: LruCrawlerMgdumpArg) -> Vec<u8> {
+    let a = match arg {
+        LruCrawlerMgdumpArg::Classids(ids) => ids
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        LruCrawlerMgdumpArg::All => "all".to_string(),
+        LruCrawlerMgdumpArg::Hash => "hash".to_string(),
+    };
+    [b"lru_crawler mgdump ", a.as_bytes(), b"\r\n"].concat()
+}
+
+fn build_mn_cmd() -> &'static [u8] {
+    b"mn\r\n"
+}
+
+fn build_me_cmd(key: &[u8]) -> Vec<u8> {
+    [b"me ", key, b"\r\n"].concat()
+}
+
+async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
+    s.write_all(build_version_cmd()).await?;
+    s.flush().await?;
+    parse_version_rp(s).await
+}
+
+async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
+    s.write_all(build_quit_cmd()).await?;
+    s.flush().await?;
+    Ok(())
+}
+
+async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    graceful: bool,
+) -> io::Result<()> {
+    s.write_all(build_shutdown_cmd(graceful)).await?;
+    s.flush().await?;
+    Ok(())
+}
+
+async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    limit: usize,
+    noreply: bool,
+) -> io::Result<()> {
+    s.write_all(&build_cache_memlimit_cmd(limit, noreply))
+        .await?;
+    s.flush().await?;
+    parse_ok_rp(s, noreply).await
+}
+
+async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    exptime: Option<i64>,
+    noreply: bool,
+) -> io::Result<()> {
+    s.write_all(&build_flush_all_cmd(exptime, noreply)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, noreply).await
+}
+
+async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    command_name: &[u8],
+    key: &[u8],
+    flags: u32,
+    exptime: i64,
+    cas_unique: Option<u64>,
+    noreply: bool,
+    data_block: &[u8],
+) -> io::Result<bool> {
+    s.write_all(&build_storage_cmd(
+        command_name,
+        key,
+        flags,
+        exptime,
+        cas_unique,
+        noreply,
+        data_block,
+    ))
+    .await?;
+    s.flush().await?;
+    parse_storage_rp(s, noreply).await
+}
+
+async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+    noreply: bool,
+) -> io::Result<bool> {
+    s.write_all(&build_delete_cmd(key, noreply)).await?;
+    s.flush().await?;
+    parse_delete_rp(s, noreply).await
+}
+
+async fn auth_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    username: &[u8],
+    password: &[u8],
+) -> io::Result<()> {
+    s.write_all(&build_auth_cmd(username, password)).await?;
+    s.flush().await?;
+    parse_auth_rp(s).await
+}
+
+async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    command_name: &[u8],
+    key: &[u8],
+    value: u64,
+    noreply: bool,
+) -> io::Result<Option<u64>> {
+    s.write_all(&build_incr_decr_cmd(command_name, key, value, noreply))
+        .await?;
+    s.flush().await?;
+    parse_incr_decr_rp(s, noreply).await
+}
+
+async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+    exptime: i64,
+    noreply: bool,
+) -> io::Result<bool> {
+    s.write_all(&build_touch_cmd(key, exptime, noreply)).await?;
+    s.flush().await?;
+    parse_touch_rp(s, noreply).await
+}
+
+async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    command_name: &[u8],
+    exptime: Option<i64>,
+    keys: &[&[u8]],
+) -> io::Result<Vec<Item>> {
+    s.write_all(&build_retrieval_cmd(command_name, exptime, keys))
+        .await?;
+    s.flush().await?;
+    parse_retrieval_rp(s).await
+}
+
+async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: StatsArg,
+) -> io::Result<HashMap<String, String>> {
+    s.write_all(&build_stats_cmd(arg)).await?;
+    s.flush().await?;
+    parse_stats_rp(s).await
+}
+
+async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: SlabsAutomoveArg,
+) -> io::Result<()> {
+    s.write_all(&build_slabs_automove_cmd(arg)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: LruCrawlerArg,
+) -> io::Result<()> {
+    s.write_all(build_lru_crawler_cmd(arg)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    microseconds: usize,
+) -> io::Result<()> {
+    s.write_all(&build_lru_clawler_sleep_cmd(microseconds))
+        .await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: u32,
+) -> io::Result<()> {
+    s.write_all(&build_lru_crawler_tocrawl_cmd(arg)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: LruCrawlerCrawlArg<'_>,
+) -> io::Result<()> {
+    s.write_all(&build_lru_clawler_crawl_cmd(arg)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    source_class: usize,
+    dest_class: usize,
+) -> io::Result<()> {
+    s.write_all(&build_slabs_reassign(source_class, dest_class))
+        .await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn lru_crawler_metadump_cmd<S>(
+    s: &mut S,
+    arg: LruCrawlerMetadumpArg<'_>,
+) -> io::Result<Vec<String>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
+    s.flush().await?;
+    parse_lru_crawler_metadump_rp(s).await
+}
+
+async fn lru_crawler_mgdump_cmd<S>(
+    s: &mut S,
+    arg: LruCrawlerMgdumpArg<'_>,
+) -> io::Result<Vec<String>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    s.write_all(&build_lru_clawler_mgdump_cmd(arg)).await?;
+    s.flush().await?;
+    parse_lru_crawler_mgdump_rp(s).await
+}
+
+async fn mn_cmd<S>(s: &mut S) -> io::Result<()>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    s.write_all(build_mn_cmd()).await?;
+    s.flush().await?;
+    parse_mn_rp(s).await
+}
+
+async fn me_cmd<S>(s: &mut S, key: &[u8]) -> io::Result<Option<String>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    s.write_all(&build_me_cmd(key)).await?;
+    s.flush().await?;
+    parse_me_r(s).await
+}
+
+async fn execute_cmd<S>(s: &mut S, cmds: &[Vec<u8>]) -> io::Result<Vec<PipelineResponse>>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
+    s.write_all(&cmds.concat()).await?;
+    s.flush().await?;
+    let mut result = Vec::new();
+    for cmd in cmds {
+        if cmd.starts_with(b"gets ")
+            || cmd.starts_with(b"get ")
+            || cmd.starts_with(b"gats ")
+            || cmd.starts_with(b"gat ")
+        {
+            parse_retrieval_rp(s)
+                .await?
+                .into_iter()
+                .for_each(|x| result.push(PipelineResponse::Item(x)))
+        } else if cmd.starts_with(b"set _ _ _ ") {
+            result.push(PipelineResponse::Unit(parse_auth_rp(s).await?));
+        } else if cmd.starts_with(b"set ")
+            || cmd.starts_with(b"add ")
+            || cmd.starts_with(b"replace ")
+            || cmd.starts_with(b"append ")
+            || cmd.starts_with(b"prepend ")
+            || cmd.starts_with(b"cas ")
+        {
+            let mut split = cmd.split(|x| x == &b'\r');
+            let n = split.next().unwrap();
+            result.push(PipelineResponse::Bool(
+                parse_storage_rp(s, n.ends_with(b"noreply")).await?,
+            ))
+        } else if cmd == build_version_cmd() {
+            result.push(PipelineResponse::String(parse_version_rp(s).await?));
+        } else if cmd.starts_with(b"delete ") {
+            result.push(PipelineResponse::Bool(
+                parse_delete_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
+            ))
+        } else if cmd.starts_with(b"incr ") || cmd.starts_with(b"decr ") {
+            result.push(PipelineResponse::Value(
+                parse_incr_decr_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
+            ))
+        } else if cmd.starts_with(b"touch ") {
+            result.push(PipelineResponse::Bool(
+                parse_touch_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
+            ))
+        } else if cmd == build_quit_cmd() || cmd.starts_with(b"shutdown") {
+            result.push(PipelineResponse::Unit(()));
+        } else if cmd.starts_with(b"flush_all") || cmd.starts_with(b"cache_memlimit ") {
+            result.push(PipelineResponse::Unit(
+                parse_ok_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
+            ))
+        } else if cmd.starts_with(b"slabs automove ")
+            || cmd.starts_with(b"slabs reassign ")
+            || cmd.starts_with(b"lru_crawler sleep ")
+            || cmd.starts_with(b"lru_crawler crawl ")
+            || cmd.starts_with(b"lru_crawler tocrawl ")
+            || cmd == build_lru_crawler_cmd(LruCrawlerArg::Enable)
+            || cmd == build_lru_crawler_cmd(LruCrawlerArg::Disable)
+        {
+            result.push(PipelineResponse::Unit(parse_ok_rp(s, false).await?))
+        } else if cmd == build_mn_cmd() {
+            result.push(PipelineResponse::Unit(parse_mn_rp(s).await?))
+        } else if cmd.starts_with(b"stats") {
+            result.push(PipelineResponse::HashMap(parse_stats_rp(s).await?))
+        } else if cmd.starts_with(b"lru_crawler metadump ") {
+            result.push(PipelineResponse::VecString(
+                parse_lru_crawler_metadump_rp(s).await?,
+            ))
+        } else if cmd.starts_with(b"lru_crawler mgdump ") {
+            result.push(PipelineResponse::VecString(
+                parse_lru_crawler_mgdump_rp(s).await?,
+            ))
+        } else if cmd.starts_with(b"me ") {
+            result.push(PipelineResponse::OptionString(parse_me_r(s).await?))
+        }
+    }
+    Ok(result)
 }
 
 pub enum Connection {
@@ -1696,6 +1903,10 @@ impl Connection {
             Connection::Udp(s) => todo!(),
         }
     }
+
+    pub fn pipeline(&mut self) -> Pipeline {
+        Pipeline::new(self)
+    }
 }
 
 pub struct ClientCrc32(Vec<Connection>);
@@ -1779,6 +1990,55 @@ impl ClientCrc32 {
     }
 }
 
+pub struct Pipeline<'a>(&'a mut Connection, Vec<Vec<u8>>);
+impl<'a> Pipeline<'a> {
+    fn new(conn: &'a mut Connection) -> Self {
+        Self(conn, Vec::new())
+    }
+
+    pub async fn execute(self) -> io::Result<Vec<PipelineResponse>> {
+        if self.1.is_empty() {
+            return Ok(Vec::new());
+        };
+        match self.0 {
+            Connection::Tcp(s) => execute_cmd(s, &self.1).await,
+            Connection::Unix(s) => execute_cmd(s, &self.1).await,
+            Connection::Udp(s) => todo!(),
+        }
+    }
+
+    pub fn set(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_storage_cmd(
+            b"set",
+            key.as_ref(),
+            flags,
+            exptime,
+            None,
+            noreply,
+            data_block.as_ref(),
+        ));
+        self
+    }
+
+    pub fn get(mut self, key: impl AsRef<[u8]>) -> Self {
+        self.1
+            .push(build_retrieval_cmd(b"get", None, &[key.as_ref()]));
+        self
+    }
+
+    pub fn version(mut self) -> Self {
+        self.1.push(build_version_cmd().to_vec());
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1845,30 +2105,30 @@ mod tests {
     #[test]
     fn test_storage() {
         block_on(async {
-            let mut c = Cursor::new(b"set key 0 0 0 0\r\nvalue\r\nSTORED\r\n".to_vec());
+            let mut c = Cursor::new(b"cas key 0 0 0 0\r\nvalue\r\nSTORED\r\n".to_vec());
             assert!(
-                storage_cmd(&mut c, b"set", b"key", 0, 0, Some(0), false, b"value")
+                storage_cmd(&mut c, b"cas", b"key", 0, 0, Some(0), false, b"value")
                     .await
                     .unwrap()
             );
 
-            let mut c = Cursor::new(b"set key 0 0 0 noreply\r\nvalue\r\n".to_vec());
+            let mut c = Cursor::new(b"append key 0 0 0 noreply\r\nvalue\r\n".to_vec());
             assert!(
-                storage_cmd(&mut c, b"set", b"key", 0, 0, None, true, b"value")
+                storage_cmd(&mut c, b"append", b"key", 0, 0, None, true, b"value")
                     .await
                     .unwrap()
             );
 
-            let mut c = Cursor::new(b"set key 0 0 0\r\nvalue\r\nNOT_STORED\r\n".to_vec());
+            let mut c = Cursor::new(b"prepend key 0 0 0\r\nvalue\r\nNOT_STORED\r\n".to_vec());
             assert!(
-                !storage_cmd(&mut c, b"set", b"key", 0, 0, None, false, b"value")
+                !storage_cmd(&mut c, b"prepend", b"key", 0, 0, None, false, b"value")
                     .await
                     .unwrap()
             );
 
-            let mut c = Cursor::new(b"set key 0 0 0\r\nvalue\r\nERROR\r\n".to_vec());
+            let mut c = Cursor::new(b"add key 0 0 0\r\nvalue\r\nERROR\r\n".to_vec());
             assert!(
-                storage_cmd(&mut c, b"set", b"key", 0, 0, None, false, b"value")
+                storage_cmd(&mut c, b"add", b"key", 0, 0, None, false, b"value")
                     .await
                     .is_err()
             )
@@ -1895,10 +2155,10 @@ mod tests {
     #[test]
     fn test_auth() {
         block_on(async {
-            let mut c = Cursor::new(b"set _ _ _ 2\r\na b\r\nSTORED\r\n".to_vec());
+            let mut c = Cursor::new(b"set _ _ _ 3\r\na b\r\nSTORED\r\n".to_vec());
             assert!(auth_cmd(&mut c, b"a", b"b").await.is_ok());
 
-            let mut c = Cursor::new(b"set _ _ _ 2\r\na b\r\nERROR\r\n".to_vec());
+            let mut c = Cursor::new(b"set _ _ _ 3\r\na b\r\nERROR\r\n".to_vec());
             assert!(auth_cmd(&mut c, b"a", b"b").await.is_err());
         })
     }
@@ -1915,14 +2175,22 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"incr key 1 noreply\r\n".to_vec());
-            assert_eq!(
+            assert!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, true)
                     .await
-                    .unwrap(),
-                None,
+                    .unwrap()
+                    .is_none(),
             );
 
             let mut c = Cursor::new(b"incr key 1\r\nNOT_FOUND\r\n".to_vec());
+            assert!(
+                incr_decr_cmd(&mut c, b"incr", b"key", 1, false)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+
+            let mut c = Cursor::new(b"incr key 1\r\nERROR\r\n".to_vec());
             assert!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, false)
                     .await
@@ -1934,16 +2202,16 @@ mod tests {
     #[test]
     fn test_touch() {
         block_on(async {
-            let mut c = Cursor::new(b"touch 0 key\r\nTOUCHED\r\n".to_vec());
+            let mut c = Cursor::new(b"touch key 0\r\nTOUCHED\r\n".to_vec());
             assert!(touch_cmd(&mut c, b"key", 0, false).await.unwrap());
 
-            let mut c = Cursor::new(b"touch 0 key\r\nNOT_FOUND\r\n".to_vec());
+            let mut c = Cursor::new(b"touch key 0\r\nNOT_FOUND\r\n".to_vec());
             assert!(!touch_cmd(&mut c, b"key", 0, false).await.unwrap());
 
-            let mut c = Cursor::new(b"touch 0 key noreply\r\n".to_vec());
+            let mut c = Cursor::new(b"touch key 0 noreply\r\n".to_vec());
             assert!(touch_cmd(&mut c, b"key", 0, true).await.unwrap());
 
-            let mut c = Cursor::new(b"touch 0 key\r\nERROR\r\n".to_vec());
+            let mut c = Cursor::new(b"touch key 0\r\nERROR\r\n".to_vec());
             assert!(touch_cmd(&mut c, b"key", 0, false).await.is_err())
         })
     }
@@ -2208,11 +2476,139 @@ mod tests {
             );
             assert_eq!(
                 me_cmd(&mut c, b"key").await.unwrap().unwrap(),
-                "exp=-1 la=3 cas=2 fetch=no cls=1 size=63"
+                "key exp=-1 la=3 cas=2 fetch=no cls=1 size=63"
             );
 
             let mut c = Cursor::new(b"me key\r\nERROR\r\n".to_vec());
             assert!(me_cmd(&mut c, b"key").await.is_err());
+        })
+    }
+
+    #[test]
+    fn test_pipeline() {
+        block_on(async {
+            let cmds = [
+                b"version\r\n".to_vec(),
+                b"quit\r\n".to_vec(),
+                b"shutdown\r\n".to_vec(),
+                b"cache_memlimit 1\r\n".to_vec(),
+                b"cache_memlimit 1 noreply\r\n".to_vec(),
+                b"flush_all\r\n".to_vec(),
+                b"flush_all 1 noreply\r\n".to_vec(),
+                b"cas key 0 0 5 0\r\nvalue\r\n".to_vec(),
+                b"append key 0 0 5 noreply\r\nvalue\r\n".to_vec(),
+                b"delete key\r\n".to_vec(),
+                b"delete key noreply\r\n".to_vec(),
+                b"set _ _ _ 3\r\na b\r\n".to_vec(),
+                b"incr key 1\r\n".to_vec(),
+                b"incr key 1 noreply\r\n".to_vec(),
+                b"touch key 0\r\n".to_vec(),
+                b"touch key 0 noreply\r\n".to_vec(),
+                b"gets key\r\n".to_vec(),
+                b"get key key2\r\n".to_vec(),
+                b"gat 0 key key2\r\n".to_vec(),
+                b"gats 0 key\r\n".to_vec(),
+                b"stats\r\n".to_vec(),
+                b"slabs automove 0\r\n".to_vec(),
+                b"lru_crawler enable\r\n".to_vec(),
+                b"lru_crawler disable\r\n".to_vec(),
+                b"lru_crawler sleep 1000000\r\n".to_vec(),
+                b"lru_crawler tocrawl 0\r\n".to_vec(),
+                b"lru_crawler crawl 1,2,3\r\n".to_vec(),
+                b"slabs reassign 1 10\r\n".to_vec(),
+                b"lru_crawler metadump all\r\n".to_vec(),
+                b"lru_crawler mgdump 3\r\n".to_vec(),
+                b"mn\r\n".to_vec(),
+                b"me key\r\n".to_vec(),
+            ];
+            let rps = [
+                b"VERSION 1.2.3\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"STORED\r\n".to_vec(),
+                b"DELETED\r\n".to_vec(),
+                b"STORED\r\n".to_vec(),
+                b"2\r\n".to_vec(),
+                b"TOUCHED\r\n".to_vec(),
+                b"END\r\n".to_vec(),
+                b"END\r\n".to_vec(),
+                b"VALUE key 0 1 0\r\na\r\nVALUE key2 0 1 0\r\na\r\nEND\r\n".to_vec(),
+                b"VALUE key 0 1 0\r\na\r\nEND\r\n".to_vec(),
+                b"STAT version 1.2.3\r\nSTAT threads 4\r\nEND\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
+                b"key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec(),
+                b"mg key\r\nmg key2\r\nEN\r\n".to_vec(),
+                b"MN\r\n".to_vec(),
+                b"ME key exp=-1 la=3 cas=2 fetch=no cls=1 size=63\r\n".to_vec(),
+            ];
+            let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
+            assert_eq!(
+                execute_cmd(&mut c, &cmds).await.unwrap(),
+                [
+                    PipelineResponse::String("1.2.3".to_string()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Bool(true),
+                    PipelineResponse::Bool(true),
+                    PipelineResponse::Bool(true),
+                    PipelineResponse::Bool(true),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Value(Some(2)),
+                    PipelineResponse::Value(None),
+                    PipelineResponse::Bool(true),
+                    PipelineResponse::Bool(true),
+                    PipelineResponse::Item(Item {
+                        key: "key".to_string(),
+                        flags: 0,
+                        cas_unique: Some(0),
+                        data_block: b"a".to_vec()
+                    }),
+                    PipelineResponse::Item(Item {
+                        key: "key2".to_string(),
+                        flags: 0,
+                        cas_unique: Some(0),
+                        data_block: b"a".to_vec()
+                    }),
+                    PipelineResponse::Item(Item {
+                        key: "key".to_string(),
+                        flags: 0,
+                        cas_unique: Some(0),
+                        data_block: b"a".to_vec()
+                    }),
+                    PipelineResponse::HashMap(HashMap::from([
+                        ("threads".to_string(), "4".to_string()),
+                        ("version".to_string(), "1.2.3".to_string())
+                    ])),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::VecString(vec![
+                        "key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0"
+                            .to_string(),
+                        "key=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0"
+                            .to_string()
+                    ]),
+                    PipelineResponse::VecString(vec!["key".to_string(), "key2".to_string()]),
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::OptionString(Some(
+                        "key exp=-1 la=3 cas=2 fetch=no cls=1 size=63".to_string()
+                    ))
+                ]
+            )
         })
     }
 }

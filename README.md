@@ -2,6 +2,8 @@
 
 ## Example
 
+### Connection mode
+
 ```rust
 use smol::{block_on, io};
 
@@ -21,6 +23,8 @@ fn main() -> io::Result<()> {
 }
 ```
 
+### Cluster mode
+
 ```rust
 use smol::{block_on, io};
 
@@ -35,6 +39,31 @@ fn main() -> io::Result<()> {
         client.set(b"key", 0, 0, false, b"value").await?;
         let item: Item = client.get(b"key").await?.unwrap();
         println!("{item:#?}");
+        Ok(())
+    })
+}
+```
+
+### Pipeline mode
+
+```rust
+use smol::{block_on, io};
+
+use mcmc_rs::Connection;
+
+fn main() -> io::Result<()> {
+    block_on(async {
+        let mut conn = Connection::default().await?;
+        let r = conn
+            .pipeline()
+            .set("key", 0, 0, false, "A")
+            .set("key2", 0, 0, false, "A")
+            .get("key")
+            .get("key2")
+            .version()
+            .execute()
+            .await?;
+        println!("{r:#?}");
         Ok(())
     })
 }
