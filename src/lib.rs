@@ -1971,6 +1971,74 @@ impl ClientCrc32 {
     ///     ]
     /// );
     ///
+    /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
+    /// assert_eq!(client.gets(b"k8").await?.unwrap().key, "k8");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .gets(key.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// # use mcmc_rs::{Connection, Item};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// # let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k9", 0, 0, false, b"v9").await?);
+    /// let result = conn.gat(0, b"k9").await?;
+    /// assert_eq!(result.unwrap().key, "k9");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .gat(exptime, key.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// # use mcmc_rs::{Connection, Item};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// # let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k10", 0, 0, false, b"v10").await?);
+    /// let result = conn.gats(0, b"k10").await?;
+    /// assert_eq!(result.unwrap().key, "k10");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .gats(exptime, key.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
     /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -1986,6 +2054,314 @@ impl ClientCrc32 {
         let size = self.0.len();
         self.0[crc32fast::hash(key.as_ref()) as usize % size]
             .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn add(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn replace(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn append(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn prepend(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn cas(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        cas_unique: u64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .cas(
+                key.as_ref(),
+                flags,
+                exptime,
+                cas_unique,
+                noreply,
+                data_block.as_ref(),
+            )
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.delete(b"key", true).await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .delete(key.as_ref(), noreply)
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.incr(b"key", 1, true).await?.is_none());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn incr(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        value: u64,
+        noreply: bool,
+    ) -> io::Result<Option<u64>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .incr(key.as_ref(), value, noreply)
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.decr(b"key", 1, true).await?.is_none());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn decr(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        value: u64,
+        noreply: bool,
+    ) -> io::Result<Option<u64>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .decr(key.as_ref(), value, noreply)
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    ///
+    /// assert!(client.touch(b"key", -1, true).await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn touch(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        exptime: i64,
+        noreply: bool,
+    ) -> io::Result<bool> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .touch(key.as_ref(), exptime, noreply)
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
+    /// assert!(client.me(b"k11").await?.is_some());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .me(key.as_ref())
             .await
     }
 }
