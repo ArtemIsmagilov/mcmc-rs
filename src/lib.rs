@@ -459,7 +459,7 @@ fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
     [b"lru_crawler crawl ", a.as_bytes(), b"\r\n"].concat()
 }
 
-fn build_slabs_reassign(source_class: usize, dest_class: usize) -> Vec<u8> {
+fn build_slabs_reassign_cmd(source_class: usize, dest_class: usize) -> Vec<u8> {
     [
         b"slabs reassign ",
         source_class.to_string().as_bytes(),
@@ -686,7 +686,7 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     source_class: usize,
     dest_class: usize,
 ) -> io::Result<()> {
-    s.write_all(&build_slabs_reassign(source_class, dest_class))
+    s.write_all(&build_slabs_reassign_cmd(source_class, dest_class))
         .await?;
     s.flush().await?;
     parse_ok_rp(s, false).await
@@ -1992,10 +1992,34 @@ impl ClientCrc32 {
 
 pub struct Pipeline<'a>(&'a mut Connection, Vec<Vec<u8>>);
 impl<'a> Pipeline<'a> {
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline();
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
     fn new(conn: &'a mut Connection) -> Self {
         Self(conn, Vec::new())
     }
 
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// assert_eq!(conn.pipeline().execute().await?, []);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
     pub async fn execute(self) -> io::Result<Vec<PipelineResponse>> {
         if self.1.is_empty() {
             return Ok(Vec::new());
@@ -2007,6 +2031,104 @@ impl<'a> Pipeline<'a> {
         }
     }
 
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().version();
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn version(mut self) -> Self {
+        self.1.push(build_version_cmd().to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().quit();
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn quit(mut self) -> Self {
+        self.1.push(build_quit_cmd().to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().shutdown(false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn shutdown(mut self, graceful: bool) -> Self {
+        self.1.push(build_shutdown_cmd(graceful).to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().cache_memlimit(1, false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn cache_memlimit(mut self, limit: usize, noreply: bool) -> Self {
+        self.1
+            .push(build_cache_memlimit_cmd(limit, noreply).to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().flush_all(None, false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn flush_all(mut self, exptime: Option<i64>, noreply: bool) -> Self {
+        self.1.push(build_flush_all_cmd(exptime, noreply).to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().set(b"key", 0, 0, false, b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
     pub fn set(
         mut self,
         key: impl AsRef<[u8]>,
@@ -2027,14 +2149,596 @@ impl<'a> Pipeline<'a> {
         self
     }
 
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().add(b"key", 0, 0, false, b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn add(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_storage_cmd(
+            b"add",
+            key.as_ref(),
+            flags,
+            exptime,
+            None,
+            noreply,
+            data_block.as_ref(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().replace(b"key", 0, 0, false, b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn replace(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_storage_cmd(
+            b"replace",
+            key.as_ref(),
+            flags,
+            exptime,
+            None,
+            noreply,
+            data_block.as_ref(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().append(b"key", 0, 0, false, b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn append(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_storage_cmd(
+            b"append",
+            key.as_ref(),
+            flags,
+            exptime,
+            None,
+            noreply,
+            data_block.as_ref(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().prepend(b"key", 0, 0, false, b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn prepend(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_storage_cmd(
+            b"prepend",
+            key.as_ref(),
+            flags,
+            exptime,
+            None,
+            noreply,
+            data_block.as_ref(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().cas(b"key", 0, 0, 0, false, b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn cas(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        cas_unique: u64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_storage_cmd(
+            b"cas",
+            key.as_ref(),
+            flags,
+            exptime,
+            Some(cas_unique),
+            noreply,
+            data_block.as_ref(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().auth(b"username", b"password");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn auth(mut self, username: impl AsRef<[u8]>, password: impl AsRef<[u8]>) -> Self {
+        self.1
+            .push(build_auth_cmd(username.as_ref(), password.as_ref()));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().delete(b"key", false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn delete(mut self, key: impl AsRef<[u8]>, noreply: bool) -> Self {
+        self.1.push(build_delete_cmd(key.as_ref(), noreply));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().incr(b"key", 1, false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn incr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
+        self.1
+            .push(build_incr_decr_cmd(b"incr", key.as_ref(), value, noreply));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().decr(b"key", 1, false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn decr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
+        self.1
+            .push(build_incr_decr_cmd(b"decr", key.as_ref(), value, noreply));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().touch(b"key", 1, false);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn touch(mut self, key: impl AsRef<[u8]>, exptime: i64, noreply: bool) -> Self {
+        self.1.push(build_touch_cmd(key.as_ref(), exptime, noreply));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().get(b"key");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
     pub fn get(mut self, key: impl AsRef<[u8]>) -> Self {
         self.1
             .push(build_retrieval_cmd(b"get", None, &[key.as_ref()]));
         self
     }
 
-    pub fn version(mut self) -> Self {
-        self.1.push(build_version_cmd().to_vec());
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().gets(b"key");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gets(mut self, key: impl AsRef<[u8]>) -> Self {
+        self.1
+            .push(build_retrieval_cmd(b"gets", None, &[key.as_ref()]));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().gat(0, b"key");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gat(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
+        self.1
+            .push(build_retrieval_cmd(b"gat", Some(exptime), &[key.as_ref()]));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().gats(0, b"key");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gats(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
+        self.1
+            .push(build_retrieval_cmd(b"gats", Some(exptime), &[key.as_ref()]));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().get_multi(&[b"key".as_slice(), b"key2".as_slice()]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn get_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.1.push(build_retrieval_cmd(
+            b"get",
+            None,
+            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().gets_multi(&[b"key".as_slice(), b"key2".as_slice()]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gets_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.1.push(build_retrieval_cmd(
+            b"gets",
+            None,
+            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().gat_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gat_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.1.push(build_retrieval_cmd(
+            b"gat",
+            Some(exptime),
+            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().gats_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gats_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.1.push(build_retrieval_cmd(
+            b"gats",
+            Some(exptime),
+            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, StatsArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().stats(StatsArg::Empty);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn stats(mut self, arg: StatsArg) -> Self {
+        self.1.push(build_stats_cmd(arg));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, SlabsAutomoveArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().slabs_automove(SlabsAutomoveArg::Zero);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn slabs_automove(mut self, arg: SlabsAutomoveArg) -> Self {
+        self.1.push(build_slabs_automove_cmd(arg));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru_crawler(LruCrawlerArg::Enable);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru_crawler(mut self, arg: LruCrawlerArg) -> Self {
+        self.1.push(build_lru_crawler_cmd(arg).to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru_crawler_sleep(0);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru_crawler_sleep(mut self, microseconds: usize) -> Self {
+        self.1.push(build_lru_clawler_sleep_cmd(microseconds));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru_crawler_tocrawl(0);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru_crawler_tocrawl(mut self, arg: u32) -> Self {
+        self.1.push(build_lru_crawler_tocrawl_cmd(arg));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerCrawlArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru_crawler_crawl(LruCrawlerCrawlArg::All);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru_crawler_crawl(mut self, arg: LruCrawlerCrawlArg<'_>) -> Self {
+        self.1.push(build_lru_clawler_crawl_cmd(arg));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().slabs_reassign(1, 2);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn slabs_reassign(mut self, source_class: usize, dest_class: usize) -> Self {
+        self.1
+            .push(build_slabs_reassign_cmd(source_class, dest_class));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerMetadumpArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru_crawler_metadump(LruCrawlerMetadumpArg::All);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru_crawler_metadump(mut self, arg: LruCrawlerMetadumpArg<'_>) -> Self {
+        self.1.push(build_lru_clawler_metadump_cmd(arg));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, LruCrawlerMgdumpArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru_crawler_mgdump(LruCrawlerMgdumpArg::All);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru_crawler_mgdump(mut self, arg: LruCrawlerMgdumpArg<'_>) -> Self {
+        self.1.push(build_lru_clawler_mgdump_cmd(arg));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().mn();
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn mn(mut self) -> Self {
+        self.1.push(build_mn_cmd().to_vec());
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().me(b"key");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn me(mut self, key: impl AsRef<[u8]>) -> Self {
+        self.1.push(build_me_cmd(key.as_ref()));
         self
     }
 }
