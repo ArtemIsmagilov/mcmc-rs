@@ -93,9 +93,9 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
             split.next().unwrap().trim_end().parse::<usize>().unwrap(),
             split.next().map(|x| x.trim_end().parse::<u64>().unwrap()),
         );
-        let mut data_block = vec![0; bytes];
+        let mut data_block = vec![0; bytes + 2];
         s.read_exact(&mut data_block).await?;
-        s.read_line(&mut String::new()).await?;
+        data_block.truncate(bytes);
         items.push(Item {
             key,
             flags,
@@ -752,7 +752,7 @@ where
                 .into_iter()
                 .for_each(|x| result.push(PipelineResponse::Item(x)))
         } else if cmd.starts_with(b"set _ _ _ ") {
-            result.push(PipelineResponse::Unit(parse_auth_rp(s).await?));
+            result.push(PipelineResponse::Unit(parse_auth_rp(s).await?))
         } else if cmd.starts_with(b"set ")
             || cmd.starts_with(b"add ")
             || cmd.starts_with(b"replace ")
@@ -766,7 +766,7 @@ where
                 parse_storage_rp(s, n.ends_with(b"noreply")).await?,
             ))
         } else if cmd == build_version_cmd() {
-            result.push(PipelineResponse::String(parse_version_rp(s).await?));
+            result.push(PipelineResponse::String(parse_version_rp(s).await?))
         } else if cmd.starts_with(b"delete ") {
             result.push(PipelineResponse::Bool(
                 parse_delete_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
@@ -780,7 +780,7 @@ where
                 parse_touch_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
             ))
         } else if cmd == build_quit_cmd() || cmd.starts_with(b"shutdown") {
-            result.push(PipelineResponse::Unit(()));
+            result.push(PipelineResponse::Unit(()))
         } else if cmd.starts_with(b"flush_all") || cmd.starts_with(b"cache_memlimit ") {
             result.push(PipelineResponse::Unit(
                 parse_ok_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
