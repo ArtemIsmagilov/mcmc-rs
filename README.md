@@ -1,6 +1,6 @@
 # Minimal Rust client for Memcached
 
-[![CI](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml)
+[![ci](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml)
 [![crates.io](https://img.shields.io/crates/v/mcmc-rs.svg)](https://crates.io/crates/mcmc-rs)
 
 ## Example
@@ -10,17 +10,14 @@
 ```rust
 use smol::{block_on, io};
 
-use mcmc_rs::{Connection, Item};
+use mcmc_rs::Connection;
 
 fn main() -> io::Result<()> {
     block_on(async {
         let mut conn = Connection::default().await?;
         conn.set(b"key", 0, 0, false, b"value").await?;
-        let item: Item = conn.get(b"key").await?.unwrap();
-        conn.delete(b"key", true).await?;
-        conn.get_multi(&[b"key1", b"key2"]).await?;
-        let version = conn.version().await?;
-        println!("{version:#?}");
+        let item = conn.get(b"key").await?.unwrap();
+        println!("{item:#?}");
         Ok(())
     })
 }
@@ -31,7 +28,7 @@ fn main() -> io::Result<()> {
 ```rust
 use smol::{block_on, io};
 
-use mcmc_rs::{ClientCrc32, Connection, Item};
+use mcmc_rs::{ClientCrc32, Connection};
 
 fn main() -> io::Result<()> {
     block_on(async {
@@ -40,7 +37,7 @@ fn main() -> io::Result<()> {
             Connection::tcp_connect("127.0.0.1:11212").await?,
         ]);
         client.set(b"key", 0, 0, false, b"value").await?;
-        let item: Item = client.get(b"key").await?.unwrap();
+        let item = client.get(b"key").await?.unwrap();
         println!("{item:#?}");
         Ok(())
     })
@@ -72,6 +69,25 @@ fn main() -> io::Result<()> {
 }
 ```
 
+### Pool mode
+
+```rust
+use smol::{block_on, io};
+
+use mcmc_rs::{AddrArg, Manager, Pool};
+
+fn main() -> io::Result<()> {
+    block_on(async {
+        let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211".to_string()));
+        let pool = Pool::builder(mgr).build().unwrap();
+        let mut conn = pool.get().await.unwrap();
+        let result = conn.version().await?;
+        println!("{result:#?}");
+        Ok(())
+    })
+}
+```
+
 ## Tests
 
 ```bash
@@ -90,3 +106,4 @@ docker compose down
   - [https://github.com/vavrusa/memcache-async]
   - [https://github.com/aisk/rust-memcache]
 - [Memcached doc](https://docs.memcached.org)
+- [Managed pool](https://docs.rs/deadpool/0.12.2/deadpool/)

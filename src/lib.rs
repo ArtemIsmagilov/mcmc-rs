@@ -1,9 +1,64 @@
 use std::collections::HashMap;
 
 use crc32fast;
+use deadpool::managed;
 use smol::io::{self, BufReader};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
 use smol::prelude::*;
+
+pub enum AddrArg {
+    Tcp(String),
+    Unix(String),
+    Udp(String),
+}
+
+pub struct Manager(AddrArg);
+impl Manager {
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{AddrArg, Manager, Pool};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211".to_string()));
+    /// let pool = Pool::builder(mgr).build().unwrap();
+    /// let mut conn = pool.get().await.unwrap();
+    /// let result = conn.version().await?;
+    /// assert!(result.chars().any(|x| x.is_numeric()));
+    /// #     Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn new(addr: AddrArg) -> Self {
+        Self(addr)
+    }
+}
+
+impl managed::Manager for Manager {
+    type Type = Connection;
+    type Error = io::Error;
+
+    async fn create(&self) -> Result<Connection, io::Error> {
+        match &self.0 {
+            AddrArg::Tcp(addr) => Connection::tcp_connect(addr).await,
+            AddrArg::Unix(addr) => Connection::unix_connect(addr).await,
+            AddrArg::Udp(_addr) => todo!(),
+        }
+    }
+
+    async fn recycle(
+        &self,
+        conn: &mut Connection,
+        _: &managed::Metrics,
+    ) -> managed::RecycleResult<io::Error> {
+        match conn.version().await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+pub type Pool = managed::Pool<Manager>;
 
 pub enum StatsArg {
     Empty,
