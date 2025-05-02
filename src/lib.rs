@@ -890,7 +890,8 @@ where
             result.push(PipelineResponse::VecString(
                 parse_lru_crawler_mgdump_rp(s).await?,
             ))
-        } else if cmd.starts_with(b"me ") {
+        } else {
+            assert!(cmd.starts_with(b"me "));
             result.push(PipelineResponse::OptionString(parse_me_r(s).await?))
         }
     }
@@ -1016,8 +1017,8 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn shutdown(&mut self, graceful: bool) -> io::Result<()> {
-        match self {
+    pub async fn shutdown(mut self, graceful: bool) -> io::Result<()> {
+        match &mut self {
             Connection::Tcp(s) => shutdown_cmd(s, graceful).await,
             Connection::Unix(s) => shutdown_cmd(s, graceful).await,
             Connection::Udp(_s) => todo!(),
