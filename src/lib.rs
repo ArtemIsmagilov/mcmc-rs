@@ -996,8 +996,8 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn quit(&mut self) -> io::Result<()> {
-        match self {
+    pub async fn quit(mut self) -> io::Result<()> {
+        match &mut self {
             Connection::Tcp(s) => quit_cmd(s).await,
             Connection::Unix(s) => quit_cmd(s).await,
             Connection::Udp(_s) => todo!(),
