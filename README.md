@@ -88,6 +88,25 @@ fn main() -> io::Result<()> {
 }
 ```
 
+### Watch mode
+
+```rust
+use smol::{block_on, io};
+
+use mcmc_rs::{Connection, WatchArg};
+
+fn main() -> io::Result<()> {
+    block_on(async {
+        let mut conn = Connection::default().await?;
+        let mut w = conn.watch(&[WatchArg::Fetchers]).await?;
+        let mut conn = Connection::default().await?;
+        conn.get(b"key").await?;
+        println!("{:#?}", w.message().await?);
+        Ok(())
+    })
+}
+```
+
 ## Tests
 
 ```bash

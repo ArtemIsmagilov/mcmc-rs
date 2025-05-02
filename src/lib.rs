@@ -97,6 +97,17 @@ pub enum LruCrawlerMgdumpArg<'a> {
     Hash,
 }
 
+pub enum WatchArg {
+    Fetchers,
+    Mutations,
+    Evictions,
+    Connevents,
+    Proxyreqs,
+    Proxyevents,
+    Proxyuser,
+    Deletions,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -559,6 +570,24 @@ fn build_me_cmd(key: &[u8]) -> Vec<u8> {
     [b"me ", key, b"\r\n"].concat()
 }
 
+fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
+    let mut cmd = b"watch".to_vec();
+    arg.iter().for_each(|a| {
+        cmd.extend_from_slice(match a {
+            WatchArg::Fetchers => b" fetchers",
+            WatchArg::Mutations => b" mutations",
+            WatchArg::Evictions => b" evictions",
+            WatchArg::Connevents => b" connevents",
+            WatchArg::Proxyreqs => b" proxyreqs",
+            WatchArg::Proxyevents => b" proxyevents",
+            WatchArg::Proxyuser => b" proxyuser",
+            WatchArg::Deletions => b" deletions",
+        })
+    });
+    cmd.extend_from_slice(b"\r\n");
+    cmd
+}
+
 async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
     s.flush().await?;
@@ -866,6 +895,15 @@ where
         }
     }
     Ok(result)
+}
+
+async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: &[WatchArg],
+) -> io::Result<()> {
+    s.write_all(&build_watch_cmd(arg)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
 }
 
 pub enum Connection {
@@ -1959,8 +1997,58 @@ impl Connection {
         }
     }
 
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, WatchArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.watch(&[WatchArg::Fetchers, WatchArg::Mutations]).await.is_ok());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn watch(mut self, arg: &[WatchArg]) -> io::Result<WatchStream> {
+        match &mut self {
+            Connection::Tcp(s) => watch_cmd(s, arg).await?,
+            Connection::Unix(s) => watch_cmd(s, arg).await?,
+            Connection::Udp(_s) => todo!(),
+        };
+        Ok(WatchStream(self))
+    }
+
     pub fn pipeline(&mut self) -> Pipeline {
         Pipeline::new(self)
+    }
+}
+
+pub struct WatchStream(Connection);
+impl WatchStream {
+    /// # Example
+    ///
+    /// ```rust
+    /// use mcmc_rs::{Connection, WatchArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let mut w = conn.watch(&[WatchArg::Fetchers]).await?;
+    /// let mut conn = Connection::default().await?;
+    /// conn.get(b"key").await?;
+    /// let result = w.message().await?;
+    /// assert!(result.starts_with("ts="));
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn message(&mut self) -> io::Result<String> {
+        let mut line = String::new();
+        match &mut self.0 {
+            Connection::Tcp(s) => s.read_line(&mut line).await?,
+            Connection::Unix(s) => s.read_line(&mut line).await?,
+            Connection::Udp(_s) => todo!(),
+        };
+        Ok(line)
     }
 }
 
@@ -3749,6 +3837,37 @@ mod tests {
             let rps = [b"ERROR\r\n".to_vec(), b"OK\r\n".to_vec()];
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
             assert!(execute_cmd(&mut c, &cmds).await.is_err());
+        })
+    }
+
+    #[test]
+    fn test_watch() {
+        block_on(async {
+            let mut c = Cursor::new(b"watch fetchers mutations evictions connevents proxyreqs proxyevents proxyuser deletions\r\nOK\r\n".to_vec());
+            assert!(
+                watch_cmd(
+                    &mut c,
+                    &[
+                        WatchArg::Fetchers,
+                        WatchArg::Mutations,
+                        WatchArg::Evictions,
+                        WatchArg::Connevents,
+                        WatchArg::Proxyreqs,
+                        WatchArg::Proxyevents,
+                        WatchArg::Proxyuser,
+                        WatchArg::Deletions
+                    ]
+                )
+                .await
+                .is_ok()
+            );
+
+            let mut c = Cursor::new(b"watch fetchers mutations\r\nERROR\r\n".to_vec());
+            assert!(
+                watch_cmd(&mut c, &[WatchArg::Fetchers, WatchArg::Mutations])
+                    .await
+                    .is_err()
+            );
         })
     }
 }
