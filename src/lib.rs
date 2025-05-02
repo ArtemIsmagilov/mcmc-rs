@@ -2048,7 +2048,11 @@ impl WatchStream {
             Connection::Unix(s) => s.read_line(&mut line).await?,
             Connection::Udp(_s) => todo!(),
         };
-        if n == 0 { Ok(None) } else { Ok(Some(line)) }
+        if n == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(line.trim_end().to_string()))
+        }
     }
 }
 
