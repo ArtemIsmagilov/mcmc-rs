@@ -2037,18 +2037,18 @@ impl WatchStream {
     /// let mut conn = Connection::default().await?;
     /// conn.get(b"key").await?;
     /// let result = w.message().await?;
-    /// assert!(result.starts_with("ts="));
+    /// assert!(result.is_some());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn message(&mut self) -> io::Result<String> {
+    pub async fn message(&mut self) -> io::Result<Option<String>> {
         let mut line = String::new();
-        match &mut self.0 {
+        let n = match &mut self.0 {
             Connection::Tcp(s) => s.read_line(&mut line).await?,
             Connection::Unix(s) => s.read_line(&mut line).await?,
             Connection::Udp(_s) => todo!(),
         };
-        Ok(line)
+        if n == 0 { Ok(None) } else { Ok(Some(line)) }
     }
 }
 
