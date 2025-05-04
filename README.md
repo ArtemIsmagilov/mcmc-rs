@@ -110,10 +110,10 @@ fn main() -> io::Result<()> {
 ## Tests
 
 ```bash
-docker compose up -d
-docker exec mcmc-rs-md-unix0-1 sh -c "chmod a+rw /tmp/memcached.sock"
+podman kube play pod.yaml
+podman exec podmcmc-rs-mcmc-rsmd-unix01 sh -c "chmod a+rw /tmp/memcached.sock"
 cargo test
-docker compose down
+podman kube down pod.yaml
 ```
 
 ## Links
