@@ -17,8 +17,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Run servers
         run: |
-          docker compose up -d
-          docker exec mcmc-rs-md-unix0-1 sh -c "chmod a+rw /tmp/memcached.sock"
+          podman kube play pod.yaml
+          podman exec podmcmc-rs-mcmc-rsmd-unix01 sh -c "chmod a+rw /tmp/memcached.sock"
       - name: Run tests
         run: |
           cargo check
