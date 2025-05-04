@@ -61,7 +61,7 @@ spec:
       securityContext: {}
   volumes:
     - hostPath:
-        path: /home/artem/projects/mcmc-rs/sasl.txt
+        path: sasl.txt
         type: File
       name: home-artem-projects-mcmc-rs-sasl.txt-host-0
     - hostPath:
