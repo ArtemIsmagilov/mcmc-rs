@@ -119,7 +119,8 @@ pub struct Item {
 #[derive(Debug, PartialEq)]
 pub enum PipelineResponse {
     Bool(bool),
-    Item(Item),
+    OptionItem(Option<Item>),
+    VecItem(Vec<Item>),
     String(String),
     OptionString(Option<String>),
     VecString(Vec<String>),
@@ -831,10 +832,23 @@ where
             || cmd.starts_with(b"gats ")
             || cmd.starts_with(b"gat ")
         {
-            parse_retrieval_rp(s)
-                .await?
-                .into_iter()
-                .for_each(|x| result.push(PipelineResponse::Item(x)))
+            if cmd.starts_with(b"gat") {
+                if cmd.iter().filter(|x| x == &&b' ').count() == 2 {
+                    result.push(PipelineResponse::OptionItem(
+                        parse_retrieval_rp(s).await?.pop(),
+                    ))
+                } else {
+                    result.push(PipelineResponse::VecItem(parse_retrieval_rp(s).await?))
+                }
+            } else {
+                if cmd.iter().filter(|x| x == &&b' ').count() == 1 {
+                    result.push(PipelineResponse::OptionItem(
+                        parse_retrieval_rp(s).await?.pop(),
+                    ))
+                } else {
+                    result.push(PipelineResponse::VecItem(parse_retrieval_rp(s).await?))
+                }
+            };
         } else if cmd.starts_with(b"set _ _ _ ") {
             result.push(PipelineResponse::Unit(parse_auth_rp(s).await?))
         } else if cmd.starts_with(b"set ")
@@ -3795,24 +3809,28 @@ mod tests {
                     PipelineResponse::Value(None),
                     PipelineResponse::Bool(true),
                     PipelineResponse::Bool(true),
-                    PipelineResponse::Item(Item {
+                    PipelineResponse::OptionItem(None),
+                    PipelineResponse::VecItem(Vec::new()),
+                    PipelineResponse::VecItem(vec![
+                        Item {
+                            key: "key".to_string(),
+                            flags: 0,
+                            cas_unique: Some(0),
+                            data_block: b"a".to_vec()
+                        },
+                        Item {
+                            key: "key2".to_string(),
+                            flags: 0,
+                            cas_unique: Some(0),
+                            data_block: b"a".to_vec()
+                        }
+                    ]),
+                    PipelineResponse::OptionItem(Some(Item {
                         key: "key".to_string(),
                         flags: 0,
                         cas_unique: Some(0),
                         data_block: b"a".to_vec()
-                    }),
-                    PipelineResponse::Item(Item {
-                        key: "key2".to_string(),
-                        flags: 0,
-                        cas_unique: Some(0),
-                        data_block: b"a".to_vec()
-                    }),
-                    PipelineResponse::Item(Item {
-                        key: "key".to_string(),
-                        flags: 0,
-                        cas_unique: Some(0),
-                        data_block: b"a".to_vec()
-                    }),
+                    })),
                     PipelineResponse::HashMap(HashMap::from([
                         ("threads".to_string(), "4".to_string()),
                         ("version".to_string(), "1.2.3".to_string())
