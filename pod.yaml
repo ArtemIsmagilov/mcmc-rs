@@ -47,7 +47,7 @@ spec:
       securityContext: {}
       volumeMounts:
         - mountPath: /app/sasl.txt
-          name: home-artem-projects-mcmc-rs-sasl.txt-host-0
+          name: sasl.txt-host-0
           readOnly: true
     - args:
         - -p
@@ -63,7 +63,7 @@ spec:
     - hostPath:
         path: sasl.txt
         type: File
-      name: home-artem-projects-mcmc-rs-sasl.txt-host-0
+      name: sasl.txt-host-0
     - hostPath:
         path: /tmp
         type: Directory
