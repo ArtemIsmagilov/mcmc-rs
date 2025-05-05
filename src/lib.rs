@@ -832,23 +832,15 @@ where
             || cmd.starts_with(b"gats ")
             || cmd.starts_with(b"gat ")
         {
-            if cmd.starts_with(b"gat") {
-                if cmd.iter().filter(|x| x == &&b' ').count() == 2 {
-                    result.push(PipelineResponse::OptionItem(
-                        parse_retrieval_rp(s).await?.pop(),
-                    ))
-                } else {
-                    result.push(PipelineResponse::VecItem(parse_retrieval_rp(s).await?))
-                }
+            if (cmd.starts_with(b"gat") && cmd.iter().filter(|x| x == &&b' ').count() == 2)
+                || (cmd.starts_with(b"get") && cmd.iter().filter(|x| x == &&b' ').count() == 1)
+            {
+                result.push(PipelineResponse::OptionItem(
+                    parse_retrieval_rp(s).await?.pop(),
+                ))
             } else {
-                if cmd.iter().filter(|x| x == &&b' ').count() == 1 {
-                    result.push(PipelineResponse::OptionItem(
-                        parse_retrieval_rp(s).await?.pop(),
-                    ))
-                } else {
-                    result.push(PipelineResponse::VecItem(parse_retrieval_rp(s).await?))
-                }
-            };
+                result.push(PipelineResponse::VecItem(parse_retrieval_rp(s).await?))
+            }
         } else if cmd.starts_with(b"set _ _ _ ") {
             result.push(PipelineResponse::Unit(parse_auth_rp(s).await?))
         } else if cmd.starts_with(b"set ")
