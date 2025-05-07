@@ -16,7 +16,7 @@ pub struct Manager(AddrArg);
 impl Manager {
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{AddrArg, Manager, Pool};
     /// # use smol::{io, block_on};
     /// #
@@ -129,6 +129,126 @@ pub enum PipelineResponse {
     HashMap(HashMap<String, String>),
 }
 
+pub enum MsMode {
+    Add,
+    Append,
+    Prepend,
+    Replace,
+    Set,
+}
+
+pub enum MaMode {
+    Incr,
+    Decr,
+}
+
+pub enum MsFlag {
+    Base64Key,
+    ReturnCas,
+    CompareCas(u64),
+    NewCas(u64),
+    SetFlags(u32),
+    Invalidate,
+    ReturnKey,
+    Opaque(String),
+    ReturnSize,
+    Ttl(i64),
+    Mode(MsMode),
+    Autovivify(i64),
+}
+
+pub enum MgFlag {
+    Base64Key,
+    ReturnCas,
+    ReturnFlags,
+    ReturnHit,
+    ReturnKey,
+    ReturnLastAccess,
+    Opaque(String),
+    ReturnSize,
+    ReturnTtl,
+    UnBump,
+    ReturnValue,
+    NewCas(u64),
+    Autovivify(i64),
+    RecacheTtl(i64),
+    UpdateTtl(i64),
+}
+
+pub enum MdFlag {
+    Base64Key,
+    CompareCas(u64),
+    NewCas(u64),
+    Invalidate,
+    ReturnKey,
+    Opaque(String),
+    UpdateTtl(i64),
+    LeaveKey,
+}
+
+pub enum MaFlag {
+    Base64Key,
+    CompareCas(u64),
+    NewCas(u64),
+    AutoCreate(i64),
+    InitValue(u64),
+    DeltaApply(u64),
+    UpdateTtl(i64),
+    Mode(MaMode),
+    Opaque(String),
+    ReturnTtl,
+    ReturnCas,
+    ReturnValue,
+    ReturnKey,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MgItem {
+    pub success: bool,
+    pub base64_key: bool,
+    pub cas: Option<u64>,
+    pub flags: Option<u32>,
+    pub hit: Option<u8>,
+    pub key: Option<String>,
+    pub last_access_ttl: Option<i64>,
+    pub opaque: Option<String>,
+    pub size: Option<usize>,
+    pub ttl: Option<i64>,
+    pub data_block: Option<Vec<u8>>,
+    pub won_recache: bool,
+    pub stale: bool,
+    pub already_win: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MsItem {
+    pub success: bool,
+    pub cas: Option<u64>,
+    pub key: Option<String>,
+    pub opaque: Option<String>,
+    pub size: Option<usize>,
+    pub base64_key: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MdItem {
+    pub success: bool,
+    pub key: Option<String>,
+    pub opaque: Option<String>,
+    pub base64_key: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MaItem {
+    pub success: bool,
+    pub opaque: Option<String>,
+    pub ttl: Option<i64>,
+    pub cas: Option<u64>,
+    pub number: Option<u64>,
+    pub key: Option<String>,
+    pub base64_key: bool,
+}
+
 async fn parse_storage_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     noreply: bool,
@@ -156,9 +276,9 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
         split.next();
         let (key, flags, bytes, cas_unique) = (
             split.next().unwrap().to_string(),
-            split.next().unwrap().parse::<u32>().unwrap(),
-            split.next().unwrap().trim_end().parse::<usize>().unwrap(),
-            split.next().map(|x| x.trim_end().parse::<u64>().unwrap()),
+            split.next().unwrap().parse().unwrap(),
+            split.next().unwrap().trim_end().parse().unwrap(),
+            split.next().map(|x| x.trim_end().parse().unwrap()),
         );
         let mut data_block = vec![0; bytes + 2];
         s.read_exact(&mut data_block).await?;
@@ -242,7 +362,7 @@ async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     if line == "NOT_FOUND\r\n" {
         return Ok(None);
     };
-    match line.trim_end().parse::<u64>() {
+    match line.trim_end().parse() {
         Ok(v) => Ok(Some(v)),
         Err(_) => Err(io::Error::other(line)),
     }
@@ -338,7 +458,9 @@ async fn parse_mn_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
     }
 }
 
-async fn parse_me_r<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<Option<String>> {
+async fn parse_me_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+) -> io::Result<Option<String>> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "EN\r\n" {
@@ -348,6 +470,201 @@ async fn parse_me_r<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Resu
     } else {
         Err(io::Error::other(line))
     }
+}
+
+async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MgItem> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    let success;
+    let (
+        mut base64_key,
+        mut cas,
+        mut flags,
+        mut hit,
+        mut key,
+        mut last_access_ttl,
+        mut opaque,
+        mut size,
+        mut ttl,
+        mut data_block,
+        mut won_recache,
+        mut stale,
+        mut already_win,
+    ) = (
+        false, None, None, None, None, None, None, None, None, None, false, false, false,
+    );
+    let mut split = line.trim_end().split(' ');
+    let data_len = if line.starts_with("VA") {
+        success = true;
+        split.next();
+        Some(split.next().unwrap().parse().unwrap())
+    } else if line.starts_with("HD") {
+        success = true;
+        split.next();
+        None
+    } else if line.starts_with("EN") {
+        success = false;
+        split.next();
+        None
+    } else {
+        return Err(io::Error::other(line));
+    };
+    for flag in split {
+        let f = &flag[1..];
+        match &flag[..1] {
+            "b" => base64_key = true,
+            "c" => cas = Some(f.parse().unwrap()),
+            "f" => flags = Some(f.parse().unwrap()),
+            "h" => hit = Some(f.parse().unwrap()),
+            "k" => key = Some(f.to_string()),
+            "l" => last_access_ttl = Some(f.parse().unwrap()),
+            "O" => opaque = Some(f.to_string()),
+            "s" => size = Some(f.parse().unwrap()),
+            "t" => ttl = Some(f.parse().unwrap()),
+            "W" => won_recache = true,
+            "X" => stale = true,
+            "Z" => already_win = true,
+            other => unreachable!("unexpected mg flag: {other}"),
+        }
+    }
+    if let Some(a) = data_len {
+        let mut buf = vec![0u8; a + 2];
+        s.read_exact(&mut buf).await?;
+        buf.truncate(a);
+        data_block = Some(buf);
+    }
+    Ok(MgItem {
+        success,
+        base64_key,
+        cas,
+        flags,
+        hit,
+        key,
+        last_access_ttl,
+        opaque,
+        size,
+        ttl,
+        data_block,
+        won_recache,
+        stale,
+        already_win,
+    })
+}
+
+async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MsItem> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    let success;
+    let (mut cas, mut key, mut opaque, mut size, mut base64_key) = (None, None, None, None, false);
+    if line.starts_with("HD") {
+        success = true
+    } else if line.starts_with("NS") || line.starts_with("EX") || line.starts_with("NF") {
+        success = false
+    } else {
+        return Err(io::Error::other(line));
+    }
+    let mut split = line.trim_end().split(' ');
+    split.next();
+    for flag in split {
+        let f = &flag[1..];
+        match &flag[..1] {
+            "c" => cas = Some(f.parse().unwrap()),
+            "k" => key = Some(f.to_string()),
+            "O" => opaque = Some(f.to_string()),
+            "s" => size = Some(f.parse().unwrap()),
+            "b" => base64_key = true,
+            other => unreachable!("unexpected ms flag: {other}"),
+        }
+    }
+    Ok(MsItem {
+        success,
+        cas,
+        opaque,
+        key,
+        size,
+        base64_key,
+    })
+}
+
+async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MdItem> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    let success;
+    let (mut key, mut opaque, mut base64_key) = (None, None, false);
+    if line.starts_with("HD") {
+        success = true
+    } else if line.starts_with("NF") || line.starts_with("EX") {
+        success = false
+    } else {
+        return Err(io::Error::other(line));
+    }
+    let mut split = line.trim_end().split(' ');
+    split.next();
+    for flag in split {
+        let f = &flag[1..];
+        match &flag[..1] {
+            "k" => key = Some(f.to_string()),
+            "O" => opaque = Some(f.to_string()),
+            "b" => base64_key = true,
+            other => unreachable!("unexpected md flag: {other}"),
+        }
+    }
+    Ok(MdItem {
+        success,
+        key,
+        opaque,
+        base64_key,
+    })
+}
+
+async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MaItem> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    let success;
+    let (mut opaque, mut ttl, mut cas, mut number, mut key, mut base64_key) =
+        (None, None, None, None, None, false);
+    let mut split = line.trim_end().split(' ');
+    let data_len = if line.starts_with("VA") {
+        split.next();
+        success = true;
+        Some(split.next().unwrap().parse().unwrap())
+    } else if line.starts_with("HD") {
+        split.next();
+        success = true;
+        None
+    } else if line.starts_with("NS") || line.starts_with("EX") || line.starts_with("NF") {
+        split.next();
+        success = false;
+        None
+    } else {
+        return Err(io::Error::other(line));
+    };
+    for flag in split {
+        let f = &flag[1..];
+        match &flag[..1] {
+            "O" => opaque = Some(f.to_string()),
+            "t" => ttl = Some(f.parse().unwrap()),
+            "c" => cas = Some(f.parse().unwrap()),
+            "k" => key = Some(f.to_string()),
+            "b" => base64_key = true,
+            other => unreachable!("unexpected ma flag: {other}"),
+        }
+    }
+    if let Some(a) = data_len {
+        let mut buf = String::with_capacity(a + 2);
+        s.read_line(&mut buf).await?;
+        buf.truncate(a);
+        number = Some(buf.parse().unwrap());
+    }
+    Ok(MaItem {
+        success,
+        opaque,
+        ttl,
+        cas,
+        number,
+        key,
+        base64_key,
+    })
 }
 
 fn build_storage_cmd(
@@ -589,6 +906,30 @@ fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
     cmd
 }
 
+fn build_mc_cmd(
+    command_name: &[u8],
+    key: &[u8],
+    flags: &[u8],
+    data_block: Option<&[u8]>,
+) -> Vec<u8> {
+    let (data_len, data, end) = if let Some(a) = data_block {
+        (format!(" {}", a.len()), a, b"\r\n".as_slice())
+    } else {
+        ("".to_string(), b"".as_slice(), b"".as_slice())
+    };
+    [
+        command_name,
+        b" ",
+        key,
+        data_len.as_bytes(),
+        flags,
+        b"\r\n",
+        data,
+        end,
+    ]
+    .concat()
+}
+
 async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
     s.flush().await?;
@@ -816,7 +1157,7 @@ where
 {
     s.write_all(&build_me_cmd(key)).await?;
     s.flush().await?;
-    parse_me_r(s).await
+    parse_me_rp(s).await
 }
 
 async fn execute_cmd<S>(s: &mut S, cmds: &[Vec<u8>]) -> io::Result<Vec<PipelineResponse>>
@@ -898,7 +1239,7 @@ where
             ))
         } else {
             assert!(cmd.starts_with(b"me "));
-            result.push(PipelineResponse::OptionString(parse_me_r(s).await?))
+            result.push(PipelineResponse::OptionString(parse_me_rp(s).await?))
         }
     }
     Ok(result)
@@ -913,6 +1254,152 @@ async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
+async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+    flags: &[MsFlag],
+    data_block: &[u8],
+) -> io::Result<MsItem> {
+    s.write_all(&build_mc_cmd(
+        b"ms",
+        key,
+        flags
+            .iter()
+            .map(|x| match x {
+                MsFlag::Base64Key => " b".to_string(),
+                MsFlag::ReturnCas => " c".to_string(),
+                MsFlag::CompareCas(token) => format!(" C{token}"),
+                MsFlag::NewCas(token) => format!(" E{token}"),
+                MsFlag::SetFlags(token) => format!(" F{token}"),
+                MsFlag::Invalidate => " I".to_string(),
+                MsFlag::ReturnKey => " k".to_string(),
+                MsFlag::Opaque(token) => format!(" O{token}"),
+                MsFlag::ReturnSize => " s".to_string(),
+                MsFlag::Ttl(token) => format!(" T{token}"),
+                MsFlag::Mode(token) => match token {
+                    MsMode::Add => " ME".to_string(),
+                    MsMode::Append => " MA".to_string(),
+                    MsMode::Prepend => " MP".to_string(),
+                    MsMode::Replace => " MR".to_string(),
+                    MsMode::Set => " MS".to_string(),
+                },
+                MsFlag::Autovivify(token) => format!(" N{token}"),
+            })
+            .collect::<Vec<_>>()
+            .join("")
+            .as_bytes(),
+        Some(data_block),
+    ))
+    .await?;
+    s.flush().await?;
+    parse_ms_rp(s).await
+}
+
+async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+    flags: &[MgFlag],
+) -> io::Result<MgItem> {
+    s.write_all(&build_mc_cmd(
+        b"mg",
+        key,
+        flags
+            .iter()
+            .map(|x| match x {
+                MgFlag::Base64Key => " b".to_string(),
+                MgFlag::ReturnCas => " c".to_string(),
+                MgFlag::ReturnFlags => " f".to_string(),
+                MgFlag::ReturnHit => " h".to_string(),
+                MgFlag::ReturnKey => " k".to_string(),
+                MgFlag::ReturnLastAccess => " l".to_string(),
+                MgFlag::Opaque(token) => format!(" O{token}"),
+                MgFlag::ReturnSize => " s".to_string(),
+                MgFlag::ReturnTtl => " t".to_string(),
+                MgFlag::UnBump => " u".to_string(),
+                MgFlag::ReturnValue => " v".to_string(),
+                MgFlag::NewCas(token) => format!(" E{token}"),
+                MgFlag::Autovivify(token) => format!(" N{token}"),
+                MgFlag::RecacheTtl(token) => format!(" R{token}"),
+                MgFlag::UpdateTtl(token) => format!(" T{token}"),
+            })
+            .collect::<Vec<_>>()
+            .join("")
+            .as_bytes(),
+        None,
+    ))
+    .await?;
+    s.flush().await?;
+    parse_mg_rp(s).await
+}
+
+async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+    flags: &[MdFlag],
+) -> io::Result<MdItem> {
+    s.write_all(&build_mc_cmd(
+        b"md",
+        key,
+        flags
+            .iter()
+            .map(|x| match x {
+                MdFlag::Base64Key => " b".to_string(),
+                MdFlag::CompareCas(token) => format!(" C{token}"),
+                MdFlag::NewCas(token) => format!(" E{token}"),
+                MdFlag::Invalidate => " I".to_string(),
+                MdFlag::ReturnKey => " k".to_string(),
+                MdFlag::Opaque(token) => format!(" O{token}"),
+                MdFlag::UpdateTtl(token) => format!(" T{token}"),
+                MdFlag::LeaveKey => " x".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("")
+            .as_bytes(),
+        None,
+    ))
+    .await?;
+    s.flush().await?;
+    parse_md_rp(s).await
+}
+
+async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+    flags: &[MaFlag],
+) -> io::Result<MaItem> {
+    s.write_all(&build_mc_cmd(
+        b"ma",
+        key,
+        flags
+            .iter()
+            .map(|x| match x {
+                MaFlag::Base64Key => " b".to_string(),
+                MaFlag::CompareCas(token) => format!(" C{token}"),
+                MaFlag::NewCas(token) => format!(" E{token}"),
+                MaFlag::AutoCreate(token) => format!(" N{token}"),
+                MaFlag::InitValue(token) => format!(" J{token}"),
+                MaFlag::DeltaApply(token) => format!(" D{token}"),
+                MaFlag::UpdateTtl(token) => format!(" T{token}"),
+                MaFlag::Mode(token) => match token {
+                    MaMode::Incr => " M+".to_string(),
+                    MaMode::Decr => " M-".to_string(),
+                },
+                MaFlag::Opaque(token) => format!(" O{token}"),
+                MaFlag::ReturnTtl => " t".to_string(),
+                MaFlag::ReturnCas => " c".to_string(),
+                MaFlag::ReturnValue => " v".to_string(),
+                MaFlag::ReturnKey => " k".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("")
+            .as_bytes(),
+        None,
+    ))
+    .await?;
+    s.flush().await?;
+    parse_ma_rp(s).await
+}
+
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     Unix(BufReader<UnixStream>),
@@ -921,7 +1408,7 @@ pub enum Connection {
 impl Connection {
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -938,7 +1425,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -955,7 +1442,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -972,7 +1459,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -993,7 +1480,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1013,7 +1500,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1033,7 +1520,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1053,7 +1540,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1073,7 +1560,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1125,7 +1612,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1177,7 +1664,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1229,7 +1716,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1281,7 +1768,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1333,7 +1820,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1386,7 +1873,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1410,7 +1897,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1431,7 +1918,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// # block_on(async {
@@ -1456,7 +1943,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1482,7 +1969,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1508,7 +1995,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1530,7 +2017,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::{Connection, Item};
     /// # use smol::{io, block_on};
     /// #
@@ -1556,7 +2043,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::{Connection, Item};
     /// # use smol::{io, block_on};
     /// #
@@ -1582,7 +2069,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::{Connection, Item};
     /// # use smol::{io, block_on};
     /// #
@@ -1608,7 +2095,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1646,7 +2133,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1684,7 +2171,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1726,7 +2213,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1768,7 +2255,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// use mcmc_rs::StatsArg;
     /// # use smol::{io, block_on};
@@ -1790,7 +2277,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// use mcmc_rs::SlabsAutomoveArg;
     /// # use smol::{io, block_on};
@@ -1811,7 +2298,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerArg};
     /// # use smol::{io, block_on};
     /// #
@@ -1832,7 +2319,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1852,7 +2339,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1872,7 +2359,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerCrawlArg};
     /// # use smol::{io, block_on};
     /// #
@@ -1892,7 +2379,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1917,7 +2404,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerMetadumpArg};
     /// # use smol::{io, block_on};
     /// #
@@ -1941,7 +2428,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerMgdumpArg};
     /// # use smol::{io, block_on};
     /// #
@@ -1965,7 +2452,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -1985,7 +2472,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2006,7 +2493,7 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, WatchArg};
     /// # use smol::{io, block_on};
     /// #
@@ -2028,13 +2515,196 @@ impl Connection {
     pub fn pipeline(&mut self) -> Pipeline {
         Pipeline::new(self)
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MgFlag, MgItem};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.mg(b"44OG44K544OI", &[
+    ///     MgFlag::Base64Key,
+    ///     MgFlag::ReturnCas,
+    ///     MgFlag::ReturnFlags,
+    ///     MgFlag::ReturnHit,
+    ///     MgFlag::ReturnKey,
+    ///     MgFlag::ReturnLastAccess,
+    ///     MgFlag::Opaque("opaque".to_string()),
+    ///     MgFlag::ReturnSize,
+    ///     MgFlag::ReturnTtl,
+    ///     MgFlag::UnBump,
+    ///     MgFlag::ReturnValue,
+    ///     MgFlag::NewCas(0),
+    ///     MgFlag::Autovivify(-1),
+    ///     MgFlag::RecacheTtl(-1),
+    ///     MgFlag::UpdateTtl(-1),
+    /// ]).await?;
+    /// assert_eq!(result, MgItem {
+    ///     success: true,
+    ///     base64_key: false,
+    ///     cas: Some(0),
+    ///     flags: Some(0),
+    ///     hit: Some(0),
+    ///     key: Some("テスト".to_string()),
+    ///     last_access_ttl: Some(0),
+    ///     opaque: Some("opaque".to_string()),
+    ///     size: Some(0),
+    ///     ttl: Some(-1),
+    ///     data_block: Some(vec![]),
+    ///     already_win: false,
+    ///     won_recache: true,
+    ///     stale: false,
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+        match self {
+            Connection::Tcp(s) => mg_cmd(s, key.as_ref(), flags).await,
+            Connection::Unix(s) => mg_cmd(s, key.as_ref(), flags).await,
+            Connection::Udp(_s) => todo!(),
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MsItem, MsFlag, MsMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.ms(
+    ///     b"44OG44K544OI",
+    ///     &[
+    ///     MsFlag::Base64Key,
+    ///     MsFlag::ReturnCas,
+    ///     MsFlag::CompareCas(0),
+    ///     MsFlag::NewCas(0),
+    ///     MsFlag::SetFlags(0),
+    ///     MsFlag::Invalidate,
+    ///     MsFlag::ReturnKey,
+    ///     MsFlag::Opaque("opaque".to_string()),
+    ///     MsFlag::ReturnSize,
+    ///     MsFlag::Ttl(-1),
+    ///     MsFlag::Mode(MsMode::Set),
+    ///     MsFlag::Autovivify(0)
+    ///     ],
+    ///     b"hi").await?;
+    /// assert_eq!(result, MsItem {
+    ///     success: false,
+    ///     cas: Some(0),
+    ///     key: Some("44OG44K544OI".to_string()),
+    ///     opaque: Some("opaque".to_string()),
+    ///     size: Some(2),
+    ///     base64_key: true
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn ms(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: &[MsFlag],
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<MsItem> {
+        match self {
+            Connection::Tcp(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
+            Connection::Unix(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
+            Connection::Udp(_s) => todo!(),
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MdItem, MdFlag};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.md(
+    ///     b"44OG44K544OI",
+    ///     &[
+    ///     MdFlag::Base64Key,
+    ///     MdFlag::CompareCas(0),
+    ///     MdFlag::NewCas(0),
+    ///     MdFlag::Invalidate,
+    ///     MdFlag::ReturnKey,
+    ///     MdFlag::Opaque("opaque".to_string()),
+    ///     MdFlag::UpdateTtl(-1),
+    ///     MdFlag::LeaveKey,
+    ///     ]).await?;
+    /// assert_eq!(result, MdItem {
+    ///     success: false,
+    ///     key: Some("44OG44K544OI".to_string()),
+    ///     opaque: Some("opaque".to_string()),
+    ///     base64_key: true
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+        match self {
+            Connection::Tcp(s) => md_cmd(s, key.as_ref(), flags).await,
+            Connection::Unix(s) => md_cmd(s, key.as_ref(), flags).await,
+            Connection::Udp(_s) => todo!(),
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MaItem, MaFlag, MaMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.ma(
+    ///     b"aGk=",
+    ///     &[
+    ///     MaFlag::Base64Key,
+    ///     MaFlag::CompareCas(0),
+    ///     MaFlag::NewCas(0),
+    ///     MaFlag::AutoCreate(0),
+    ///     MaFlag::InitValue(0),
+    ///     MaFlag::DeltaApply(0),
+    ///     MaFlag::UpdateTtl(0),
+    ///     MaFlag::Mode(MaMode::Incr),
+    ///     MaFlag::Opaque("opaque".to_string()),
+    ///     MaFlag::ReturnTtl,
+    ///     MaFlag::ReturnCas,
+    ///     MaFlag::ReturnValue,
+    ///     MaFlag::ReturnKey,
+    ///     ]).await?;
+    /// assert_eq!(result, MaItem {
+    ///     success: true,
+    ///     opaque: Some("opaque".to_string()),
+    ///     ttl: Some(-1),
+    ///     cas: Some(0),
+    ///     number: Some(0),
+    ///     key: Some("aGk=".to_string()),
+    ///     base64_key: true
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+        match self {
+            Connection::Tcp(s) => ma_cmd(s, key.as_ref(), flags).await,
+            Connection::Unix(s) => ma_cmd(s, key.as_ref(), flags).await,
+            Connection::Udp(_s) => todo!(),
+        }
+    }
 }
 
 pub struct WatchStream(Connection);
 impl WatchStream {
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, WatchArg};
     /// # use smol::{io, block_on};
     /// #
@@ -2067,7 +2737,7 @@ pub struct ClientCrc32(Vec<Connection>);
 impl ClientCrc32 {
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2087,7 +2757,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2113,7 +2783,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2139,7 +2809,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::{Connection, Item};
     /// # use smol::{io, block_on};
     /// #
@@ -2160,7 +2830,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// # use mcmc_rs::{Connection, Item};
     /// # use smol::{io, block_on};
     /// #
@@ -2181,7 +2851,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2213,7 +2883,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2245,7 +2915,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2277,7 +2947,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2309,7 +2979,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2341,7 +3011,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2381,7 +3051,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2406,7 +3076,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2436,7 +3106,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2466,7 +3136,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2496,7 +3166,7 @@ impl ClientCrc32 {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
@@ -2524,7 +3194,7 @@ pub struct Pipeline<'a>(&'a mut Connection, Vec<Vec<u8>>);
 impl<'a> Pipeline<'a> {
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2540,7 +3210,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2563,7 +3233,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2580,7 +3250,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2597,7 +3267,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2614,7 +3284,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2632,7 +3302,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2649,7 +3319,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2681,7 +3351,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2713,7 +3383,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2745,7 +3415,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2777,7 +3447,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2809,7 +3479,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2842,7 +3512,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2860,7 +3530,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2877,7 +3547,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2895,7 +3565,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2913,7 +3583,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2930,7 +3600,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2948,7 +3618,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2966,7 +3636,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -2984,7 +3654,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3002,7 +3672,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3023,7 +3693,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3044,7 +3714,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3065,7 +3735,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3086,7 +3756,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, StatsArg};
     /// # use smol::{io, block_on};
     /// #
@@ -3103,7 +3773,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, SlabsAutomoveArg};
     /// # use smol::{io, block_on};
     /// #
@@ -3120,7 +3790,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerArg};
     /// # use smol::{io, block_on};
     /// #
@@ -3137,7 +3807,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3154,7 +3824,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3171,7 +3841,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerCrawlArg};
     /// # use smol::{io, block_on};
     /// #
@@ -3188,7 +3858,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3206,7 +3876,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerMetadumpArg};
     /// # use smol::{io, block_on};
     /// #
@@ -3223,7 +3893,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::{Connection, LruCrawlerMgdumpArg};
     /// # use smol::{io, block_on};
     /// #
@@ -3240,7 +3910,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3257,7 +3927,7 @@ impl<'a> Pipeline<'a> {
 
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
@@ -3883,6 +4553,565 @@ mod tests {
                     .await
                     .is_err()
             );
+        })
+    }
+
+    #[test]
+    fn test_mg() {
+        block_on(async {
+            let mut c = Cursor::new(b"mg key b\r\nEN b\r\n".to_vec());
+            assert_eq!(
+                mg_cmd(&mut c, b"key", &[MgFlag::Base64Key]).await.unwrap(),
+                MgItem {
+                    success: false,
+                    base64_key: true,
+                    cas: None,
+                    flags: None,
+                    hit: None,
+                    key: None,
+                    last_access_ttl: None,
+                    opaque: None,
+                    size: None,
+                    ttl: None,
+                    data_block: None,
+                    already_win: false,
+                    won_recache: false,
+                    stale: false,
+                }
+            );
+
+            let mut c = Cursor::new(b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0\r\nHD b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\n".to_vec());
+            assert_eq!(
+                mg_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MgFlag::Base64Key,
+                        MgFlag::ReturnCas,
+                        MgFlag::ReturnFlags,
+                        MgFlag::ReturnHit,
+                        MgFlag::ReturnKey,
+                        MgFlag::ReturnLastAccess,
+                        MgFlag::Opaque("opaque".to_string()),
+                        MgFlag::ReturnSize,
+                        MgFlag::ReturnTtl,
+                        MgFlag::UnBump,
+                        MgFlag::NewCas(0),
+                        MgFlag::Autovivify(0),
+                        MgFlag::RecacheTtl(0),
+                        MgFlag::UpdateTtl(0),
+                    ]
+                )
+                .await
+                .unwrap(),
+                MgItem {
+                    success: true,
+                    base64_key: true,
+                    cas: Some(0),
+                    flags: Some(0),
+                    hit: Some(0),
+                    key: Some("44OG44K544OI".to_string()),
+                    last_access_ttl: Some(0),
+                    opaque: Some("opaque".to_string()),
+                    size: Some(0),
+                    ttl: Some(0),
+                    data_block: None,
+                    already_win: true,
+                    won_recache: true,
+                    stale: true,
+                }
+            );
+
+            let mut c = Cursor::new(b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\nVA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec());
+            assert_eq!(
+                mg_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MgFlag::Base64Key,
+                        MgFlag::ReturnCas,
+                        MgFlag::ReturnFlags,
+                        MgFlag::ReturnHit,
+                        MgFlag::ReturnKey,
+                        MgFlag::ReturnLastAccess,
+                        MgFlag::Opaque("opaque".to_string()),
+                        MgFlag::ReturnSize,
+                        MgFlag::ReturnTtl,
+                        MgFlag::UnBump,
+                        MgFlag::ReturnValue,
+                        MgFlag::NewCas(0),
+                        MgFlag::Autovivify(0),
+                        MgFlag::RecacheTtl(0),
+                        MgFlag::UpdateTtl(0),
+                    ]
+                )
+                .await
+                .unwrap(),
+                MgItem {
+                    success: true,
+                    base64_key: true,
+                    cas: Some(0),
+                    flags: Some(0),
+                    hit: Some(0),
+                    key: Some("44OG44K544OI".to_string()),
+                    last_access_ttl: Some(0),
+                    opaque: Some("opaque".to_string()),
+                    size: Some(0),
+                    ttl: Some(0),
+                    data_block: Some(b"A".to_vec()),
+                    already_win: true,
+                    won_recache: true,
+                    stale: true,
+                }
+            );
+
+            let mut c = Cursor::new(
+                b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\nERROR\r\n".to_vec(),
+            );
+            assert!(
+                mg_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MgFlag::Base64Key,
+                        MgFlag::ReturnCas,
+                        MgFlag::ReturnFlags,
+                        MgFlag::ReturnHit,
+                        MgFlag::ReturnKey,
+                        MgFlag::ReturnLastAccess,
+                        MgFlag::Opaque("opaque".to_string()),
+                        MgFlag::ReturnSize,
+                        MgFlag::ReturnTtl,
+                        MgFlag::UnBump,
+                        MgFlag::ReturnValue,
+                        MgFlag::NewCas(0),
+                        MgFlag::Autovivify(0),
+                        MgFlag::RecacheTtl(0),
+                        MgFlag::UpdateTtl(0),
+                    ]
+                )
+                .await
+                .is_err(),
+            );
+        })
+    }
+
+    #[test]
+    fn test_ms() {
+        block_on(async {
+            let mut c = Cursor::new(
+                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MP N0\r\nhi\r\nNF\r\n".to_vec(),
+            );
+            assert_eq!(
+                ms_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MsFlag::Base64Key,
+                        MsFlag::ReturnCas,
+                        MsFlag::CompareCas(0),
+                        MsFlag::NewCas(0),
+                        MsFlag::SetFlags(0),
+                        MsFlag::Invalidate,
+                        MsFlag::ReturnKey,
+                        MsFlag::Opaque("opaque".to_string()),
+                        MsFlag::ReturnSize,
+                        MsFlag::Ttl(0),
+                        MsFlag::Mode(MsMode::Prepend),
+                        MsFlag::Autovivify(0)
+                    ],
+                    b"hi"
+                )
+                .await
+                .unwrap(),
+                MsItem {
+                    success: false,
+                    cas: None,
+                    key: None,
+                    opaque: None,
+                    size: None,
+                    base64_key: false
+                }
+            );
+
+            let mut c = Cursor::new(b"ms 44OG44K544OI 2 MR\r\nhi\r\nEX\r\n".to_vec());
+            assert_eq!(
+                ms_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[MsFlag::Mode(MsMode::Replace)],
+                    b"hi"
+                )
+                .await
+                .unwrap(),
+                MsItem {
+                    success: false,
+                    cas: None,
+                    key: None,
+                    opaque: None,
+                    size: None,
+                    base64_key: false
+                }
+            );
+
+            let mut c = Cursor::new(
+                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 ME N0\r\nhi\r\nNS\r\n".to_vec(),
+            );
+            assert_eq!(
+                ms_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MsFlag::Base64Key,
+                        MsFlag::ReturnCas,
+                        MsFlag::CompareCas(0),
+                        MsFlag::NewCas(0),
+                        MsFlag::SetFlags(0),
+                        MsFlag::Invalidate,
+                        MsFlag::ReturnKey,
+                        MsFlag::Opaque("opaque".to_string()),
+                        MsFlag::ReturnSize,
+                        MsFlag::Ttl(0),
+                        MsFlag::Mode(MsMode::Add),
+                        MsFlag::Autovivify(0)
+                    ],
+                    b"hi"
+                )
+                .await
+                .unwrap(),
+                MsItem {
+                    success: false,
+                    cas: None,
+                    key: None,
+                    opaque: None,
+                    size: None,
+                    base64_key: false
+                }
+            );
+
+            let mut c = Cursor::new(
+                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 ME N0\r\nhi\r\nERROR\r\n"
+                    .to_vec(),
+            );
+            assert!(
+                ms_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MsFlag::Base64Key,
+                        MsFlag::ReturnCas,
+                        MsFlag::CompareCas(0),
+                        MsFlag::NewCas(0),
+                        MsFlag::SetFlags(0),
+                        MsFlag::Invalidate,
+                        MsFlag::ReturnKey,
+                        MsFlag::Opaque("opaque".to_string()),
+                        MsFlag::ReturnSize,
+                        MsFlag::Ttl(0),
+                        MsFlag::Mode(MsMode::Append),
+                        MsFlag::Autovivify(0)
+                    ],
+                    b"hi"
+                )
+                .await
+                .is_err()
+            );
+
+            let mut c = Cursor::new(
+                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\nHD b c0 k44OG44K544OI Oopaque s0\r\n".to_vec(),
+            );
+            assert_eq!(
+                ms_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MsFlag::Base64Key,
+                        MsFlag::ReturnCas,
+                        MsFlag::CompareCas(0),
+                        MsFlag::NewCas(0),
+                        MsFlag::SetFlags(0),
+                        MsFlag::Invalidate,
+                        MsFlag::ReturnKey,
+                        MsFlag::Opaque("opaque".to_string()),
+                        MsFlag::ReturnSize,
+                        MsFlag::Ttl(0),
+                        MsFlag::Mode(MsMode::Set),
+                        MsFlag::Autovivify(0)
+                    ],
+                    b"hi"
+                )
+                .await
+                .unwrap(),
+                MsItem {
+                    success: true,
+                    cas: Some(0),
+                    key: Some("44OG44K544OI".to_string()),
+                    opaque: Some("opaque".to_string()),
+                    size: Some(0),
+                    base64_key: true
+                }
+            );
+        })
+    }
+
+    #[test]
+    fn test_md() {
+        block_on(async {
+            let mut c = Cursor::new(b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\nNF\r\n".to_vec());
+            assert_eq!(
+                md_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MdFlag::Base64Key,
+                        MdFlag::CompareCas(0),
+                        MdFlag::NewCas(0),
+                        MdFlag::Invalidate,
+                        MdFlag::ReturnKey,
+                        MdFlag::Opaque("opaque".to_string()),
+                        MdFlag::UpdateTtl(0),
+                        MdFlag::LeaveKey,
+                    ]
+                )
+                .await
+                .unwrap(),
+                MdItem {
+                    success: false,
+                    key: None,
+                    opaque: None,
+                    base64_key: false,
+                }
+            );
+
+            let mut c = Cursor::new(b"md 44OG44K544OI\r\nEX\r\n".to_vec());
+            assert_eq!(
+                md_cmd(&mut c, b"44OG44K544OI", &[]).await.unwrap(),
+                MdItem {
+                    success: false,
+                    key: None,
+                    opaque: None,
+                    base64_key: false,
+                }
+            );
+
+            let mut c = Cursor::new(
+                b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\nHD k44OG44K544OI Oopaque b\r\n"
+                    .to_vec(),
+            );
+            assert_eq!(
+                md_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MdFlag::Base64Key,
+                        MdFlag::CompareCas(0),
+                        MdFlag::NewCas(0),
+                        MdFlag::Invalidate,
+                        MdFlag::ReturnKey,
+                        MdFlag::Opaque("opaque".to_string()),
+                        MdFlag::UpdateTtl(0),
+                        MdFlag::LeaveKey,
+                    ]
+                )
+                .await
+                .unwrap(),
+                MdItem {
+                    success: true,
+                    key: Some("44OG44K544OI".to_string()),
+                    opaque: Some("opaque".to_string()),
+                    base64_key: true
+                }
+            );
+
+            let mut c =
+                Cursor::new(b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\nERROR\r\n".to_vec());
+            assert!(
+                md_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MdFlag::Base64Key,
+                        MdFlag::CompareCas(0),
+                        MdFlag::NewCas(0),
+                        MdFlag::Invalidate,
+                        MdFlag::ReturnKey,
+                        MdFlag::Opaque("opaque".to_string()),
+                        MdFlag::UpdateTtl(0),
+                        MdFlag::LeaveKey,
+                    ]
+                )
+                .await
+                .is_err(),
+            )
+        })
+    }
+
+    #[test]
+    fn test_ma() {
+        block_on(async {
+            let mut c = Cursor::new(
+                b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nNF\r\n".to_vec(),
+            );
+            assert_eq!(
+                ma_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MaFlag::Base64Key,
+                        MaFlag::CompareCas(0),
+                        MaFlag::NewCas(0),
+                        MaFlag::AutoCreate(0),
+                        MaFlag::InitValue(0),
+                        MaFlag::DeltaApply(0),
+                        MaFlag::UpdateTtl(0),
+                        MaFlag::Mode(MaMode::Incr),
+                        MaFlag::Opaque("opaque".to_string()),
+                        MaFlag::ReturnTtl,
+                        MaFlag::ReturnCas,
+                        MaFlag::ReturnValue,
+                        MaFlag::ReturnKey,
+                    ],
+                )
+                .await
+                .unwrap(),
+                MaItem {
+                    success: false,
+                    opaque: None,
+                    ttl: None,
+                    cas: None,
+                    number: None,
+                    key: None,
+                    base64_key: false,
+                }
+            );
+
+            let mut c = Cursor::new(
+            b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nNS Oopaque t0 c0 k44OG44K544OI b\r\n"
+                .to_vec(),
+        );
+            assert_eq!(
+                ma_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MaFlag::Base64Key,
+                        MaFlag::CompareCas(0),
+                        MaFlag::NewCas(0),
+                        MaFlag::AutoCreate(0),
+                        MaFlag::InitValue(0),
+                        MaFlag::DeltaApply(0),
+                        MaFlag::UpdateTtl(0),
+                        MaFlag::Mode(MaMode::Incr),
+                        MaFlag::Opaque("opaque".to_string()),
+                        MaFlag::ReturnTtl,
+                        MaFlag::ReturnCas,
+                        MaFlag::ReturnValue,
+                        MaFlag::ReturnKey,
+                    ],
+                )
+                .await
+                .unwrap(),
+                MaItem {
+                    success: false,
+                    opaque: Some("opaque".to_string()),
+                    ttl: Some(0),
+                    cas: Some(0),
+                    number: None,
+                    key: Some("44OG44K544OI".to_string()),
+                    base64_key: true,
+                }
+            );
+
+            let mut c = Cursor::new(b"ma 44OG44K544OI\r\nEX\r\n".to_vec());
+            assert_eq!(
+                ma_cmd(&mut c, b"44OG44K544OI", &[],).await.unwrap(),
+                MaItem {
+                    success: false,
+                    opaque: None,
+                    ttl: None,
+                    cas: None,
+                    number: None,
+                    key: None,
+                    base64_key: false,
+                }
+            );
+            let mut c = Cursor::new(b"ma 44OG44K544OI\r\nHD\r\n".to_vec());
+            assert_eq!(
+                ma_cmd(&mut c, b"44OG44K544OI", &[],).await.unwrap(),
+                MaItem {
+                    success: true,
+                    opaque: None,
+                    ttl: None,
+                    cas: None,
+                    number: None,
+                    key: None,
+                    base64_key: false,
+                }
+            );
+
+            let mut c = Cursor::new(
+            b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nVA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n"
+                .to_vec(),
+        );
+            assert_eq!(
+                ma_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MaFlag::Base64Key,
+                        MaFlag::CompareCas(0),
+                        MaFlag::NewCas(0),
+                        MaFlag::AutoCreate(0),
+                        MaFlag::InitValue(0),
+                        MaFlag::DeltaApply(0),
+                        MaFlag::UpdateTtl(0),
+                        MaFlag::Mode(MaMode::Incr),
+                        MaFlag::Opaque("opaque".to_string()),
+                        MaFlag::ReturnTtl,
+                        MaFlag::ReturnCas,
+                        MaFlag::ReturnValue,
+                        MaFlag::ReturnKey,
+                    ],
+                )
+                .await
+                .unwrap(),
+                MaItem {
+                    success: true,
+                    opaque: Some("opaque".to_string()),
+                    ttl: Some(0),
+                    cas: Some(0),
+                    number: Some(10),
+                    key: Some("44OG44K544OI".to_string()),
+                    base64_key: true,
+                }
+            );
+
+            let mut c = Cursor::new(
+                b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nERROR\r\n".to_vec(),
+            );
+            assert!(
+                ma_cmd(
+                    &mut c,
+                    b"44OG44K544OI",
+                    &[
+                        MaFlag::Base64Key,
+                        MaFlag::CompareCas(0),
+                        MaFlag::NewCas(0),
+                        MaFlag::AutoCreate(0),
+                        MaFlag::InitValue(0),
+                        MaFlag::DeltaApply(0),
+                        MaFlag::UpdateTtl(0),
+                        MaFlag::Mode(MaMode::Decr),
+                        MaFlag::Opaque("opaque".to_string()),
+                        MaFlag::ReturnTtl,
+                        MaFlag::ReturnCas,
+                        MaFlag::ReturnValue,
+                        MaFlag::ReturnKey,
+                    ],
+                )
+                .await
+                .is_err()
+            )
         })
     }
 }
