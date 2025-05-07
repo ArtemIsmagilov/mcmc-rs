@@ -127,6 +127,10 @@ pub enum PipelineResponse {
     Unit(()),
     Value(Option<u64>),
     HashMap(HashMap<String, String>),
+    MetaGet(MgItem),
+    MetaSet(MsItem),
+    MetaDelete(MdItem),
+    MetaArithmetic(MaItem),
 }
 
 pub enum MsMode {
@@ -930,6 +934,99 @@ fn build_mc_cmd(
     .concat()
 }
 
+fn build_ms_flags(flags: &[MsFlag]) -> String {
+    flags
+        .iter()
+        .map(|x| match x {
+            MsFlag::Base64Key => " b".to_string(),
+            MsFlag::ReturnCas => " c".to_string(),
+            MsFlag::CompareCas(token) => format!(" C{token}"),
+            MsFlag::NewCas(token) => format!(" E{token}"),
+            MsFlag::SetFlags(token) => format!(" F{token}"),
+            MsFlag::Invalidate => " I".to_string(),
+            MsFlag::ReturnKey => " k".to_string(),
+            MsFlag::Opaque(token) => format!(" O{token}"),
+            MsFlag::ReturnSize => " s".to_string(),
+            MsFlag::Ttl(token) => format!(" T{token}"),
+            MsFlag::Mode(token) => match token {
+                MsMode::Add => " ME".to_string(),
+                MsMode::Append => " MA".to_string(),
+                MsMode::Prepend => " MP".to_string(),
+                MsMode::Replace => " MR".to_string(),
+                MsMode::Set => " MS".to_string(),
+            },
+            MsFlag::Autovivify(token) => format!(" N{token}"),
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn build_mg_flags(flags: &[MgFlag]) -> String {
+    flags
+        .iter()
+        .map(|x| match x {
+            MgFlag::Base64Key => " b".to_string(),
+            MgFlag::ReturnCas => " c".to_string(),
+            MgFlag::ReturnFlags => " f".to_string(),
+            MgFlag::ReturnHit => " h".to_string(),
+            MgFlag::ReturnKey => " k".to_string(),
+            MgFlag::ReturnLastAccess => " l".to_string(),
+            MgFlag::Opaque(token) => format!(" O{token}"),
+            MgFlag::ReturnSize => " s".to_string(),
+            MgFlag::ReturnTtl => " t".to_string(),
+            MgFlag::UnBump => " u".to_string(),
+            MgFlag::ReturnValue => " v".to_string(),
+            MgFlag::NewCas(token) => format!(" E{token}"),
+            MgFlag::Autovivify(token) => format!(" N{token}"),
+            MgFlag::RecacheTtl(token) => format!(" R{token}"),
+            MgFlag::UpdateTtl(token) => format!(" T{token}"),
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn build_md_flags(flags: &[MdFlag]) -> String {
+    flags
+        .iter()
+        .map(|x| match x {
+            MdFlag::Base64Key => " b".to_string(),
+            MdFlag::CompareCas(token) => format!(" C{token}"),
+            MdFlag::NewCas(token) => format!(" E{token}"),
+            MdFlag::Invalidate => " I".to_string(),
+            MdFlag::ReturnKey => " k".to_string(),
+            MdFlag::Opaque(token) => format!(" O{token}"),
+            MdFlag::UpdateTtl(token) => format!(" T{token}"),
+            MdFlag::LeaveKey => " x".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn build_ma_flags(flags: &[MaFlag]) -> String {
+    flags
+        .iter()
+        .map(|x| match x {
+            MaFlag::Base64Key => " b".to_string(),
+            MaFlag::CompareCas(token) => format!(" C{token}"),
+            MaFlag::NewCas(token) => format!(" E{token}"),
+            MaFlag::AutoCreate(token) => format!(" N{token}"),
+            MaFlag::InitValue(token) => format!(" J{token}"),
+            MaFlag::DeltaApply(token) => format!(" D{token}"),
+            MaFlag::UpdateTtl(token) => format!(" T{token}"),
+            MaFlag::Mode(token) => match token {
+                MaMode::Incr => " M+".to_string(),
+                MaMode::Decr => " M-".to_string(),
+            },
+            MaFlag::Opaque(token) => format!(" O{token}"),
+            MaFlag::ReturnTtl => " t".to_string(),
+            MaFlag::ReturnCas => " c".to_string(),
+            MaFlag::ReturnValue => " v".to_string(),
+            MaFlag::ReturnKey => " k".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
     s.flush().await?;
@@ -1237,6 +1334,14 @@ where
             result.push(PipelineResponse::VecString(
                 parse_lru_crawler_mgdump_rp(s).await?,
             ))
+        } else if cmd.starts_with(b"mg ") {
+            result.push(PipelineResponse::MetaGet(parse_mg_rp(s).await?))
+        } else if cmd.starts_with(b"ms ") {
+            result.push(PipelineResponse::MetaSet(parse_ms_rp(s).await?))
+        } else if cmd.starts_with(b"md ") {
+            result.push(PipelineResponse::MetaDelete(parse_md_rp(s).await?))
+        } else if cmd.starts_with(b"ma ") {
+            result.push(PipelineResponse::MetaArithmetic(parse_ma_rp(s).await?))
         } else {
             assert!(cmd.starts_with(b"me "));
             result.push(PipelineResponse::OptionString(parse_me_rp(s).await?))
@@ -1263,31 +1368,7 @@ async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_mc_cmd(
         b"ms",
         key,
-        flags
-            .iter()
-            .map(|x| match x {
-                MsFlag::Base64Key => " b".to_string(),
-                MsFlag::ReturnCas => " c".to_string(),
-                MsFlag::CompareCas(token) => format!(" C{token}"),
-                MsFlag::NewCas(token) => format!(" E{token}"),
-                MsFlag::SetFlags(token) => format!(" F{token}"),
-                MsFlag::Invalidate => " I".to_string(),
-                MsFlag::ReturnKey => " k".to_string(),
-                MsFlag::Opaque(token) => format!(" O{token}"),
-                MsFlag::ReturnSize => " s".to_string(),
-                MsFlag::Ttl(token) => format!(" T{token}"),
-                MsFlag::Mode(token) => match token {
-                    MsMode::Add => " ME".to_string(),
-                    MsMode::Append => " MA".to_string(),
-                    MsMode::Prepend => " MP".to_string(),
-                    MsMode::Replace => " MR".to_string(),
-                    MsMode::Set => " MS".to_string(),
-                },
-                MsFlag::Autovivify(token) => format!(" N{token}"),
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .as_bytes(),
+        build_ms_flags(flags).as_bytes(),
         Some(data_block),
     ))
     .await?;
@@ -1303,28 +1384,7 @@ async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_mc_cmd(
         b"mg",
         key,
-        flags
-            .iter()
-            .map(|x| match x {
-                MgFlag::Base64Key => " b".to_string(),
-                MgFlag::ReturnCas => " c".to_string(),
-                MgFlag::ReturnFlags => " f".to_string(),
-                MgFlag::ReturnHit => " h".to_string(),
-                MgFlag::ReturnKey => " k".to_string(),
-                MgFlag::ReturnLastAccess => " l".to_string(),
-                MgFlag::Opaque(token) => format!(" O{token}"),
-                MgFlag::ReturnSize => " s".to_string(),
-                MgFlag::ReturnTtl => " t".to_string(),
-                MgFlag::UnBump => " u".to_string(),
-                MgFlag::ReturnValue => " v".to_string(),
-                MgFlag::NewCas(token) => format!(" E{token}"),
-                MgFlag::Autovivify(token) => format!(" N{token}"),
-                MgFlag::RecacheTtl(token) => format!(" R{token}"),
-                MgFlag::UpdateTtl(token) => format!(" T{token}"),
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .as_bytes(),
+        build_mg_flags(flags).as_bytes(),
         None,
     ))
     .await?;
@@ -1340,21 +1400,7 @@ async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_mc_cmd(
         b"md",
         key,
-        flags
-            .iter()
-            .map(|x| match x {
-                MdFlag::Base64Key => " b".to_string(),
-                MdFlag::CompareCas(token) => format!(" C{token}"),
-                MdFlag::NewCas(token) => format!(" E{token}"),
-                MdFlag::Invalidate => " I".to_string(),
-                MdFlag::ReturnKey => " k".to_string(),
-                MdFlag::Opaque(token) => format!(" O{token}"),
-                MdFlag::UpdateTtl(token) => format!(" T{token}"),
-                MdFlag::LeaveKey => " x".to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .as_bytes(),
+        build_md_flags(flags).as_bytes(),
         None,
     ))
     .await?;
@@ -1370,29 +1416,7 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_mc_cmd(
         b"ma",
         key,
-        flags
-            .iter()
-            .map(|x| match x {
-                MaFlag::Base64Key => " b".to_string(),
-                MaFlag::CompareCas(token) => format!(" C{token}"),
-                MaFlag::NewCas(token) => format!(" E{token}"),
-                MaFlag::AutoCreate(token) => format!(" N{token}"),
-                MaFlag::InitValue(token) => format!(" J{token}"),
-                MaFlag::DeltaApply(token) => format!(" D{token}"),
-                MaFlag::UpdateTtl(token) => format!(" T{token}"),
-                MaFlag::Mode(token) => match token {
-                    MaMode::Incr => " M+".to_string(),
-                    MaMode::Decr => " M-".to_string(),
-                },
-                MaFlag::Opaque(token) => format!(" O{token}"),
-                MaFlag::ReturnTtl => " t".to_string(),
-                MaFlag::ReturnCas => " c".to_string(),
-                MaFlag::ReturnValue => " v".to_string(),
-                MaFlag::ReturnKey => " k".to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .as_bytes(),
+        build_ma_flags(flags).as_bytes(),
         None,
     ))
     .await?;
@@ -4140,6 +4164,99 @@ impl<'a> Pipeline<'a> {
         self.1.push(build_me_cmd(key.as_ref()));
         self
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MgFlag};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().mg(b"key", &[MgFlag::Base64Key]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn mg(mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Self {
+        self.1.push(build_mc_cmd(
+            b"mg",
+            key.as_ref(),
+            build_mg_flags(flags).as_bytes(),
+            None,
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MsFlag};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().ms(b"key", &[MsFlag::Base64Key], b"value");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn ms(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: &[MsFlag],
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        self.1.push(build_mc_cmd(
+            b"ms",
+            key.as_ref(),
+            build_ms_flags(flags).as_bytes(),
+            Some(data_block.as_ref()),
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MdFlag};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().md(b"key", &[MdFlag::ReturnKey]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn md(mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Self {
+        self.1.push(build_mc_cmd(
+            b"md",
+            key.as_ref(),
+            build_md_flags(flags).as_bytes(),
+            None,
+        ));
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, MaFlag};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().ma(b"key", &[MaFlag::Base64Key]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn ma(mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Self {
+        self.1.push(build_mc_cmd(
+            b"ma",
+            key.as_ref(),
+            build_ma_flags(flags).as_bytes(),
+            None,
+        ));
+        self
+    }
 }
 
 #[cfg(test)]
@@ -4623,6 +4740,10 @@ mod tests {
                 b"lru_crawler mgdump 3\r\n".to_vec(),
                 b"mn\r\n".to_vec(),
                 b"me key\r\n".to_vec(),
+                b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\n".to_vec(),
+                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\n".to_vec(),
+                b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\n".to_vec(),
+                b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\n".to_vec(),
             ];
             let rps = [
                 b"VERSION 1.2.3\r\n".to_vec(),
@@ -4649,6 +4770,10 @@ mod tests {
                 b"mg key\r\nmg key2\r\nEN\r\n".to_vec(),
                 b"MN\r\n".to_vec(),
                 b"ME key exp=-1 la=3 cas=2 fetch=no cls=1 size=63\r\n".to_vec(),
+                b"VA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec(),
+                b"HD b c0 k44OG44K544OI Oopaque s0\r\n".to_vec(),
+                b"HD k44OG44K544OI Oopaque b\r\n".to_vec(),
+                b"VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n".to_vec()
             ];
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
             assert_eq!(
@@ -4713,7 +4838,46 @@ mod tests {
                     PipelineResponse::Unit(()),
                     PipelineResponse::OptionString(Some(
                         "key exp=-1 la=3 cas=2 fetch=no cls=1 size=63".to_string()
-                    ))
+                    )),
+                    PipelineResponse::MetaGet(MgItem {
+                        success: true,
+                        base64_key: true,
+                        cas: Some(0),
+                        flags: Some(0),
+                        hit: Some(0),
+                        key: Some("44OG44K544OI".to_string()),
+                        last_access_ttl: Some(0),
+                        opaque: Some("opaque".to_string()),
+                        size: Some(0),
+                        ttl: Some(0),
+                        data_block: Some(b"A".to_vec()),
+                        won_recache: true,
+                        stale: true,
+                        already_win: true
+                    }),
+                    PipelineResponse::MetaSet(MsItem {
+                        success: true,
+                        cas: Some(0),
+                        key: Some("44OG44K544OI".to_string()),
+                        opaque: Some("opaque".to_string()),
+                        size: Some(0),
+                        base64_key: true
+                    }),
+                    PipelineResponse::MetaDelete(MdItem {
+                        success: true,
+                        key: Some("44OG44K544OI".to_string()),
+                        opaque: Some("opaque".to_string()),
+                        base64_key: true
+                    }),
+                    PipelineResponse::MetaArithmetic(MaItem {
+                        success: true,
+                        opaque: Some("opaque".to_string()),
+                        ttl: Some(0),
+                        cas: Some(0),
+                        number: Some(10),
+                        key: Some("44OG44K544OI".to_string()),
+                        base64_key: true
+                    })
                 ]
             );
 

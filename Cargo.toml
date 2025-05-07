@@ -1,6 +1,6 @@
 [package]
 name = "mcmc-rs"
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
