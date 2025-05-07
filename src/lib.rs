@@ -3188,6 +3188,205 @@ impl ClientCrc32 {
             .me(key.as_ref())
             .await
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientCrc32, Connection, MgFlag, MgItem};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    /// let result = client.mg(b"44OG44K544OI", &[
+    ///     MgFlag::Base64Key,
+    ///     MgFlag::ReturnCas,
+    ///     MgFlag::ReturnFlags,
+    ///     MgFlag::ReturnHit,
+    ///     MgFlag::ReturnKey,
+    ///     MgFlag::ReturnLastAccess,
+    ///     MgFlag::Opaque("opaque".to_string()),
+    ///     MgFlag::ReturnSize,
+    ///     MgFlag::ReturnTtl,
+    ///     MgFlag::UnBump,
+    ///     MgFlag::ReturnValue,
+    ///     MgFlag::NewCas(0),
+    ///     MgFlag::Autovivify(-1),
+    ///     MgFlag::RecacheTtl(-1),
+    ///     MgFlag::UpdateTtl(-1),
+    /// ]).await?;
+    /// assert_eq!(result, MgItem {
+    ///     success: true,
+    ///     base64_key: false,
+    ///     cas: Some(0),
+    ///     flags: Some(0),
+    ///     hit: Some(0),
+    ///     key: Some("テスト".to_string()),
+    ///     last_access_ttl: Some(0),
+    ///     opaque: Some("opaque".to_string()),
+    ///     size: Some(0),
+    ///     ttl: Some(-1),
+    ///     data_block: Some(vec![]),
+    ///     already_win: false,
+    ///     won_recache: true,
+    ///     stale: false,
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .mg(key.as_ref(), flags)
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientCrc32, Connection, MsItem, MsFlag, MsMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    /// let result = client.ms(
+    ///     b"44OG44K544OI",
+    ///     &[
+    ///     MsFlag::Base64Key,
+    ///     MsFlag::ReturnCas,
+    ///     MsFlag::CompareCas(0),
+    ///     MsFlag::NewCas(0),
+    ///     MsFlag::SetFlags(0),
+    ///     MsFlag::Invalidate,
+    ///     MsFlag::ReturnKey,
+    ///     MsFlag::Opaque("opaque".to_string()),
+    ///     MsFlag::ReturnSize,
+    ///     MsFlag::Ttl(-1),
+    ///     MsFlag::Mode(MsMode::Set),
+    ///     MsFlag::Autovivify(0)
+    ///     ],
+    ///     b"hi").await?;
+    /// assert_eq!(result, MsItem {
+    ///     success: false,
+    ///     cas: Some(0),
+    ///     key: Some("44OG44K544OI".to_string()),
+    ///     opaque: Some("opaque".to_string()),
+    ///     size: Some(2),
+    ///     base64_key: true
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn ms(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: &[MsFlag],
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<MsItem> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .ms(key.as_ref(), flags, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientCrc32, Connection, MdItem, MdFlag};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    /// let result = client.md(
+    ///     b"44OG44K544OI",
+    ///     &[
+    ///     MdFlag::Base64Key,
+    ///     MdFlag::CompareCas(0),
+    ///     MdFlag::NewCas(0),
+    ///     MdFlag::Invalidate,
+    ///     MdFlag::ReturnKey,
+    ///     MdFlag::Opaque("opaque".to_string()),
+    ///     MdFlag::UpdateTtl(-1),
+    ///     MdFlag::LeaveKey,
+    ///     ]).await?;
+    /// assert_eq!(result, MdItem {
+    ///     success: false,
+    ///     key: Some("44OG44K544OI".to_string()),
+    ///     opaque: Some("opaque".to_string()),
+    ///     base64_key: true
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .md(key.as_ref(), flags)
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientCrc32, Connection, MaItem, MaFlag, MaMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(
+    ///     vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     ]
+    /// );
+    /// let result = client.ma(
+    ///     b"aGk=",
+    ///     &[
+    ///     MaFlag::Base64Key,
+    ///     MaFlag::CompareCas(0),
+    ///     MaFlag::NewCas(0),
+    ///     MaFlag::AutoCreate(0),
+    ///     MaFlag::InitValue(0),
+    ///     MaFlag::DeltaApply(0),
+    ///     MaFlag::UpdateTtl(0),
+    ///     MaFlag::Mode(MaMode::Incr),
+    ///     MaFlag::Opaque("opaque".to_string()),
+    ///     MaFlag::ReturnTtl,
+    ///     MaFlag::ReturnCas,
+    ///     MaFlag::ReturnValue,
+    ///     MaFlag::ReturnKey,
+    ///     ]).await?;
+    /// assert_eq!(result, MaItem {
+    ///     success: true,
+    ///     opaque: Some("opaque".to_string()),
+    ///     ttl: Some(-1),
+    ///     cas: Some(0),
+    ///     number: Some(0),
+    ///     key: Some("aGk=".to_string()),
+    ///     base64_key: true
+    /// });
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+        let size = self.0.len();
+        self.0[crc32fast::hash(key.as_ref()) as usize % size]
+            .ma(key.as_ref(), flags)
+            .await
+    }
 }
 
 pub struct Pipeline<'a>(&'a mut Connection, Vec<Vec<u8>>);
