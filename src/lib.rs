@@ -4332,7 +4332,7 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruArg};
+    /// use mcmc_rs::{Connection, LruArg, LruMode};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
