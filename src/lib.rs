@@ -1385,6 +1385,8 @@ where
             result.push(PipelineResponse::MetaDelete(parse_md_rp(s).await?))
         } else if cmd.starts_with(b"ma ") {
             result.push(PipelineResponse::MetaArithmetic(parse_ma_rp(s).await?))
+        } else if cmd.starts_with(b"lru ") {
+            result.push(PipelineResponse::Unit(parse_ok_rp(s, false).await?))
         } else {
             assert!(cmd.starts_with(b"me "));
             result.push(PipelineResponse::OptionString(parse_me_rp(s).await?))
@@ -4326,6 +4328,23 @@ impl<'a> Pipeline<'a> {
         ));
         self
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, LruArg};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// conn.pipeline().lru(LruArg::Mode(LruMode::Flat));
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn lru(mut self, arg: LruArg) -> Self {
+        self.1.push(build_lru_cmd(arg));
+        self
+    }
 }
 
 #[cfg(test)]
@@ -4813,6 +4832,7 @@ mod tests {
                 b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\n".to_vec(),
                 b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\n".to_vec(),
                 b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\n".to_vec(),
+                b"lru mode flat\r\n".to_vec(),
             ];
             let rps = [
                 b"VERSION 1.2.3\r\n".to_vec(),
@@ -4842,7 +4862,8 @@ mod tests {
                 b"VA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec(),
                 b"HD b c0 k44OG44K544OI Oopaque s0\r\n".to_vec(),
                 b"HD k44OG44K544OI Oopaque b\r\n".to_vec(),
-                b"VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n".to_vec()
+                b"VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n".to_vec(),
+                b"OK\r\n".to_vec(),
             ];
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
             assert_eq!(
@@ -4946,7 +4967,8 @@ mod tests {
                         number: Some(10),
                         key: Some("44OG44K544OI".to_string()),
                         base64_key: true
-                    })
+                    }),
+                    PipelineResponse::Unit(()),
                 ]
             );
 
