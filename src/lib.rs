@@ -108,6 +108,22 @@ pub enum WatchArg {
     Deletions,
 }
 
+pub enum LruMode {
+    Flat,
+    Segmented,
+}
+
+pub enum LruArg {
+    Tune {
+        percent_hot: u8,
+        percent_warm: u8,
+        max_hot_factor: f32,
+        max_warm_factor: f32,
+    },
+    Mode(LruMode),
+    TempTtl(i64),
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -1027,6 +1043,33 @@ fn build_ma_flags(flags: &[MaFlag]) -> String {
         .join("")
 }
 
+fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
+    match arg {
+        LruArg::Tune {
+            percent_hot,
+            percent_warm,
+            max_hot_factor,
+            max_warm_factor,
+        } => [
+            b"lru tune ",
+            percent_hot.to_string().as_bytes(),
+            b" ",
+            percent_warm.to_string().as_bytes(),
+            b" ",
+            max_hot_factor.to_string().as_bytes(),
+            b" ",
+            max_warm_factor.to_string().as_bytes(),
+            b"\r\n",
+        ]
+        .concat(),
+        LruArg::Mode(mode) => match mode {
+            LruMode::Flat => b"lru mode flat\r\n".to_vec(),
+            LruMode::Segmented => b"lru mode segmented\r\n".to_vec(),
+        },
+        LruArg::TempTtl(ttl) => [b"lru temp_ttl ", ttl.to_string().as_bytes(), b"\r\n"].concat(),
+    }
+}
+
 async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
     s.flush().await?;
@@ -1422,6 +1465,12 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     .await?;
     s.flush().await?;
     parse_ma_rp(s).await
+}
+
+async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> io::Result<()> {
+    s.write_all(&build_lru_cmd(arg)).await?;
+    s.flush().await?;
+    parse_ok_rp(s, false).await
 }
 
 pub enum Connection {
@@ -2719,6 +2768,26 @@ impl Connection {
         match self {
             Connection::Tcp(s) => ma_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => ma_cmd(s, key.as_ref(), flags).await,
+            Connection::Udp(_s) => todo!(),
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{Connection, LruArg, LruMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.lru(LruArg::Mode(LruMode::Flat)).await.is_ok());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn lru(&mut self, arg: LruArg) -> io::Result<()> {
+        match self {
+            Connection::Tcp(s) => lru_cmd(s, arg).await,
+            Connection::Unix(s) => lru_cmd(s, arg).await,
             Connection::Udp(_s) => todo!(),
         }
     }
@@ -5475,6 +5544,39 @@ mod tests {
                 .await
                 .is_err()
             )
+        })
+    }
+
+    #[test]
+    fn test_lru() {
+        block_on(async {
+            let mut c = Cursor::new(b"lru mode flat\r\nERROR\r\n".to_vec());
+            assert!(lru_cmd(&mut c, LruArg::Mode(LruMode::Flat)).await.is_err());
+
+            let mut c = Cursor::new(b"lru mode segmented\r\nOK\r\n".to_vec());
+            assert!(
+                lru_cmd(&mut c, LruArg::Mode(LruMode::Segmented))
+                    .await
+                    .is_ok()
+            );
+
+            let mut c = Cursor::new(b"lru tune 10 25 0.1 2\r\nOK\r\n".to_vec());
+            assert!(
+                lru_cmd(
+                    &mut c,
+                    LruArg::Tune {
+                        percent_hot: 10,
+                        percent_warm: 25,
+                        max_hot_factor: 0.1,
+                        max_warm_factor: 2.0
+                    }
+                )
+                .await
+                .is_ok()
+            );
+
+            let mut c = Cursor::new(b"lru temp_ttl 0\r\nOK\r\n".to_vec());
+            assert!(lru_cmd(&mut c, LruArg::TempTtl(0)).await.is_ok());
         })
     }
 }
