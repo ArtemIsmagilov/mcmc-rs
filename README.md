@@ -124,5 +124,6 @@ podman kube down pod.yaml
 - Rust Clients
   - [https://github.com/vavrusa/memcache-async]
   - [https://github.com/aisk/rust-memcache]
+  - [https://github.com/Shopify/async-memcached]
 - [Memcached doc](https://docs.memcached.org)
 - [Managed pool](https://docs.rs/deadpool/0.12.2/deadpool/)

@@ -698,8 +698,8 @@ fn build_storage_cmd(
 ) -> Vec<u8> {
     let n: &[u8] = if noreply { b" noreply" } else { b"" };
     let cas = match cas_unique {
-        Some(x) => format!(" {x}"),
-        None => "".to_string(),
+        Some(x) => [b" ", x.to_string().as_bytes()].concat(),
+        None => b"".to_vec(),
     };
     [
         command_name,
@@ -711,7 +711,7 @@ fn build_storage_cmd(
         exptime.to_string().as_bytes(),
         b" ",
         data_block.len().to_string().as_bytes(),
-        cas.as_bytes(),
+        cas.as_slice(),
         n,
         b"\r\n",
         data_block,
@@ -722,13 +722,13 @@ fn build_storage_cmd(
 
 fn build_retrieval_cmd(command_name: &[u8], exptime: Option<i64>, keys: &[&[u8]]) -> Vec<u8> {
     let t = match exptime {
-        Some(x) => format!("{x} "),
-        None => "".to_string(),
+        Some(x) => [x.to_string().as_bytes(), b" "].concat(),
+        None => b"".to_vec(),
     };
     [
         command_name,
         b" ",
-        t.as_bytes(),
+        t.as_slice(),
         keys.join(b" ".as_slice()).as_slice(),
         b"\r\n",
     ]
@@ -758,11 +758,11 @@ fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
 
 fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
     let d = match exptime {
-        Some(x) => format!(" {x}"),
-        None => "".to_string(),
+        Some(x) => [b" ", x.to_string().as_bytes()].concat(),
+        None => b"".to_vec(),
     };
     let n: &[u8] = if noreply { b" noreply" } else { b"" };
-    [b"flush_all", d.as_bytes(), n, b"\r\n"].concat()
+    [b"flush_all", d.as_slice(), n, b"\r\n"].concat()
 }
 
 fn build_delete_cmd(key: &[u8], noreply: bool) -> Vec<u8> {
@@ -855,12 +855,12 @@ fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
     let a = match arg {
         LruCrawlerCrawlArg::Classids(ids) => ids
             .iter()
-            .map(|x| x.to_string())
+            .map(|x| x.to_string().into_bytes())
             .collect::<Vec<_>>()
-            .join(","),
-        LruCrawlerCrawlArg::All => "all".to_string(),
+            .join(b",".as_slice()),
+        LruCrawlerCrawlArg::All => b"all".to_vec(),
     };
-    [b"lru_crawler crawl ", a.as_bytes(), b"\r\n"].concat()
+    [b"lru_crawler crawl ", a.as_slice(), b"\r\n"].concat()
 }
 
 fn build_slabs_reassign_cmd(source_class: usize, dest_class: usize) -> Vec<u8> {
@@ -878,26 +878,26 @@ fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
     let a = match arg {
         LruCrawlerMetadumpArg::Classids(ids) => ids
             .iter()
-            .map(|x| x.to_string())
+            .map(|x| x.to_string().into_bytes())
             .collect::<Vec<_>>()
-            .join(","),
-        LruCrawlerMetadumpArg::All => "all".to_string(),
-        LruCrawlerMetadumpArg::Hash => "hash".to_string(),
+            .join(b",".as_slice()),
+        LruCrawlerMetadumpArg::All => b"all".to_vec(),
+        LruCrawlerMetadumpArg::Hash => b"hash".to_vec(),
     };
-    [b"lru_crawler metadump ", a.as_bytes(), b"\r\n"].concat()
+    [b"lru_crawler metadump ", a.as_slice(), b"\r\n"].concat()
 }
 
 fn build_lru_clawler_mgdump_cmd(arg: LruCrawlerMgdumpArg) -> Vec<u8> {
     let a = match arg {
         LruCrawlerMgdumpArg::Classids(ids) => ids
             .iter()
-            .map(|x| x.to_string())
+            .map(|x| x.to_string().into_bytes())
             .collect::<Vec<_>>()
-            .join(","),
-        LruCrawlerMgdumpArg::All => "all".to_string(),
-        LruCrawlerMgdumpArg::Hash => "hash".to_string(),
+            .join(b",".as_slice()),
+        LruCrawlerMgdumpArg::All => b"all".to_vec(),
+        LruCrawlerMgdumpArg::Hash => b"hash".to_vec(),
     };
-    [b"lru_crawler mgdump ", a.as_bytes(), b"\r\n"].concat()
+    [b"lru_crawler mgdump ", a.as_slice(), b"\r\n"].concat()
 }
 
 fn build_mn_cmd() -> &'static [u8] {
@@ -933,15 +933,19 @@ fn build_mc_cmd(
     data_block: Option<&[u8]>,
 ) -> Vec<u8> {
     let (data_len, data, end) = if let Some(a) = data_block {
-        (format!(" {}", a.len()), a, b"\r\n".as_slice())
+        (
+            [b" ", a.len().to_string().as_bytes()].concat(),
+            a,
+            b"\r\n".as_slice(),
+        )
     } else {
-        ("".to_string(), b"".as_slice(), b"".as_slice())
+        (b"".to_vec(), b"".as_slice(), b"".as_slice())
     };
     [
         command_name,
         b" ",
         key,
-        data_len.as_bytes(),
+        data_len.as_slice(),
         flags,
         b"\r\n",
         data,
