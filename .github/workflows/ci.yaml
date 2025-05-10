@@ -23,3 +23,6 @@ jobs:
         run: |
           cargo check
           cargo test
+      - name: Run benchmarks
+        run: |
+          cargo bench
