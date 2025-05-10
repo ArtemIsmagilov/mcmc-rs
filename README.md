@@ -116,6 +116,14 @@ cargo test
 podman kube down pod.yaml
 ```
 
+## Benchmarks
+
+```bash
+podman start mcmc-rs_md-tcp0_1
+cargo bench
+podman stop mcmc-rs_md-tcp0_1
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
