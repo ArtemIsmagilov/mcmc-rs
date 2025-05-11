@@ -10,7 +10,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ["ubuntu-latest", "macos-latest"]
     name: Run tests.
     steps:
       - name: Checkout Source
@@ -23,6 +23,17 @@ jobs:
         run: |
           cargo check
           cargo test
+
+  bench:
+    runs-on: "ubuntu-latest"
+    services:
+      memcached:
+        image: "memcached:alpine"
+        ports:
+          - "11211:11211"
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
       - name: Run benchmarks
         run: |
           cargo bench
