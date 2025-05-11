@@ -21,7 +21,7 @@ jobs:
       - name: Install Podman
         run: |
           case "${{ runner.os }}" in
-            "macos-latest")
+            "macOS")
               brew install podman
               podman machine init
               podman machine start
