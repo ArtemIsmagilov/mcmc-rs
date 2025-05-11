@@ -75,6 +75,70 @@ fn criterion_benchmark(c: &mut Criterion) {
             })
         })
     });
+
+    c.bench_function("append key5", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.append(
+                    black_box(b"key5"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("append key6 noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.append(
+                    black_box(b"key6"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("replace key7", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key7"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("replace key8 noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key8"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);
