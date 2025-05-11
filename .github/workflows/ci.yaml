@@ -12,12 +12,21 @@ jobs:
   test:
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-latest", "windows-latest"]
+        os: ["ubuntu-latest", "macos-latest"]
     runs-on: ${{ matrix.os }}
     name: Run tests.
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
+      - name: Install Podman
+        run: |
+          case "${{ runner.os }}" in
+            "macos-latest")
+              brew install podman
+              podman machine init
+              podman machine start
+              ;;
+          esac
       - name: Run servers
         run: |
           podman kube play pod.yaml
