@@ -139,6 +139,92 @@ fn criterion_benchmark(c: &mut Criterion) {
             })
         })
     });
+
+    c.bench_function("prepend key9", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key9"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("prepend key10 noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key10"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("cas key11", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.cas(
+                    black_box(b"key11"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(0),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("cas key12 noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.cas(
+                    black_box(b"key12"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(0),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("flush_all", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.flush_all(black_box(None), black_box(false))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("flush_all noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.flush_all(black_box(None), black_box(true))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);
