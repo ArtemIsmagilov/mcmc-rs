@@ -23,18 +23,3 @@ jobs:
         run: |
           cargo check
           cargo test
-
-  bench:
-    runs-on: "ubuntu-latest"
-    name: Run benches.
-    services:
-      memcached:
-        image: "memcached:alpine"
-        ports:
-          - "11211:11211"
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
-      - name: Run benchmarks
-        run: |
-          cargo bench
