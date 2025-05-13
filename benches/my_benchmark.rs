@@ -225,6 +225,50 @@ fn criterion_benchmark(c: &mut Criterion) {
             })
         })
     });
+
+    c.bench_function("version", |b| {
+        b.iter(|| block_on(async { conn.version().await.unwrap() }))
+    });
+
+    c.bench_function("cache_memlimit", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.cache_memlimit(black_box(10), black_box(false))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("cache_memlimit noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.cache_memlimit(black_box(10), black_box(true))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("delete", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.delete(black_box(b"key13"), black_box(false))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
+
+    c.bench_function("delete noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.delete(black_box(b"key14"), black_box(true))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);
