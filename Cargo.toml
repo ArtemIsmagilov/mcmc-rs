@@ -15,7 +15,7 @@ deadpool = "0.12.2"
 smol = "2.0.2"
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.6.0", features = ["html_reports"] }
 
 [[bench]]
 name = "my_benchmark"

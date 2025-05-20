@@ -1,4 +1,5 @@
 use std::hint::black_box;
+use std::time::Duration;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use smol::block_on;
@@ -6,17 +7,62 @@ use smol::block_on;
 use mcmc_rs::Connection;
 
 fn criterion_benchmark(c: &mut Criterion) {
+    let mut group = c.benchmark_group("benchmark_group");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_millis(100));
+    group.warm_up_time(Duration::from_millis(100));
+
     let mut conn = block_on(async { Connection::default().await }).unwrap();
 
-    c.bench_function("get key0", |b| {
+    group.bench_function("get", |b| {
         b.iter(|| block_on(async { conn.get(black_box(b"key0")).await.unwrap() }))
     });
 
-    c.bench_function("set key1", |b| {
+    group.bench_function("gets", |b| {
+        b.iter(|| block_on(async { conn.gets(black_box(b"key1")).await.unwrap() }))
+    });
+
+    group.bench_function("gat", |b| {
+        b.iter(|| block_on(async { conn.gat(black_box(-1), black_box(b"key2")).await.unwrap() }))
+    });
+
+    group.bench_function("gats", |b| {
+        b.iter(|| block_on(async { conn.gats(black_box(-1), black_box(b"key3")).await.unwrap() }))
+    });
+
+    group.bench_function("get multi", |b| {
+        b.iter(|| block_on(async { conn.get_multi(black_box(&[b"key4"])).await.unwrap() }))
+    });
+
+    group.bench_function("gets multi", |b| {
+        b.iter(|| block_on(async { conn.gets_multi(black_box(&[b"key5"])).await.unwrap() }))
+    });
+
+    group.bench_function("gat multi", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.gat_multi(black_box(-1), black_box(&["key6"]))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("gats multi", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.gats_multi(black_box(-1), black_box(&["key7"]))
+                    .await
+                    .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("set", |b| {
         b.iter(|| {
             block_on(async {
                 conn.set(
-                    black_box(b"key1"),
+                    black_box("key8"),
                     black_box(0),
                     black_box(-1),
                     black_box(false),
@@ -28,126 +74,14 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("set key2 noreply", |b| {
+    group.bench_function("set noreply", |b| {
         b.iter(|| {
             block_on(async {
                 conn.set(
-                    black_box(b"key2"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(true),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("add key3", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.add(
-                    black_box(b"key3"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(false),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("add key4 noreply", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.add(
-                    black_box(b"key4"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(true),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("append key5", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.append(
-                    black_box(b"key5"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(false),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("append key6 noreply", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.append(
-                    black_box(b"key6"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(true),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("replace key7", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.replace(
-                    black_box(b"key7"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(false),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("replace key8 noreply", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.replace(
-                    black_box(b"key8"),
-                    black_box(0),
-                    black_box(-1),
-                    black_box(true),
-                    black_box(b"value"),
-                )
-                .await
-                .unwrap()
-            })
-        })
-    });
-
-    c.bench_function("prepend key9", |b| {
-        b.iter(|| {
-            block_on(async {
-                conn.replace(
                     black_box(b"key9"),
                     black_box(0),
                     black_box(-1),
-                    black_box(false),
+                    black_box(true),
                     black_box(b"value"),
                 )
                 .await
@@ -156,13 +90,29 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("prepend key10 noreply", |b| {
+    group.bench_function("add", |b| {
         b.iter(|| {
             block_on(async {
-                conn.replace(
+                conn.add(
                     black_box(b"key10"),
                     black_box(0),
                     black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("add noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.add(
+                    black_box(b"key11"),
+                    black_box(0),
+                    black_box(-1),
                     black_box(true),
                     black_box(b"value"),
                 )
@@ -172,11 +122,107 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("cas key11", |b| {
+    group.bench_function("append", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.append(
+                    black_box(b"key12"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("append noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.append(
+                    black_box(b"key13"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("replace", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key14"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("replace noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key15"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("prepend", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key16"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(false),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("prepend noreply", |b| {
+        b.iter(|| {
+            block_on(async {
+                conn.replace(
+                    black_box(b"key17"),
+                    black_box(0),
+                    black_box(-1),
+                    black_box(true),
+                    black_box(b"value"),
+                )
+                .await
+                .unwrap()
+            })
+        })
+    });
+
+    group.bench_function("cas", |b| {
         b.iter(|| {
             block_on(async {
                 conn.cas(
-                    black_box(b"key11"),
+                    black_box(b"key18"),
                     black_box(0),
                     black_box(-1),
                     black_box(0),
@@ -189,11 +235,11 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("cas key12 noreply", |b| {
+    group.bench_function("cas noreply", |b| {
         b.iter(|| {
             block_on(async {
                 conn.cas(
-                    black_box(b"key12"),
+                    black_box(b"key19"),
                     black_box(0),
                     black_box(-1),
                     black_box(0),
@@ -206,7 +252,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("flush_all", |b| {
+    group.bench_function("flush_all", |b| {
         b.iter(|| {
             block_on(async {
                 conn.flush_all(black_box(None), black_box(false))
@@ -216,7 +262,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("flush_all noreply", |b| {
+    group.bench_function("flush_all noreply", |b| {
         b.iter(|| {
             block_on(async {
                 conn.flush_all(black_box(None), black_box(true))
@@ -226,11 +272,11 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("version", |b| {
+    group.bench_function("version", |b| {
         b.iter(|| block_on(async { conn.version().await.unwrap() }))
     });
 
-    c.bench_function("cache_memlimit", |b| {
+    group.bench_function("cache_memlimit", |b| {
         b.iter(|| {
             block_on(async {
                 conn.cache_memlimit(black_box(10), black_box(false))
@@ -240,7 +286,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("cache_memlimit noreply", |b| {
+    group.bench_function("cache_memlimit noreply", |b| {
         b.iter(|| {
             block_on(async {
                 conn.cache_memlimit(black_box(10), black_box(true))
@@ -250,20 +296,20 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("delete", |b| {
+    group.bench_function("delete", |b| {
         b.iter(|| {
             block_on(async {
-                conn.delete(black_box(b"key13"), black_box(false))
+                conn.delete(black_box(b"key20"), black_box(false))
                     .await
                     .unwrap()
             })
         })
     });
 
-    c.bench_function("delete noreply", |b| {
+    group.bench_function("delete noreply", |b| {
         b.iter(|| {
             block_on(async {
-                conn.delete(black_box(b"key14"), black_box(true))
+                conn.delete(black_box(b"key21"), black_box(true))
                     .await
                     .unwrap()
             })
