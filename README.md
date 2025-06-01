@@ -122,6 +122,12 @@ podman kube down pod.yaml
 cargo bench
 ```
 
+## Test coverage
+
+```bash
+cargo llvm-cov
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
