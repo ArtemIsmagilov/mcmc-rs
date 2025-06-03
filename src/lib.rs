@@ -61,7 +61,6 @@ impl managed::Manager for Manager {
 pub type Pool = managed::Pool<Manager>;
 
 pub enum StatsArg {
-    Empty,
     Settings,
     Items,
     Sizes,
@@ -288,9 +287,9 @@ async fn parse_storage_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
 ) -> io::Result<Vec<Item>> {
-    let mut items = Vec::new();
     let mut line = String::new();
     s.read_line(&mut line).await?;
+    let mut items = Vec::new();
     while line.starts_with("VALUE") {
         let mut split = line.split(' ');
         split.next();
@@ -696,7 +695,7 @@ fn build_storage_cmd(
     noreply: bool,
     data_block: &[u8],
 ) -> Vec<u8> {
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let n = if noreply { b" noreply".as_slice() } else { b"" };
     let cas = match cas_unique {
         Some(x) => [b" ", x.to_string().as_bytes()].concat(),
         None => b"".to_vec(),
@@ -752,7 +751,7 @@ fn build_shutdown_cmd(graceful: bool) -> &'static [u8] {
 }
 
 fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let n = if noreply { b" noreply".as_slice() } else { b"" };
     [b"cache_memlimit ", limit.to_string().as_bytes(), n, b"\r\n"].concat()
 }
 
@@ -761,12 +760,12 @@ fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
         Some(x) => [b" ", x.to_string().as_bytes()].concat(),
         None => b"".to_vec(),
     };
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let n = if noreply { b" noreply".as_slice() } else { b"" };
     [b"flush_all", d.as_slice(), n, b"\r\n"].concat()
 }
 
 fn build_delete_cmd(key: &[u8], noreply: bool) -> Vec<u8> {
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let n = if noreply { b" noreply".as_slice() } else { b"" };
     [b"delete ", key, n, b"\r\n"].concat()
 }
 
@@ -784,7 +783,7 @@ fn build_auth_cmd(username: &[u8], password: &[u8]) -> Vec<u8> {
 }
 
 fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: bool) -> Vec<u8> {
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let n = if noreply { b" noreply".as_slice() } else { b"" };
     [
         command_name,
         b" ",
@@ -798,7 +797,7 @@ fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: boo
 }
 
 fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
-    let n: &[u8] = if noreply { b" noreply" } else { b"" };
+    let n = if noreply { b" noreply".as_slice() } else { b"" };
     [
         b"touch ",
         key,
@@ -810,21 +809,23 @@ fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
     .concat()
 }
 
-fn build_stats_cmd(arg: StatsArg) -> Vec<u8> {
-    let a: &[u8] = match arg {
-        StatsArg::Empty => b"",
-        StatsArg::Settings => b" settings",
-        StatsArg::Items => b" items",
-        StatsArg::Sizes => b" sizes",
-        StatsArg::Slabs => b" slabs",
-        StatsArg::Conns => b" conns",
+fn build_stats_cmd(arg: Option<StatsArg>) -> Vec<u8> {
+    let a = match arg {
+        Some(a) => match a {
+            StatsArg::Settings => b" settings".as_slice(),
+            StatsArg::Items => b" items",
+            StatsArg::Sizes => b" sizes",
+            StatsArg::Slabs => b" slabs",
+            StatsArg::Conns => b" conns",
+        },
+        None => b"",
     };
     [b"stats", a, b"\r\n"].concat()
 }
 
 fn build_slabs_automove_cmd(arg: SlabsAutomoveArg) -> Vec<u8> {
-    let a: &[u8] = match arg {
-        SlabsAutomoveArg::Zero => b"0",
+    let a = match arg {
+        SlabsAutomoveArg::Zero => b"0".as_slice(),
         SlabsAutomoveArg::One => b"1",
         SlabsAutomoveArg::Two => b"2",
     };
@@ -1198,7 +1199,7 @@ async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 
 async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    arg: StatsArg,
+    arg: Option<StatsArg>,
 ) -> io::Result<HashMap<String, String>> {
     s.write_all(&build_stats_cmd(arg)).await?;
     s.flush().await?;
@@ -1262,52 +1263,43 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
-async fn lru_crawler_metadump_cmd<S>(
+async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
-) -> io::Result<Vec<String>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
+) -> io::Result<Vec<String>> {
     s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
     s.flush().await?;
     parse_lru_crawler_metadump_rp(s).await
 }
 
-async fn lru_crawler_mgdump_cmd<S>(
+async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMgdumpArg<'_>,
-) -> io::Result<Vec<String>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
+) -> io::Result<Vec<String>> {
     s.write_all(&build_lru_clawler_mgdump_cmd(arg)).await?;
     s.flush().await?;
     parse_lru_crawler_mgdump_rp(s).await
 }
 
-async fn mn_cmd<S>(s: &mut S) -> io::Result<()>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
+async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
     s.write_all(build_mn_cmd()).await?;
     s.flush().await?;
     parse_mn_rp(s).await
 }
 
-async fn me_cmd<S>(s: &mut S, key: &[u8]) -> io::Result<Option<String>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
+async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    key: &[u8],
+) -> io::Result<Option<String>> {
     s.write_all(&build_me_cmd(key)).await?;
     s.flush().await?;
     parse_me_rp(s).await
 }
 
-async fn execute_cmd<S>(s: &mut S, cmds: &[Vec<u8>]) -> io::Result<Vec<PipelineResponse>>
-where
-    S: AsyncBufRead + AsyncWrite + Unpin,
-{
+async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    cmds: &[Vec<u8>],
+) -> io::Result<Vec<PipelineResponse>> {
     s.write_all(&cmds.concat()).await?;
     s.flush().await?;
     let mut result = Vec::new();
@@ -2336,17 +2328,16 @@ impl Connection {
     ///
     /// ```
     /// use mcmc_rs::Connection;
-    /// use mcmc_rs::StatsArg;
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.stats(StatsArg::Empty).await?;
+    /// let result = conn.stats(None).await?;
     /// assert!(result.len() > 0);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn stats(&mut self, arg: StatsArg) -> io::Result<HashMap<String, String>> {
+    pub async fn stats(&mut self, arg: Option<StatsArg>) -> io::Result<HashMap<String, String>> {
         match self {
             Connection::Tcp(s) => stats_cmd(s, arg).await,
             Connection::Unix(s) => stats_cmd(s, arg).await,
@@ -4055,16 +4046,16 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, StatsArg};
+    /// use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().stats(StatsArg::Empty);
+    /// conn.pipeline().stats(None);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub fn stats(mut self, arg: StatsArg) -> Self {
+    pub fn stats(mut self, arg: Option<StatsArg>) -> Self {
         self.1.push(build_stats_cmd(arg));
         self
     }
@@ -4591,7 +4582,7 @@ mod tests {
             let mut c =
                 Cursor::new(b"stats\r\nSTAT version 1.2.3\r\nSTAT threads 4\r\nEND\r\n".to_vec());
             assert_eq!(
-                stats_cmd(&mut c, StatsArg::Empty).await.unwrap(),
+                stats_cmd(&mut c, None).await.unwrap(),
                 HashMap::from([
                     ("version".to_string(), "1.2.3".to_string()),
                     ("threads".to_string(), "4".to_string()),
@@ -4599,19 +4590,19 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"stats settings\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, StatsArg::Settings).await.is_err());
+            assert!(stats_cmd(&mut c, Some(StatsArg::Settings)).await.is_err());
 
             let mut c = Cursor::new(b"stats items\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, StatsArg::Items).await.is_err());
+            assert!(stats_cmd(&mut c, Some(StatsArg::Items)).await.is_err());
 
             let mut c = Cursor::new(b"stats sizes\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, StatsArg::Sizes).await.is_err());
+            assert!(stats_cmd(&mut c, Some(StatsArg::Sizes)).await.is_err());
 
             let mut c = Cursor::new(b"stats slabs\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, StatsArg::Slabs).await.is_err());
+            assert!(stats_cmd(&mut c, Some(StatsArg::Slabs)).await.is_err());
 
             let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, StatsArg::Conns).await.is_err())
+            assert!(stats_cmd(&mut c, Some(StatsArg::Conns)).await.is_err())
         })
     }
 
@@ -5602,7 +5593,7 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"lru temp_ttl 0\r\nOK\r\n".to_vec());
-            assert!(lru_cmd(&mut c, LruArg::TempTtl(0)).await.is_ok());
+            assert!(lru_cmd(&mut c, LruArg::TempTtl(0)).await.is_ok())
         })
     }
 }
