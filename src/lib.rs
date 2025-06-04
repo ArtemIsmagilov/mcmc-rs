@@ -274,7 +274,7 @@ async fn parse_storage_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<bool> {
     if noreply {
         return Ok(true);
-    };
+    }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     match line.as_str() {
@@ -334,7 +334,7 @@ async fn parse_ok_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     if noreply {
         return Ok(());
-    };
+    }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "OK\r\n" {
@@ -350,7 +350,7 @@ async fn parse_delete_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<bool> {
     if noreply {
         return Ok(true);
-    };
+    }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     match line.as_str() {
@@ -375,12 +375,12 @@ async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<Option<u64>> {
     if noreply {
         return Ok(None);
-    };
+    }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "NOT_FOUND\r\n" {
         return Ok(None);
-    };
+    }
     match line.trim_end().parse() {
         Ok(v) => Ok(Some(v)),
         Err(_) => Err(io::Error::other(line)),
@@ -393,7 +393,7 @@ async fn parse_touch_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<bool> {
     if noreply {
         return Ok(true);
-    };
+    }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "TOUCHED\r\n" {
@@ -424,7 +424,7 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
             break;
         } else {
             return Err(io::Error::other(data));
-        };
+        }
     }
     Ok(items)
 }
