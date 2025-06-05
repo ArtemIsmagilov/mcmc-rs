@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 
 use crc32fast;
 use deadpool::managed;
@@ -751,8 +752,14 @@ fn build_shutdown_cmd(graceful: bool) -> &'static [u8] {
 }
 
 fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
-    let n = if noreply { b" noreply".as_slice() } else { b"" };
-    [b"cache_memlimit ", limit.to_string().as_bytes(), n, b"\r\n"].concat()
+    let mut w = Vec::new();
+    write!(
+        &mut w,
+        "cache_memlimit {limit}{}\r\n",
+        if noreply { " noreply" } else { "" }
+    )
+    .unwrap();
+    w
 }
 
 fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
@@ -812,24 +819,28 @@ fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
 fn build_stats_cmd(arg: Option<StatsArg>) -> Vec<u8> {
     let a = match arg {
         Some(a) => match a {
-            StatsArg::Settings => b" settings".as_slice(),
-            StatsArg::Items => b" items",
-            StatsArg::Sizes => b" sizes",
-            StatsArg::Slabs => b" slabs",
-            StatsArg::Conns => b" conns",
+            StatsArg::Settings => " settings",
+            StatsArg::Items => " items",
+            StatsArg::Sizes => " sizes",
+            StatsArg::Slabs => " slabs",
+            StatsArg::Conns => " conns",
         },
-        None => b"",
+        None => "",
     };
-    [b"stats", a, b"\r\n"].concat()
+    let mut w = Vec::new();
+    write!(&mut w, "stats{a}\r\n").unwrap();
+    w
 }
 
 fn build_slabs_automove_cmd(arg: SlabsAutomoveArg) -> Vec<u8> {
     let a = match arg {
-        SlabsAutomoveArg::Zero => b"0".as_slice(),
-        SlabsAutomoveArg::One => b"1",
-        SlabsAutomoveArg::Two => b"2",
+        SlabsAutomoveArg::Zero => 0,
+        SlabsAutomoveArg::One => 1,
+        SlabsAutomoveArg::Two => 2,
     };
-    [b"slabs automove ", a, b"\r\n"].concat()
+    let mut w = Vec::new();
+    write!(&mut w, "slabs automove {a}\r\n").unwrap();
+    w
 }
 
 fn build_lru_crawler_cmd(arg: LruCrawlerArg) -> &'static [u8] {
@@ -840,16 +851,15 @@ fn build_lru_crawler_cmd(arg: LruCrawlerArg) -> &'static [u8] {
 }
 
 fn build_lru_clawler_sleep_cmd(microseconds: usize) -> Vec<u8> {
-    [
-        b"lru_crawler sleep ",
-        microseconds.to_string().as_bytes(),
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::new();
+    write!(&mut w, "lru_crawler sleep {microseconds}\r\n").unwrap();
+    w
 }
 
 fn build_lru_crawler_tocrawl_cmd(arg: u32) -> Vec<u8> {
-    [b"lru_crawler tocrawl ", arg.to_string().as_bytes(), b"\r\n"].concat()
+    let mut w = Vec::new();
+    write!(&mut w, "lru_crawler tocrawl {arg}\r\n").unwrap();
+    w
 }
 
 fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
@@ -865,14 +875,9 @@ fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
 }
 
 fn build_slabs_reassign_cmd(source_class: usize, dest_class: usize) -> Vec<u8> {
-    [
-        b"slabs reassign ",
-        source_class.to_string().as_bytes(),
-        b" ",
-        dest_class.to_string().as_bytes(),
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::new();
+    write!(&mut w, "slabs reassign {source_class} {dest_class}\r\n").unwrap();
+    w
 }
 
 fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
@@ -910,10 +915,10 @@ fn build_me_cmd(key: &[u8]) -> Vec<u8> {
 }
 
 fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
-    let mut cmd = b"watch".to_vec();
+    let mut w = b"watch".to_vec();
     arg.iter().for_each(|a| {
-        cmd.extend_from_slice(match a {
-            WatchArg::Fetchers => b" fetchers",
+        w.extend(match a {
+            WatchArg::Fetchers => b" fetchers".as_slice(),
             WatchArg::Mutations => b" mutations",
             WatchArg::Evictions => b" evictions",
             WatchArg::Connevents => b" connevents",
@@ -923,8 +928,8 @@ fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
             WatchArg::Deletions => b" deletions",
         })
     });
-    cmd.extend_from_slice(b"\r\n");
-    cmd
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_mc_cmd(
@@ -955,124 +960,111 @@ fn build_mc_cmd(
     .concat()
 }
 
-fn build_ms_flags(flags: &[MsFlag]) -> String {
-    flags
-        .iter()
-        .map(|x| match x {
-            MsFlag::Base64Key => " b".to_string(),
-            MsFlag::ReturnCas => " c".to_string(),
-            MsFlag::CompareCas(token) => format!(" C{token}"),
-            MsFlag::NewCas(token) => format!(" E{token}"),
-            MsFlag::SetFlags(token) => format!(" F{token}"),
-            MsFlag::Invalidate => " I".to_string(),
-            MsFlag::ReturnKey => " k".to_string(),
-            MsFlag::Opaque(token) => format!(" O{token}"),
-            MsFlag::ReturnSize => " s".to_string(),
-            MsFlag::Ttl(token) => format!(" T{token}"),
-            MsFlag::Mode(token) => match token {
-                MsMode::Add => " ME".to_string(),
-                MsMode::Append => " MA".to_string(),
-                MsMode::Prepend => " MP".to_string(),
-                MsMode::Replace => " MR".to_string(),
-                MsMode::Set => " MS".to_string(),
-            },
-            MsFlag::Autovivify(token) => format!(" N{token}"),
-        })
-        .collect::<Vec<_>>()
-        .join("")
+fn build_ms_flags(flags: &[MsFlag]) -> Vec<u8> {
+    let mut w = Vec::new();
+    flags.iter().for_each(|x| match x {
+        MsFlag::Base64Key => w.extend(b" b"),
+        MsFlag::ReturnCas => w.extend(b" c"),
+        MsFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
+        MsFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+        MsFlag::SetFlags(token) => write!(&mut w, " F{token}").unwrap(),
+        MsFlag::Invalidate => w.extend(b" I"),
+        MsFlag::ReturnKey => w.extend(b" k"),
+        MsFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
+        MsFlag::ReturnSize => w.extend(b" s"),
+        MsFlag::Ttl(token) => write!(&mut w, " T{token}").unwrap(),
+        MsFlag::Mode(token) => match token {
+            MsMode::Add => w.extend(b" ME"),
+            MsMode::Append => w.extend(b" MA"),
+            MsMode::Prepend => w.extend(b" MP"),
+            MsMode::Replace => w.extend(b" MR"),
+            MsMode::Set => w.extend(b" MS"),
+        },
+        MsFlag::Autovivify(token) => write!(&mut w, " N{token}").unwrap(),
+    });
+    w
 }
 
-fn build_mg_flags(flags: &[MgFlag]) -> String {
-    flags
-        .iter()
-        .map(|x| match x {
-            MgFlag::Base64Key => " b".to_string(),
-            MgFlag::ReturnCas => " c".to_string(),
-            MgFlag::ReturnFlags => " f".to_string(),
-            MgFlag::ReturnHit => " h".to_string(),
-            MgFlag::ReturnKey => " k".to_string(),
-            MgFlag::ReturnLastAccess => " l".to_string(),
-            MgFlag::Opaque(token) => format!(" O{token}"),
-            MgFlag::ReturnSize => " s".to_string(),
-            MgFlag::ReturnTtl => " t".to_string(),
-            MgFlag::UnBump => " u".to_string(),
-            MgFlag::ReturnValue => " v".to_string(),
-            MgFlag::NewCas(token) => format!(" E{token}"),
-            MgFlag::Autovivify(token) => format!(" N{token}"),
-            MgFlag::RecacheTtl(token) => format!(" R{token}"),
-            MgFlag::UpdateTtl(token) => format!(" T{token}"),
-        })
-        .collect::<Vec<_>>()
-        .join("")
+fn build_mg_flags(flags: &[MgFlag]) -> Vec<u8> {
+    let mut w = Vec::new();
+    flags.iter().for_each(|x| match x {
+        MgFlag::Base64Key => w.extend(b" b"),
+        MgFlag::ReturnCas => w.extend(b" c"),
+        MgFlag::ReturnFlags => w.extend(b" f"),
+        MgFlag::ReturnHit => w.extend(b" h"),
+        MgFlag::ReturnKey => w.extend(b" k"),
+        MgFlag::ReturnLastAccess => w.extend(b" l"),
+        MgFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
+        MgFlag::ReturnSize => w.extend(b" s"),
+        MgFlag::ReturnTtl => w.extend(b" t"),
+        MgFlag::UnBump => w.extend(b" u"),
+        MgFlag::ReturnValue => w.extend(b" v"),
+        MgFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+        MgFlag::Autovivify(token) => write!(&mut w, " N{token}").unwrap(),
+        MgFlag::RecacheTtl(token) => write!(&mut w, " R{token}").unwrap(),
+        MgFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+    });
+    w
 }
 
-fn build_md_flags(flags: &[MdFlag]) -> String {
-    flags
-        .iter()
-        .map(|x| match x {
-            MdFlag::Base64Key => " b".to_string(),
-            MdFlag::CompareCas(token) => format!(" C{token}"),
-            MdFlag::NewCas(token) => format!(" E{token}"),
-            MdFlag::Invalidate => " I".to_string(),
-            MdFlag::ReturnKey => " k".to_string(),
-            MdFlag::Opaque(token) => format!(" O{token}"),
-            MdFlag::UpdateTtl(token) => format!(" T{token}"),
-            MdFlag::LeaveKey => " x".to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join("")
+fn build_md_flags(flags: &[MdFlag]) -> Vec<u8> {
+    let mut w = Vec::new();
+    flags.iter().for_each(|x| match x {
+        MdFlag::Base64Key => w.extend(b" b"),
+        MdFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
+        MdFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+        MdFlag::Invalidate => w.extend(b" I"),
+        MdFlag::ReturnKey => w.extend(b" k"),
+        MdFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
+        MdFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+        MdFlag::LeaveKey => w.extend(b" x"),
+    });
+    w
 }
 
-fn build_ma_flags(flags: &[MaFlag]) -> String {
-    flags
-        .iter()
-        .map(|x| match x {
-            MaFlag::Base64Key => " b".to_string(),
-            MaFlag::CompareCas(token) => format!(" C{token}"),
-            MaFlag::NewCas(token) => format!(" E{token}"),
-            MaFlag::AutoCreate(token) => format!(" N{token}"),
-            MaFlag::InitValue(token) => format!(" J{token}"),
-            MaFlag::DeltaApply(token) => format!(" D{token}"),
-            MaFlag::UpdateTtl(token) => format!(" T{token}"),
-            MaFlag::Mode(token) => match token {
-                MaMode::Incr => " M+".to_string(),
-                MaMode::Decr => " M-".to_string(),
-            },
-            MaFlag::Opaque(token) => format!(" O{token}"),
-            MaFlag::ReturnTtl => " t".to_string(),
-            MaFlag::ReturnCas => " c".to_string(),
-            MaFlag::ReturnValue => " v".to_string(),
-            MaFlag::ReturnKey => " k".to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join("")
+fn build_ma_flags(flags: &[MaFlag]) -> Vec<u8> {
+    let mut w = Vec::new();
+    flags.iter().for_each(|x| match x {
+        MaFlag::Base64Key => w.extend(b" b"),
+        MaFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
+        MaFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+        MaFlag::AutoCreate(token) => write!(&mut w, " N{token}").unwrap(),
+        MaFlag::InitValue(token) => write!(&mut w, " J{token}").unwrap(),
+        MaFlag::DeltaApply(token) => write!(&mut w, " D{token}").unwrap(),
+        MaFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+        MaFlag::Mode(token) => match token {
+            MaMode::Incr => w.extend(b" M+"),
+            MaMode::Decr => w.extend(b" M-"),
+        },
+        MaFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
+        MaFlag::ReturnTtl => w.extend(b" t"),
+        MaFlag::ReturnCas => w.extend(b" c"),
+        MaFlag::ReturnValue => w.extend(b" v"),
+        MaFlag::ReturnKey => w.extend(b" k"),
+    });
+    w
 }
 
 fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
+    let mut w = Vec::new();
     match arg {
         LruArg::Tune {
             percent_hot,
             percent_warm,
             max_hot_factor,
             max_warm_factor,
-        } => [
-            b"lru tune ",
-            percent_hot.to_string().as_bytes(),
-            b" ",
-            percent_warm.to_string().as_bytes(),
-            b" ",
-            max_hot_factor.to_string().as_bytes(),
-            b" ",
-            max_warm_factor.to_string().as_bytes(),
-            b"\r\n",
-        ]
-        .concat(),
+        } => write!(
+            &mut w,
+            "lru tune {percent_hot} {percent_warm} {max_hot_factor} {max_warm_factor}\r\n"
+        )
+        .unwrap(),
         LruArg::Mode(mode) => match mode {
-            LruMode::Flat => b"lru mode flat\r\n".to_vec(),
-            LruMode::Segmented => b"lru mode segmented\r\n".to_vec(),
+            LruMode::Flat => w.extend(b"lru mode flat\r\n"),
+            LruMode::Segmented => w.extend(b"lru mode segmented\r\n"),
         },
-        LruArg::TempTtl(ttl) => [b"lru temp_ttl ", ttl.to_string().as_bytes(), b"\r\n"].concat(),
-    }
+        LruArg::TempTtl(ttl) => write!(&mut w, "lru temp_ttl {ttl}\r\n").unwrap(),
+    };
+    w
 }
 
 async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
@@ -1409,7 +1401,7 @@ async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_mc_cmd(
         b"ms",
         key,
-        build_ms_flags(flags).as_bytes(),
+        &build_ms_flags(flags),
         Some(data_block),
     ))
     .await?;
@@ -1422,13 +1414,8 @@ async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MgFlag],
 ) -> io::Result<MgItem> {
-    s.write_all(&build_mc_cmd(
-        b"mg",
-        key,
-        build_mg_flags(flags).as_bytes(),
-        None,
-    ))
-    .await?;
+    s.write_all(&build_mc_cmd(b"mg", key, &build_mg_flags(flags), None))
+        .await?;
     s.flush().await?;
     parse_mg_rp(s).await
 }
@@ -1438,13 +1425,8 @@ async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MdFlag],
 ) -> io::Result<MdItem> {
-    s.write_all(&build_mc_cmd(
-        b"md",
-        key,
-        build_md_flags(flags).as_bytes(),
-        None,
-    ))
-    .await?;
+    s.write_all(&build_mc_cmd(b"md", key, &build_md_flags(flags), None))
+        .await?;
     s.flush().await?;
     parse_md_rp(s).await
 }
@@ -1454,13 +1436,8 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MaFlag],
 ) -> io::Result<MaItem> {
-    s.write_all(&build_mc_cmd(
-        b"ma",
-        key,
-        build_ma_flags(flags).as_bytes(),
-        None,
-    ))
-    .await?;
+    s.write_all(&build_mc_cmd(b"ma", key, &build_ma_flags(flags), None))
+        .await?;
     s.flush().await?;
     parse_ma_rp(s).await
 }
@@ -4247,7 +4224,7 @@ impl<'a> Pipeline<'a> {
         self.1.push(build_mc_cmd(
             b"mg",
             key.as_ref(),
-            build_mg_flags(flags).as_bytes(),
+            &build_mg_flags(flags),
             None,
         ));
         self
@@ -4274,7 +4251,7 @@ impl<'a> Pipeline<'a> {
         self.1.push(build_mc_cmd(
             b"ms",
             key.as_ref(),
-            build_ms_flags(flags).as_bytes(),
+            &build_ms_flags(flags),
             Some(data_block.as_ref()),
         ));
         self
@@ -4296,7 +4273,7 @@ impl<'a> Pipeline<'a> {
         self.1.push(build_mc_cmd(
             b"md",
             key.as_ref(),
-            build_md_flags(flags).as_bytes(),
+            &build_md_flags(flags),
             None,
         ));
         self
@@ -4318,7 +4295,7 @@ impl<'a> Pipeline<'a> {
         self.1.push(build_mc_cmd(
             b"ma",
             key.as_ref(),
-            build_ma_flags(flags).as_bytes(),
+            &build_ma_flags(flags),
             None,
         ));
         self
