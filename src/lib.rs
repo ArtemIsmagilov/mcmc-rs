@@ -754,7 +754,7 @@ fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
 }
 
 fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
-    let mut w = Vec::from("flush_all");
+    let mut w = Vec::from(b"flush_all");
     if let Some(x) = exptime {
         write!(&mut w, " {x}").unwrap()
     }
@@ -766,7 +766,7 @@ fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
 }
 
 fn build_delete_cmd(key: &[u8], noreply: bool) -> Vec<u8> {
-    let mut w = Vec::from("delete ");
+    let mut w = Vec::from(b"delete ");
     w.extend(key);
     if noreply {
         w.extend(b" noreply")
@@ -804,7 +804,7 @@ fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: boo
 }
 
 fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
-    let mut w = Vec::from("touch ");
+    let mut w = Vec::from(b"touch ");
     w.extend(key);
     write!(
         &mut w,
