@@ -696,43 +696,34 @@ fn build_storage_cmd(
     noreply: bool,
     data_block: &[u8],
 ) -> Vec<u8> {
-    let n = if noreply { b" noreply".as_slice() } else { b"" };
-    let cas = match cas_unique {
-        Some(x) => [b" ", x.to_string().as_bytes()].concat(),
-        None => b"".to_vec(),
-    };
-    [
-        command_name,
-        b" ",
-        key,
-        b" ",
-        flags.to_string().as_bytes(),
-        b" ",
-        exptime.to_string().as_bytes(),
-        b" ",
-        data_block.len().to_string().as_bytes(),
-        cas.as_slice(),
-        n,
-        b"\r\n",
-        data_block,
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::from(command_name);
+    w.push(b' ');
+    w.extend(key);
+    w.push(b' ');
+    write!(&mut w, "{flags} {exptime} {}", data_block.len()).unwrap();
+    if let Some(x) = cas_unique {
+        write!(&mut w, " {x}").unwrap()
+    }
+    if noreply {
+        w.extend(b" noreply")
+    }
+    w.extend(b"\r\n");
+    w.extend(data_block);
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_retrieval_cmd(command_name: &[u8], exptime: Option<i64>, keys: &[&[u8]]) -> Vec<u8> {
-    let t = match exptime {
-        Some(x) => [x.to_string().as_bytes(), b" "].concat(),
-        None => b"".to_vec(),
-    };
-    [
-        command_name,
-        b" ",
-        t.as_slice(),
-        keys.join(b" ".as_slice()).as_slice(),
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::from(command_name);
+    if let Some(x) = exptime {
+        write!(&mut w, " {x}").unwrap()
+    }
+    keys.iter().for_each(|&x| {
+        w.push(b' ');
+        w.extend(x)
+    });
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_version_cmd() -> &'static [u8] {
@@ -763,57 +754,66 @@ fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
 }
 
 fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
-    let d = match exptime {
-        Some(x) => [b" ", x.to_string().as_bytes()].concat(),
-        None => b"".to_vec(),
-    };
-    let n = if noreply { b" noreply".as_slice() } else { b"" };
-    [b"flush_all", d.as_slice(), n, b"\r\n"].concat()
+    let mut w = Vec::from("flush_all");
+    if let Some(x) = exptime {
+        write!(&mut w, " {x}").unwrap()
+    }
+    if noreply {
+        w.extend(b" noreply")
+    }
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_delete_cmd(key: &[u8], noreply: bool) -> Vec<u8> {
-    let n = if noreply { b" noreply".as_slice() } else { b"" };
-    [b"delete ", key, n, b"\r\n"].concat()
+    let mut w = Vec::from("delete ");
+    w.extend(key);
+    if noreply {
+        w.extend(b" noreply")
+    }
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_auth_cmd(username: &[u8], password: &[u8]) -> Vec<u8> {
-    [
-        b"set _ _ _ ",
-        (username.len() + password.len() + 1).to_string().as_bytes(),
-        b"\r\n",
-        username,
-        b" ",
-        password,
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::new();
+    write!(
+        &mut w,
+        "set _ _ _ {}\r\n",
+        username.len() + password.len() + 1
+    )
+    .unwrap();
+    w.extend(username);
+    w.push(b' ');
+    w.extend(password);
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: bool) -> Vec<u8> {
-    let n = if noreply { b" noreply".as_slice() } else { b"" };
-    [
-        command_name,
-        b" ",
-        key,
-        b" ",
-        value.to_string().as_bytes(),
-        n,
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::from(command_name);
+    w.push(b' ');
+    w.extend(key);
+    write!(
+        &mut w,
+        " {value}{}\r\n",
+        if noreply { " noreply" } else { "" }
+    )
+    .unwrap();
+    w
 }
 
 fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
-    let n = if noreply { b" noreply".as_slice() } else { b"" };
-    [
-        b"touch ",
-        key,
-        b" ",
-        exptime.to_string().as_bytes(),
-        n,
-        b"\r\n",
-    ]
-    .concat()
+    let mut w = Vec::from("touch ");
+    w.extend(key);
+    write!(
+        &mut w,
+        " {}{}\r\n",
+        exptime,
+        if noreply { " noreply" } else { "" }
+    )
+    .unwrap();
+    w
 }
 
 fn build_stats_cmd(arg: Option<StatsArg>) -> Vec<u8> {
@@ -863,15 +863,19 @@ fn build_lru_crawler_tocrawl_cmd(arg: u32) -> Vec<u8> {
 }
 
 fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
-    let a = match arg {
-        LruCrawlerCrawlArg::Classids(ids) => ids
-            .iter()
-            .map(|x| x.to_string().into_bytes())
-            .collect::<Vec<_>>()
-            .join(b",".as_slice()),
-        LruCrawlerCrawlArg::All => b"all".to_vec(),
+    let mut w = Vec::from(b"lru_crawler crawl ");
+    match arg {
+        LruCrawlerCrawlArg::Classids(ids) => ids.iter().enumerate().for_each(|(index, id)| {
+            if index == 0 {
+                write!(&mut w, "{}", id).unwrap()
+            } else {
+                write!(&mut w, ",{}", id).unwrap()
+            }
+        }),
+        LruCrawlerCrawlArg::All => w.extend(b"all"),
     };
-    [b"lru_crawler crawl ", a.as_slice(), b"\r\n"].concat()
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_slabs_reassign_cmd(source_class: usize, dest_class: usize) -> Vec<u8> {
@@ -881,29 +885,37 @@ fn build_slabs_reassign_cmd(source_class: usize, dest_class: usize) -> Vec<u8> {
 }
 
 fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
-    let a = match arg {
-        LruCrawlerMetadumpArg::Classids(ids) => ids
-            .iter()
-            .map(|x| x.to_string().into_bytes())
-            .collect::<Vec<_>>()
-            .join(b",".as_slice()),
-        LruCrawlerMetadumpArg::All => b"all".to_vec(),
-        LruCrawlerMetadumpArg::Hash => b"hash".to_vec(),
+    let mut w = Vec::from(b"lru_crawler metadump ");
+    match arg {
+        LruCrawlerMetadumpArg::Classids(ids) => ids.iter().enumerate().for_each(|(index, id)| {
+            if index == 0 {
+                write!(&mut w, "{}", id).unwrap()
+            } else {
+                write!(&mut w, ",{}", id).unwrap()
+            }
+        }),
+        LruCrawlerMetadumpArg::All => w.extend(b"all"),
+        LruCrawlerMetadumpArg::Hash => w.extend(b"hash"),
     };
-    [b"lru_crawler metadump ", a.as_slice(), b"\r\n"].concat()
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_lru_clawler_mgdump_cmd(arg: LruCrawlerMgdumpArg) -> Vec<u8> {
-    let a = match arg {
-        LruCrawlerMgdumpArg::Classids(ids) => ids
-            .iter()
-            .map(|x| x.to_string().into_bytes())
-            .collect::<Vec<_>>()
-            .join(b",".as_slice()),
-        LruCrawlerMgdumpArg::All => b"all".to_vec(),
-        LruCrawlerMgdumpArg::Hash => b"hash".to_vec(),
+    let mut w = Vec::from(b"lru_crawler mgdump ");
+    match arg {
+        LruCrawlerMgdumpArg::Classids(ids) => ids.iter().enumerate().for_each(|(index, id)| {
+            if index == 0 {
+                write!(&mut w, "{}", id).unwrap()
+            } else {
+                write!(&mut w, ",{}", id).unwrap()
+            }
+        }),
+        LruCrawlerMgdumpArg::All => w.extend(b"all"),
+        LruCrawlerMgdumpArg::Hash => w.extend(b"hash"),
     };
-    [b"lru_crawler mgdump ", a.as_slice(), b"\r\n"].concat()
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_mn_cmd() -> &'static [u8] {
@@ -911,7 +923,10 @@ fn build_mn_cmd() -> &'static [u8] {
 }
 
 fn build_me_cmd(key: &[u8]) -> Vec<u8> {
-    [b"me ", key, b"\r\n"].concat()
+    let mut w = Vec::from(b"me ");
+    w.extend(key);
+    w.extend(b"\r\n");
+    w
 }
 
 fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
@@ -938,26 +953,20 @@ fn build_mc_cmd(
     flags: &[u8],
     data_block: Option<&[u8]>,
 ) -> Vec<u8> {
-    let (data_len, data, end) = if let Some(a) = data_block {
-        (
-            [b" ", a.len().to_string().as_bytes()].concat(),
-            a,
-            b"\r\n".as_slice(),
-        )
+    let mut w = Vec::from(command_name);
+    w.push(b' ');
+    w.extend(key);
+    if let Some(x) = data_block {
+        write!(&mut w, " {}", x.len()).unwrap();
+        w.extend(flags);
+        w.extend(b"\r\n");
+        w.extend(x);
+        w.extend(b"\r\n");
     } else {
-        (b"".to_vec(), b"".as_slice(), b"".as_slice())
-    };
-    [
-        command_name,
-        b" ",
-        key,
-        data_len.as_slice(),
-        flags,
-        b"\r\n",
-        data,
-        end,
-    ]
-    .concat()
+        w.extend(flags);
+        w.extend(b"\r\n");
+    }
+    w
 }
 
 fn build_ms_flags(flags: &[MsFlag]) -> Vec<u8> {
@@ -4710,9 +4719,9 @@ mod tests {
     fn test_lru_crawler_mgdump() {
         block_on(async {
             let mut c =
-                Cursor::new(b"lru_crawler mgdump 3\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec());
+                Cursor::new(b"lru_crawler mgdump 1,2,3\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec());
             assert_eq!(
-                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Classids(&[3]))
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Classids(&[1, 2, 3]))
                     .await
                     .unwrap(),
                 ["key", "key2"]
