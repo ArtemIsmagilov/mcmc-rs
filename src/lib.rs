@@ -1,3 +1,17 @@
+//! Asynchronous memcached client on Rust.
+//!
+//! This crate provides working with memcached server.
+//! All methods implemented
+//!
+//! - [Connection](crate::Connection) is a Enum that represents a
+//!   connection to memcached server.
+//! - [Pipeline](crate::Pipeline) is a structure that represents a
+//!   pipeline of memcached commands.
+//! - [WatchStream](crate::WatchStream) is a structure that represents a
+//!   stream of watch events.
+//! - [ClientCrc32](crate::ClientCrc32) is a structure that represents a
+//!   Cluster connections for memcached server.
+
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -808,8 +822,7 @@ fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
     w.extend(key);
     write!(
         &mut w,
-        " {}{}\r\n",
-        exptime,
+        " {exptime}{}\r\n",
         if noreply { " noreply" } else { "" }
     )
     .unwrap();
@@ -930,7 +943,7 @@ fn build_me_cmd(key: &[u8]) -> Vec<u8> {
 }
 
 fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
-    let mut w = b"watch".to_vec();
+    let mut w = Vec::from(b"watch");
     arg.iter().for_each(|a| {
         w.extend(match a {
             WatchArg::Fetchers => b" fetchers".as_slice(),
@@ -2568,7 +2581,7 @@ impl Connection {
         Ok(WatchStream(self))
     }
 
-    pub fn pipeline(&mut self) -> Pipeline {
+    pub fn pipeline(&mut self) -> Pipeline<'_> {
         Pipeline::new(self)
     }
 
