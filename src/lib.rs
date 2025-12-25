@@ -2770,7 +2770,9 @@ impl Connection {
 
     /// # Example
     ///
-    /// ```
+    /// ## Now  lru memcached command always return ERROR!
+    ///
+    /// ```no_run
     /// use mcmc_rs::{Connection, LruArg, LruMode};
     /// # use smol::{io, block_on};
     /// #
