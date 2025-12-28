@@ -11,6 +11,24 @@
 //!   stream of watch events.
 //! - [ClientCrc32](crate::ClientCrc32) is a structure that represents a
 //!   Cluster connections for memcached server.
+//!
+//! # Examples
+//!
+//! ```
+//! use smol::{block_on, io};
+//!
+//! use mcmc_rs::Connection;
+//!
+//! fn main() -> io::Result<()> {
+//!     block_on(async {
+//!         let mut conn = Connection::default().await?;
+//!         conn.set(b"key", 0, 0, false, b"value").await?;
+//!         let item = conn.get(b"key").await?.unwrap();
+//!         println!("{item:#?}");
+//!         Ok(())
+//!     })
+//! }
+//! ```
 
 use std::collections::HashMap;
 use std::io::Write;
