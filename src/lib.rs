@@ -443,8 +443,7 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<HashMap<String, String>> {
     let mut lines = s.lines();
     let mut items = HashMap::new();
-    while let Some(line) = lines.next().await {
-        let data = line?;
+    while let Some(data) = lines.next().await.transpose()? {
         if data.starts_with("STAT") {
             let mut split = data.split(' ');
             split.next();
