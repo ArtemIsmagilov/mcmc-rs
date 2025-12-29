@@ -128,6 +128,12 @@ cargo bench
 cargo llvm-cov
 ```
 
+## Mutation testing
+
+```bash
+cargo mutants
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
