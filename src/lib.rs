@@ -579,7 +579,7 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
         }
     }
     if let Some(a) = data_len {
-        let mut buf = vec![0u8; a + 2];
+        let mut buf = vec![0; a + 2];
         s.read_exact(&mut buf).await?;
         buf.truncate(a);
         data_block = Some(buf);
