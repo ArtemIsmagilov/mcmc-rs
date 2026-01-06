@@ -3,13 +3,13 @@
 //! This crate provides working with memcached server.
 //! All methods implemented
 //!
-//! - [Connection](crate::Connection) is a Enum that represents a
+//! - [Connection] is a Enum that represents a
 //!   connection to memcached server.
-//! - [Pipeline](crate::Pipeline) is a structure that represents a
+//! - [Pipeline] is a structure that represents a
 //!   pipeline of memcached commands.
-//! - [WatchStream](crate::WatchStream) is a structure that represents a
+//! - [WatchStream] is a structure that represents a
 //!   stream of watch events.
-//! - [ClientCrc32](crate::ClientCrc32) is a structure that represents a
+//! - [ClientCrc32] is a structure that represents a
 //!   Cluster connections for memcached server.
 //!
 //! # Examples
