@@ -2946,13 +2946,16 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item};
+    /// # use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
-    /// assert!(conn.set(b"k9", 0, 0, false, b"v9").await?);
-    /// let result = conn.gat(0, b"k9").await?;
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    /// ]);
+    /// assert!(client.set(b"k9", 0, 0, false, b"v9").await?);
+    /// let result = client.gat(0, b"k9").await?;
     /// assert_eq!(result.unwrap().key, "k9");
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -2967,13 +2970,16 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item};
+    /// # use mcmc_rs::{Connection, ClientCrc32};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
-    /// assert!(conn.set(b"k10", 0, 0, false, b"v10").await?);
-    /// let result = conn.gats(0, b"k10").await?;
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    /// ]);
+    /// assert!(client.set(b"k10", 0, 0, false, b"v10").await?);
+    /// let result = client.gats(0, b"k10").await?;
     /// assert_eq!(result.unwrap().key, "k10");
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
