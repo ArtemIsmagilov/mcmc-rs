@@ -2496,7 +2496,9 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.lru_crawler_metadump(LruCrawlerMetadumpArg::Classids(&[2])).await?;
+    /// let result = conn
+    ///     .lru_crawler_metadump(LruCrawlerMetadumpArg::Classids(&[2]))
+    ///     .await?;
     /// assert!(result.is_empty());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -2520,7 +2522,9 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::unix_connect("/tmp/memcached.sock").await?;
-    /// let result = conn.lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3])).await?;
+    /// let result = conn
+    ///     .lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3]))
+    ///     .await?;
     /// assert!(result.is_empty());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -2585,7 +2589,11 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// assert!(conn.watch(&[WatchArg::Fetchers, WatchArg::Mutations]).await.is_ok());
+    /// assert!(
+    ///     conn.watch(&[WatchArg::Fetchers, WatchArg::Mutations])
+    ///         .await
+    ///         .is_ok()
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2610,39 +2618,47 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.mg(b"44OG44K544OI", &[
-    ///     MgFlag::Base64Key,
-    ///     MgFlag::ReturnCas,
-    ///     MgFlag::ReturnFlags,
-    ///     MgFlag::ReturnHit,
-    ///     MgFlag::ReturnKey,
-    ///     MgFlag::ReturnLastAccess,
-    ///     MgFlag::Opaque("opaque".to_string()),
-    ///     MgFlag::ReturnSize,
-    ///     MgFlag::ReturnTtl,
-    ///     MgFlag::UnBump,
-    ///     MgFlag::ReturnValue,
-    ///     MgFlag::NewCas(0),
-    ///     MgFlag::Autovivify(-1),
-    ///     MgFlag::RecacheTtl(-1),
-    ///     MgFlag::UpdateTtl(-1),
-    /// ]).await?;
-    /// assert_eq!(result, MgItem {
-    ///     success: true,
-    ///     base64_key: false,
-    ///     cas: Some(0),
-    ///     flags: Some(0),
-    ///     hit: Some(0),
-    ///     key: Some("テスト".to_string()),
-    ///     last_access_ttl: Some(0),
-    ///     opaque: Some("opaque".to_string()),
-    ///     size: Some(0),
-    ///     ttl: Some(-1),
-    ///     data_block: Some(vec![]),
-    ///     already_win: false,
-    ///     won_recache: true,
-    ///     stale: false,
-    /// });
+    /// let result = conn
+    ///     .mg(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MgFlag::Base64Key,
+    ///             MgFlag::ReturnCas,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnHit,
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnLastAccess,
+    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnTtl,
+    ///             MgFlag::UnBump,
+    ///             MgFlag::ReturnValue,
+    ///             MgFlag::NewCas(0),
+    ///             MgFlag::Autovivify(-1),
+    ///             MgFlag::RecacheTtl(-1),
+    ///             MgFlag::UpdateTtl(-1),
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MgItem {
+    ///         success: true,
+    ///         base64_key: false,
+    ///         cas: Some(0),
+    ///         flags: Some(0),
+    ///         hit: Some(0),
+    ///         key: Some("テスト".to_string()),
+    ///         last_access_ttl: Some(0),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(0),
+    ///         ttl: Some(-1),
+    ///         data_block: Some(vec![]),
+    ///         already_win: false,
+    ///         won_recache: true,
+    ///         stale: false,
+    ///     }
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2657,36 +2673,42 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MsItem, MsFlag, MsMode};
+    /// use mcmc_rs::{Connection, MsFlag, MsItem, MsMode};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.ms(
-    ///     b"44OG44K544OI",
-    ///     &[
-    ///     MsFlag::Base64Key,
-    ///     MsFlag::ReturnCas,
-    ///     MsFlag::CompareCas(0),
-    ///     MsFlag::NewCas(0),
-    ///     MsFlag::SetFlags(0),
-    ///     MsFlag::Invalidate,
-    ///     MsFlag::ReturnKey,
-    ///     MsFlag::Opaque("opaque".to_string()),
-    ///     MsFlag::ReturnSize,
-    ///     MsFlag::Ttl(-1),
-    ///     MsFlag::Mode(MsMode::Set),
-    ///     MsFlag::Autovivify(0)
-    ///     ],
-    ///     b"hi").await?;
-    /// assert_eq!(result, MsItem {
-    ///     success: false,
-    ///     cas: Some(0),
-    ///     key: Some("44OG44K544OI".to_string()),
-    ///     opaque: Some("opaque".to_string()),
-    ///     size: Some(2),
-    ///     base64_key: true
-    /// });
+    /// let result = conn
+    ///     .ms(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MsFlag::Base64Key,
+    ///             MsFlag::ReturnCas,
+    ///             MsFlag::CompareCas(0),
+    ///             MsFlag::NewCas(0),
+    ///             MsFlag::SetFlags(0),
+    ///             MsFlag::Invalidate,
+    ///             MsFlag::ReturnKey,
+    ///             MsFlag::Opaque("opaque".to_string()),
+    ///             MsFlag::ReturnSize,
+    ///             MsFlag::Ttl(-1),
+    ///             MsFlag::Mode(MsMode::Set),
+    ///             MsFlag::Autovivify(0),
+    ///         ],
+    ///         b"hi",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MsItem {
+    ///         success: false,
+    ///         cas: Some(0),
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(2),
+    ///         base64_key: true
+    ///     }
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2706,29 +2728,35 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MdItem, MdFlag};
+    /// use mcmc_rs::{Connection, MdFlag, MdItem};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.md(
-    ///     b"44OG44K544OI",
-    ///     &[
-    ///     MdFlag::Base64Key,
-    ///     MdFlag::CompareCas(0),
-    ///     MdFlag::NewCas(0),
-    ///     MdFlag::Invalidate,
-    ///     MdFlag::ReturnKey,
-    ///     MdFlag::Opaque("opaque".to_string()),
-    ///     MdFlag::UpdateTtl(-1),
-    ///     MdFlag::LeaveKey,
-    ///     ]).await?;
-    /// assert_eq!(result, MdItem {
-    ///     success: false,
-    ///     key: Some("44OG44K544OI".to_string()),
-    ///     opaque: Some("opaque".to_string()),
-    ///     base64_key: true
-    /// });
+    /// let result = conn
+    ///     .md(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MdFlag::Base64Key,
+    ///             MdFlag::CompareCas(0),
+    ///             MdFlag::NewCas(0),
+    ///             MdFlag::Invalidate,
+    ///             MdFlag::ReturnKey,
+    ///             MdFlag::Opaque("opaque".to_string()),
+    ///             MdFlag::UpdateTtl(-1),
+    ///             MdFlag::LeaveKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MdItem {
+    ///         success: false,
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2743,37 +2771,43 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MaItem, MaFlag, MaMode};
+    /// use mcmc_rs::{Connection, MaFlag, MaItem, MaMode};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.ma(
-    ///     b"aGk=",
-    ///     &[
-    ///     MaFlag::Base64Key,
-    ///     MaFlag::CompareCas(0),
-    ///     MaFlag::NewCas(0),
-    ///     MaFlag::AutoCreate(0),
-    ///     MaFlag::InitValue(0),
-    ///     MaFlag::DeltaApply(0),
-    ///     MaFlag::UpdateTtl(0),
-    ///     MaFlag::Mode(MaMode::Incr),
-    ///     MaFlag::Opaque("opaque".to_string()),
-    ///     MaFlag::ReturnTtl,
-    ///     MaFlag::ReturnCas,
-    ///     MaFlag::ReturnValue,
-    ///     MaFlag::ReturnKey,
-    ///     ]).await?;
-    /// assert_eq!(result, MaItem {
-    ///     success: true,
-    ///     opaque: Some("opaque".to_string()),
-    ///     ttl: Some(-1),
-    ///     cas: Some(0),
-    ///     number: Some(0),
-    ///     key: Some("aGk=".to_string()),
-    ///     base64_key: true
-    /// });
+    /// let result = conn
+    ///     .ma(
+    ///         b"aGk=",
+    ///         &[
+    ///             MaFlag::Base64Key,
+    ///             MaFlag::CompareCas(0),
+    ///             MaFlag::NewCas(0),
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(0),
+    ///             MaFlag::DeltaApply(0),
+    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::Opaque("opaque".to_string()),
+    ///             MaFlag::ReturnTtl,
+    ///             MaFlag::ReturnCas,
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MaItem {
+    ///         success: true,
+    ///         opaque: Some("opaque".to_string()),
+    ///         ttl: Some(-1),
+    ///         cas: Some(0),
+    ///         number: Some(0),
+    ///         key: Some("aGk=".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2846,19 +2880,17 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
-    ///```
+    /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
         Self(conns)
     }
@@ -2866,16 +2898,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
     /// assert_eq!(client.get(b"k7").await?.unwrap().key, "k7");
@@ -2892,16 +2922,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
     /// assert_eq!(client.gets(b"k8").await?.unwrap().key, "k8");
@@ -2960,16 +2988,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
@@ -2992,16 +3018,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
@@ -3024,16 +3048,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
@@ -3056,16 +3078,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
@@ -3088,16 +3108,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
@@ -3120,16 +3138,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
     /// # Ok::<(), io::Error>(())
@@ -3160,16 +3176,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.delete(b"key", true).await?);
     /// # Ok::<(), io::Error>(())
@@ -3185,16 +3199,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.incr(b"key", 1, true).await?.is_none());
     /// # Ok::<(), io::Error>(())
@@ -3215,16 +3227,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.decr(b"key", 1, true).await?.is_none());
     /// # Ok::<(), io::Error>(())
@@ -3245,16 +3255,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     ///
     /// assert!(client.touch(b"key", -1, true).await?);
     /// # Ok::<(), io::Error>(())
@@ -3275,16 +3283,14 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, ClientCrc32};
+    /// use mcmc_rs::{ClientCrc32, Connection};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
-    /// );
+    /// ]);
     /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
     /// assert!(client.me(b"k11").await?.is_some());
     /// # Ok::<(), io::Error>(())
@@ -3304,45 +3310,51 @@ impl ClientCrc32 {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
+    /// ]);
+    /// let result = client
+    ///     .mg(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MgFlag::Base64Key,
+    ///             MgFlag::ReturnCas,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnHit,
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnLastAccess,
+    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnTtl,
+    ///             MgFlag::UnBump,
+    ///             MgFlag::ReturnValue,
+    ///             MgFlag::NewCas(0),
+    ///             MgFlag::Autovivify(-1),
+    ///             MgFlag::RecacheTtl(-1),
+    ///             MgFlag::UpdateTtl(-1),
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MgItem {
+    ///         success: true,
+    ///         base64_key: false,
+    ///         cas: Some(0),
+    ///         flags: Some(0),
+    ///         hit: Some(0),
+    ///         key: Some("テスト".to_string()),
+    ///         last_access_ttl: Some(0),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(0),
+    ///         ttl: Some(-1),
+    ///         data_block: Some(vec![]),
+    ///         already_win: false,
+    ///         won_recache: true,
+    ///         stale: false,
+    ///     }
     /// );
-    /// let result = client.mg(b"44OG44K544OI", &[
-    ///     MgFlag::Base64Key,
-    ///     MgFlag::ReturnCas,
-    ///     MgFlag::ReturnFlags,
-    ///     MgFlag::ReturnHit,
-    ///     MgFlag::ReturnKey,
-    ///     MgFlag::ReturnLastAccess,
-    ///     MgFlag::Opaque("opaque".to_string()),
-    ///     MgFlag::ReturnSize,
-    ///     MgFlag::ReturnTtl,
-    ///     MgFlag::UnBump,
-    ///     MgFlag::ReturnValue,
-    ///     MgFlag::NewCas(0),
-    ///     MgFlag::Autovivify(-1),
-    ///     MgFlag::RecacheTtl(-1),
-    ///     MgFlag::UpdateTtl(-1),
-    /// ]).await?;
-    /// assert_eq!(result, MgItem {
-    ///     success: true,
-    ///     base64_key: false,
-    ///     cas: Some(0),
-    ///     flags: Some(0),
-    ///     hit: Some(0),
-    ///     key: Some("テスト".to_string()),
-    ///     last_access_ttl: Some(0),
-    ///     opaque: Some("opaque".to_string()),
-    ///     size: Some(0),
-    ///     ttl: Some(-1),
-    ///     data_block: Some(vec![]),
-    ///     already_win: false,
-    ///     won_recache: true,
-    ///     stale: false,
-    /// });
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3356,41 +3368,45 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MsItem, MsFlag, MsMode};
+    /// use mcmc_rs::{ClientCrc32, Connection, MsFlag, MsItem, MsMode};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
+    /// ]);
+    /// let result = client
+    ///     .ms(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MsFlag::Base64Key,
+    ///             MsFlag::ReturnCas,
+    ///             MsFlag::CompareCas(0),
+    ///             MsFlag::NewCas(0),
+    ///             MsFlag::SetFlags(0),
+    ///             MsFlag::Invalidate,
+    ///             MsFlag::ReturnKey,
+    ///             MsFlag::Opaque("opaque".to_string()),
+    ///             MsFlag::ReturnSize,
+    ///             MsFlag::Ttl(-1),
+    ///             MsFlag::Mode(MsMode::Set),
+    ///             MsFlag::Autovivify(0),
+    ///         ],
+    ///         b"hi",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MsItem {
+    ///         success: false,
+    ///         cas: Some(0),
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(2),
+    ///         base64_key: true
+    ///     }
     /// );
-    /// let result = client.ms(
-    ///     b"44OG44K544OI",
-    ///     &[
-    ///     MsFlag::Base64Key,
-    ///     MsFlag::ReturnCas,
-    ///     MsFlag::CompareCas(0),
-    ///     MsFlag::NewCas(0),
-    ///     MsFlag::SetFlags(0),
-    ///     MsFlag::Invalidate,
-    ///     MsFlag::ReturnKey,
-    ///     MsFlag::Opaque("opaque".to_string()),
-    ///     MsFlag::ReturnSize,
-    ///     MsFlag::Ttl(-1),
-    ///     MsFlag::Mode(MsMode::Set),
-    ///     MsFlag::Autovivify(0)
-    ///     ],
-    ///     b"hi").await?;
-    /// assert_eq!(result, MsItem {
-    ///     success: false,
-    ///     cas: Some(0),
-    ///     key: Some("44OG44K544OI".to_string()),
-    ///     opaque: Some("opaque".to_string()),
-    ///     size: Some(2),
-    ///     base64_key: true
-    /// });
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3409,34 +3425,38 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MdItem, MdFlag};
+    /// use mcmc_rs::{ClientCrc32, Connection, MdFlag, MdItem};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
+    /// ]);
+    /// let result = client
+    ///     .md(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MdFlag::Base64Key,
+    ///             MdFlag::CompareCas(0),
+    ///             MdFlag::NewCas(0),
+    ///             MdFlag::Invalidate,
+    ///             MdFlag::ReturnKey,
+    ///             MdFlag::Opaque("opaque".to_string()),
+    ///             MdFlag::UpdateTtl(-1),
+    ///             MdFlag::LeaveKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MdItem {
+    ///         success: false,
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         base64_key: true
+    ///     }
     /// );
-    /// let result = client.md(
-    ///     b"44OG44K544OI",
-    ///     &[
-    ///     MdFlag::Base64Key,
-    ///     MdFlag::CompareCas(0),
-    ///     MdFlag::NewCas(0),
-    ///     MdFlag::Invalidate,
-    ///     MdFlag::ReturnKey,
-    ///     MdFlag::Opaque("opaque".to_string()),
-    ///     MdFlag::UpdateTtl(-1),
-    ///     MdFlag::LeaveKey,
-    ///     ]).await?;
-    /// assert_eq!(result, MdItem {
-    ///     success: false,
-    ///     key: Some("44OG44K544OI".to_string()),
-    ///     opaque: Some("opaque".to_string()),
-    ///     base64_key: true
-    /// });
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3450,42 +3470,46 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MaItem, MaFlag, MaMode};
+    /// use mcmc_rs::{ClientCrc32, Connection, MaFlag, MaItem, MaMode};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(
-    ///     vec![
+    /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached.sock").await?,
-    ///     ]
+    /// ]);
+    /// let result = client
+    ///     .ma(
+    ///         b"aGk=",
+    ///         &[
+    ///             MaFlag::Base64Key,
+    ///             MaFlag::CompareCas(0),
+    ///             MaFlag::NewCas(0),
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(0),
+    ///             MaFlag::DeltaApply(0),
+    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::Opaque("opaque".to_string()),
+    ///             MaFlag::ReturnTtl,
+    ///             MaFlag::ReturnCas,
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MaItem {
+    ///         success: true,
+    ///         opaque: Some("opaque".to_string()),
+    ///         ttl: Some(-1),
+    ///         cas: Some(0),
+    ///         number: Some(0),
+    ///         key: Some("aGk=".to_string()),
+    ///         base64_key: true
+    ///     }
     /// );
-    /// let result = client.ma(
-    ///     b"aGk=",
-    ///     &[
-    ///     MaFlag::Base64Key,
-    ///     MaFlag::CompareCas(0),
-    ///     MaFlag::NewCas(0),
-    ///     MaFlag::AutoCreate(0),
-    ///     MaFlag::InitValue(0),
-    ///     MaFlag::DeltaApply(0),
-    ///     MaFlag::UpdateTtl(0),
-    ///     MaFlag::Mode(MaMode::Incr),
-    ///     MaFlag::Opaque("opaque".to_string()),
-    ///     MaFlag::ReturnTtl,
-    ///     MaFlag::ReturnCas,
-    ///     MaFlag::ReturnValue,
-    ///     MaFlag::ReturnKey,
-    ///     ]).await?;
-    /// assert_eq!(result, MaItem {
-    ///     success: true,
-    ///     opaque: Some("opaque".to_string()),
-    ///     ttl: Some(-1),
-    ///     cas: Some(0),
-    ///     number: Some(0),
-    ///     key: Some("aGk=".to_string()),
-    ///     base64_key: true
-    /// });
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3518,12 +3542,24 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
+    /// use mcmc_rs::{Connection, PipelineResponse};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// assert_eq!(conn.pipeline().execute().await?, []);
+    /// let result = conn
+    ///     .pipeline()
+    ///     .set(b"key", 0, -1, false, b"value")
+    ///     .get("key")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::Bool(true),
+    ///         PipelineResponse::OptionItem(None),
+    ///     ]
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3985,7 +4021,8 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().get_multi(&[b"key".as_slice(), b"key2".as_slice()]);
+    /// conn.pipeline()
+    ///     .get_multi(&[b"key".as_slice(), b"key2".as_slice()]);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -4006,7 +4043,8 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().gets_multi(&[b"key".as_slice(), b"key2".as_slice()]);
+    /// conn.pipeline()
+    ///     .gets_multi(&[b"key".as_slice(), b"key2".as_slice()]);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -4027,7 +4065,8 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().gat_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
+    /// conn.pipeline()
+    ///     .gat_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -4048,7 +4087,8 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().gats_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
+    /// conn.pipeline()
+    ///     .gats_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -4189,7 +4229,8 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru_crawler_metadump(LruCrawlerMetadumpArg::All);
+    /// conn.pipeline()
+    ///     .lru_crawler_metadump(LruCrawlerMetadumpArg::All);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
