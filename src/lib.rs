@@ -39,14 +39,14 @@ use smol::io::{self, BufReader};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
 use smol::prelude::*;
 
-pub enum AddrArg {
-    Tcp(String),
-    Unix(String),
-    Udp(String),
+pub enum AddrArg<'a> {
+    Tcp(&'a str),
+    Unix(&'a str),
+    Udp(&'a str),
 }
 
-pub struct Manager(AddrArg);
-impl Manager {
+pub struct Manager<'a>(AddrArg<'a>);
+impl<'a> Manager<'a> {
     /// # Example
     ///
     /// ```
@@ -54,7 +54,7 @@ impl Manager {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211".to_string()));
+    /// let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211"));
     /// let pool = Pool::builder(mgr).build().unwrap();
     /// let mut conn = pool.get().await.unwrap();
     /// let result = conn.version().await?;
@@ -62,17 +62,17 @@ impl Manager {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub fn new(addr: AddrArg) -> Self {
+    pub fn new(addr: AddrArg<'a>) -> Self {
         Self(addr)
     }
 }
 
-impl managed::Manager for Manager {
+impl<'a> managed::Manager for Manager<'a> {
     type Type = Connection;
     type Error = io::Error;
 
     async fn create(&self) -> Result<Connection, io::Error> {
-        match &self.0 {
+        match self.0 {
             AddrArg::Tcp(addr) => Connection::tcp_connect(addr).await,
             AddrArg::Unix(addr) => Connection::unix_connect(addr).await,
             AddrArg::Udp(_addr) => todo!(),
@@ -91,7 +91,7 @@ impl managed::Manager for Manager {
     }
 }
 
-pub type Pool = managed::Pool<Manager>;
+pub type Pool<'a> = managed::Pool<Manager<'a>>;
 
 pub enum StatsArg {
     Settings,

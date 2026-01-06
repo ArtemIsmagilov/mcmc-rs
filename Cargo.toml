@@ -1,13 +1,17 @@
 [package]
 name = "mcmc-rs"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
 repository = "https://github.com/ArtemIsmagilov/mcmc-rs"
 license = "MIT"
 keywords = ["memcached"]
-categories = ["database", "caching", "asynchronous"]
+categories = ["asynchronous", "caching", "database"]
+
+[[bench]]
+harness = false
+name = "my_benchmark"
 
 [dependencies]
 crc32fast = "1.5.0"
@@ -16,7 +20,3 @@ smol = "2.0.2"
 
 [dev-dependencies]
 criterion = { version = "0.8.1", features = ["html_reports"] }
-
-[[bench]]
-name = "my_benchmark"
-harness = false

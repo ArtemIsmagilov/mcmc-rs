@@ -78,7 +78,7 @@ use mcmc_rs::{AddrArg, Manager, Pool};
 
 fn main() -> io::Result<()> {
     block_on(async {
-        let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211".to_string()));
+        let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211"));
         let pool = Pool::builder(mgr).build().unwrap();
         let mut conn = pool.get().await.unwrap();
         let result = conn.version().await?;
