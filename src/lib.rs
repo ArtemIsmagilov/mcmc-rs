@@ -864,7 +864,7 @@ fn build_stats_cmd(arg: Option<StatsArg>) -> Vec<u8> {
 
 fn build_slabs_automove_cmd(arg: SlabsAutomoveArg) -> Vec<u8> {
     let a = match arg {
-        SlabsAutomoveArg::Zero => 0u8,
+        SlabsAutomoveArg::Zero => 0,
         SlabsAutomoveArg::One => 1,
         SlabsAutomoveArg::Two => 2,
     };
