@@ -2738,7 +2738,15 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
+    /// let result = conn.get_multi(&[b"k8"]).await?;
+    /// assert_eq!(result[0].key, "k8");
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
+    /// let result = conn.get_multi(&[b"k8"]).await?;
+    /// assert_eq!(result[0].key, "k8");
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8019", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
     /// let result = conn.get_multi(&[b"k8"]).await?;
     /// assert_eq!(result[0].key, "k8");
