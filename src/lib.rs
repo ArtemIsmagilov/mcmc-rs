@@ -1,7 +1,8 @@
 //! Asynchronous memcached client on Rust.
 //!
 //! This crate provides working with memcached server.
-//! All methods implemented
+//! All methods implemented.
+//! Available TCP/Unix/UDP connections.
 //!
 //! - [Connection] is a Enum that represents a
 //!   connection to memcached server.
@@ -35,14 +36,14 @@ use std::io::Write;
 
 use crc32fast;
 use deadpool::managed;
-use smol::io::{self, BufReader};
+use smol::io::{self, BufReader, Cursor};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
 use smol::prelude::*;
 
 pub enum AddrArg<'a> {
     Tcp(&'a str),
     Unix(&'a str),
-    Udp(&'a str),
+    Udp(&'a str, &'a str),
 }
 
 pub struct Manager<'a>(AddrArg<'a>);
@@ -75,7 +76,9 @@ impl<'a> managed::Manager for Manager<'a> {
         match self.0 {
             AddrArg::Tcp(addr) => Connection::tcp_connect(addr).await,
             AddrArg::Unix(addr) => Connection::unix_connect(addr).await,
-            AddrArg::Udp(_addr) => todo!(),
+            AddrArg::Udp(bind_addr, connect_addr) => {
+                Connection::udp_connect(bind_addr, connect_addr).await
+            }
         }
     }
 
@@ -1106,16 +1109,64 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
     w
 }
 
+async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> io::Result<()> {
+    *r = r.wrapping_add(1);
+    let mut msg = Vec::new();
+    msg.extend(r.to_be_bytes());
+    msg.extend([0, 0, 0, 1, 0, 0]);
+    msg.extend(cmd);
+    s.send(&msg).await?;
+    Ok(())
+}
+
+async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> io::Result<Vec<u8>> {
+    let mut count_datagrams = 0;
+    let mut result = HashMap::new();
+    loop {
+        let mut buf = [0; 1400];
+        let n = s.recv(&mut buf).await?;
+        if n < 8 {
+            return Err(io::Error::other("Invalid UDP header"));
+        }
+        let request_id = u16::from_be_bytes([buf[0], buf[1]]);
+        let sequence_number = u16::from_be_bytes([buf[2], buf[3]]);
+        let total_number_datagrams = u16::from_be_bytes([buf[4], buf[5]]);
+        if *r != request_id {
+            continue;
+        }
+        count_datagrams += 1;
+        result.insert(sequence_number, buf[8..n].to_vec());
+        if total_number_datagrams == count_datagrams {
+            break;
+        }
+    }
+    let mut response = Vec::new();
+    (0..count_datagrams).for_each(|x| response.extend(result.get(&x).unwrap()));
+    Ok(response)
+}
+
+async fn version_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<String> {
+    udp_send_cmd(s, r, build_version_cmd()).await?;
+    parse_version_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
+
 async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
     s.flush().await?;
     parse_version_rp(s).await
 }
 
+async fn quit_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<()> {
+    udp_send_cmd(s, r, build_quit_cmd()).await
+}
+
 async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
     s.write_all(build_quit_cmd()).await?;
-    s.flush().await?;
-    Ok(())
+    s.flush().await
+}
+
+async fn shutdown_cmd_udp(s: &mut UdpSocket, r: &mut u16, graceful: bool) -> io::Result<()> {
+    udp_send_cmd(s, r, build_shutdown_cmd(graceful)).await
 }
 
 async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1123,8 +1174,21 @@ async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     graceful: bool,
 ) -> io::Result<()> {
     s.write_all(build_shutdown_cmd(graceful)).await?;
-    s.flush().await?;
-    Ok(())
+    s.flush().await
+}
+
+async fn cache_memlimit_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    limit: usize,
+    noreply: bool,
+) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_cache_memlimit_cmd(limit, noreply)).await?;
+    if noreply {
+        Ok(())
+    } else {
+        parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
+    }
 }
 
 async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1138,6 +1202,20 @@ async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, noreply).await
 }
 
+async fn flush_all_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    exptime: Option<i64>,
+    noreply: bool,
+) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_flush_all_cmd(exptime, noreply)).await?;
+    if noreply {
+        Ok(())
+    } else {
+        parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
+    }
+}
+
 async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     exptime: Option<i64>,
@@ -1146,6 +1224,38 @@ async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_flush_all_cmd(exptime, noreply)).await?;
     s.flush().await?;
     parse_ok_rp(s, noreply).await
+}
+
+async fn storage_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    command_name: &[u8],
+    key: &[u8],
+    flags: u32,
+    exptime: i64,
+    cas_unique: Option<u64>,
+    noreply: bool,
+    data_block: &[u8],
+) -> io::Result<bool> {
+    udp_send_cmd(
+        s,
+        r,
+        &build_storage_cmd(
+            command_name,
+            key,
+            flags,
+            exptime,
+            cas_unique,
+            noreply,
+            data_block,
+        ),
+    )
+    .await?;
+    if noreply {
+        Ok(true)
+    } else {
+        parse_storage_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
+    }
 }
 
 async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1172,6 +1282,20 @@ async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_storage_rp(s, noreply).await
 }
 
+async fn delete_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    key: &[u8],
+    noreply: bool,
+) -> io::Result<bool> {
+    udp_send_cmd(s, r, &build_delete_cmd(key, noreply)).await?;
+    if noreply {
+        Ok(true)
+    } else {
+        parse_delete_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
+    }
+}
+
 async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
@@ -1192,6 +1316,27 @@ async fn auth_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_auth_rp(s).await
 }
 
+async fn incr_decr_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    command_name: &[u8],
+    key: &[u8],
+    value: u64,
+    noreply: bool,
+) -> io::Result<Option<u64>> {
+    udp_send_cmd(
+        s,
+        r,
+        &build_incr_decr_cmd(command_name, key, value, noreply),
+    )
+    .await?;
+    if noreply {
+        Ok(None)
+    } else {
+        parse_incr_decr_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
+    }
+}
+
 async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     command_name: &[u8],
@@ -1205,6 +1350,21 @@ async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_incr_decr_rp(s, noreply).await
 }
 
+async fn touch_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    key: &[u8],
+    exptime: i64,
+    noreply: bool,
+) -> io::Result<bool> {
+    udp_send_cmd(s, r, &build_touch_cmd(key, exptime, noreply)).await?;
+    if noreply {
+        Ok(true)
+    } else {
+        parse_touch_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
+    }
+}
+
 async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
@@ -1214,6 +1374,17 @@ async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_touch_cmd(key, exptime, noreply)).await?;
     s.flush().await?;
     parse_touch_rp(s, noreply).await
+}
+
+async fn retrieval_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    command_name: &[u8],
+    exptime: Option<i64>,
+    keys: &[&[u8]],
+) -> io::Result<Vec<Item>> {
+    udp_send_cmd(s, r, &build_retrieval_cmd(command_name, exptime, keys)).await?;
+    parse_retrieval_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1228,6 +1399,15 @@ async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_retrieval_rp(s).await
 }
 
+async fn stats_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    arg: Option<StatsArg>,
+) -> io::Result<HashMap<String, String>> {
+    udp_send_cmd(s, r, &build_stats_cmd(arg)).await?;
+    parse_stats_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
+
 async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: Option<StatsArg>,
@@ -1235,6 +1415,15 @@ async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_stats_cmd(arg)).await?;
     s.flush().await?;
     parse_stats_rp(s).await
+}
+
+async fn slabs_automove_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    arg: SlabsAutomoveArg,
+) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_slabs_automove_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
 async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1246,6 +1435,11 @@ async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
+async fn lru_crawler_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruCrawlerArg) -> io::Result<()> {
+    udp_send_cmd(s, r, build_lru_crawler_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
 async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerArg,
@@ -1253,6 +1447,15 @@ async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(build_lru_crawler_cmd(arg)).await?;
     s.flush().await?;
     parse_ok_rp(s, false).await
+}
+
+async fn lru_crawler_sleep_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    microseconds: usize,
+) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_lru_clawler_sleep_cmd(microseconds)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
 async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1265,6 +1468,11 @@ async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
+async fn lru_crawler_tocrawl_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: u32) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_lru_crawler_tocrawl_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
 async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: u32,
@@ -1274,6 +1482,15 @@ async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
+async fn lru_crawler_crawl_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    arg: LruCrawlerCrawlArg<'_>,
+) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_lru_clawler_crawl_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
 async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerCrawlArg<'_>,
@@ -1281,6 +1498,16 @@ async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_lru_clawler_crawl_cmd(arg)).await?;
     s.flush().await?;
     parse_ok_rp(s, false).await
+}
+
+async fn slabs_reassign_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    source_class: usize,
+    dest_class: usize,
+) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_slabs_reassign_cmd(source_class, dest_class)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
 async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1294,6 +1521,14 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
+async fn lru_crawler_metadump_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    arg: LruCrawlerMetadumpArg<'_>,
+) -> io::Result<Vec<String>> {
+    udp_send_cmd(s, r, &build_lru_clawler_metadump_cmd(arg)).await?;
+    parse_lru_crawler_metadump_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
 async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
@@ -1301,6 +1536,15 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
     s.flush().await?;
     parse_lru_crawler_metadump_rp(s).await
+}
+
+async fn lru_crawler_mgdump_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    arg: LruCrawlerMgdumpArg<'_>,
+) -> io::Result<Vec<String>> {
+    udp_send_cmd(s, r, &build_lru_clawler_mgdump_cmd(arg)).await?;
+    parse_lru_crawler_mgdump_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1312,10 +1556,20 @@ async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_lru_crawler_mgdump_rp(s).await
 }
 
+async fn mn_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<()> {
+    udp_send_cmd(s, r, build_mn_cmd()).await?;
+    parse_mn_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
+
 async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
     s.write_all(build_mn_cmd()).await?;
     s.flush().await?;
     parse_mn_rp(s).await
+}
+
+async fn me_cmd_udp(s: &mut UdpSocket, r: &mut u16, key: &[u8]) -> io::Result<Option<String>> {
+    udp_send_cmd(s, r, &build_me_cmd(key)).await?;
+    parse_me_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1431,6 +1685,22 @@ async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
+async fn ms_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    key: &[u8],
+    flags: &[MsFlag],
+    data_block: &[u8],
+) -> io::Result<MsItem> {
+    udp_send_cmd(
+        s,
+        r,
+        &build_mc_cmd(b"ms", key, &build_ms_flags(flags), Some(data_block)),
+    )
+    .await?;
+    parse_ms_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
+
 async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
@@ -1448,6 +1718,21 @@ async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ms_rp(s).await
 }
 
+async fn mg_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    key: &[u8],
+    flags: &[MgFlag],
+) -> io::Result<MgItem> {
+    udp_send_cmd(
+        s,
+        r,
+        &build_mc_cmd(b"mg", key, &build_mg_flags(flags), None),
+    )
+    .await?;
+    parse_mg_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
+
 async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
@@ -1457,6 +1742,21 @@ async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
         .await?;
     s.flush().await?;
     parse_mg_rp(s).await
+}
+
+async fn md_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    key: &[u8],
+    flags: &[MdFlag],
+) -> io::Result<MdItem> {
+    udp_send_cmd(
+        s,
+        r,
+        &build_mc_cmd(b"md", key, &build_md_flags(flags), None),
+    )
+    .await?;
+    parse_md_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1470,6 +1770,21 @@ async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_md_rp(s).await
 }
 
+async fn ma_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    key: &[u8],
+    flags: &[MaFlag],
+) -> io::Result<MaItem> {
+    udp_send_cmd(
+        s,
+        r,
+        &build_mc_cmd(b"ma", key, &build_ma_flags(flags), None),
+    )
+    .await?;
+    parse_ma_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
+}
+
 async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
@@ -1481,6 +1796,11 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ma_rp(s).await
 }
 
+async fn lru_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruArg) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_lru_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
 async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> io::Result<()> {
     s.write_all(&build_lru_cmd(arg)).await?;
     s.flush().await?;
@@ -1490,7 +1810,7 @@ async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     Unix(BufReader<UnixStream>),
-    Udp(UdpSocket),
+    Udp(UdpSocket, u16),
 }
 impl Connection {
     /// # Example
@@ -1534,7 +1854,7 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::unix_connect("/tmp/memcached.sock").await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1551,7 +1871,29 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// #     let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8080", "127.0.0.1:11214").await?;
+    /// #     Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    pub async fn udp_connect(bind_addr: &str, connect_addr: &str) -> io::Result<Self> {
+        let s = UdpSocket::bind(bind_addr).await?;
+        s.connect(connect_addr).await?;
+        Ok(Connection::Udp(s, 0))
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::Connection;
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.version().await?;
+    /// assert!(result.chars().any(|x| x.is_numeric()));
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.version().await?;
+    /// assert!(result.chars().any(|x| x.is_numeric()));
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8000", "127.0.0.1:11214").await?;
     /// let result = conn.version().await?;
     /// assert!(result.chars().any(|x| x.is_numeric()));
     /// #     Ok::<(), io::Error>(())
@@ -1561,7 +1903,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => version_cmd(s).await,
             Connection::Unix(s) => version_cmd(s).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => version_cmd_udp(s, r).await,
         }
     }
 
@@ -1574,6 +1916,10 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.quit().await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.quit().await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8001", "127.0.0.1:11214").await?;
+    /// conn.quit().await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1581,7 +1927,7 @@ impl Connection {
         match &mut self {
             Connection::Tcp(s) => quit_cmd(s).await,
             Connection::Unix(s) => quit_cmd(s).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => quit_cmd_udp(s, r).await,
         }
     }
 
@@ -1594,6 +1940,10 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::tcp_connect("127.0.0.1:11213").await?;
     /// conn.shutdown(true).await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached1.sock").await?;
+    /// conn.shutdown(true).await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8002", "127.0.0.1:11215").await?;
+    /// conn.shutdown(true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1601,7 +1951,7 @@ impl Connection {
         match &mut self {
             Connection::Tcp(s) => shutdown_cmd(s, graceful).await,
             Connection::Unix(s) => shutdown_cmd(s, graceful).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => shutdown_cmd_udp(s, r, graceful).await,
         }
     }
 
@@ -1614,6 +1964,10 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.cache_memlimit(10, true).await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.cache_memlimit(10, true).await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8003", "127.0.0.1:11214").await?;
+    /// conn.cache_memlimit(10, true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1621,7 +1975,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => cache_memlimit_cmd(s, limit, noreply).await,
             Connection::Unix(s) => cache_memlimit_cmd(s, limit, noreply).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => cache_memlimit_cmd_udp(s, r, limit, noreply).await,
         }
     }
 
@@ -1634,6 +1988,10 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.flush_all(Some(999), true).await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.flush_all(Some(999), true).await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8004", "127.0.0.1:11214").await?;
+    /// conn.flush_all(Some(999), true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1641,7 +1999,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => flush_all_cmd(s, exptime, noreply).await,
             Connection::Unix(s) => flush_all_cmd(s, exptime, noreply).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => flush_all_cmd_udp(s, r, exptime, noreply).await,
         }
     }
 
@@ -1653,6 +2011,12 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// let result = conn.set(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.set(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8005", "127.0.0.1:11214").await?;
     /// let result = conn.set(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -1693,7 +2057,20 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                storage_cmd_udp(
+                    s,
+                    r,
+                    b"set",
+                    key.as_ref(),
+                    flags,
+                    exptime,
+                    None,
+                    noreply,
+                    data_block.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -1704,7 +2081,13 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// #     let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.add(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.add(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8006", "127.0.0.1:11214").await?;
     /// let result = conn.add(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -1745,7 +2128,20 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                storage_cmd_udp(
+                    s,
+                    r,
+                    b"add",
+                    key.as_ref(),
+                    flags,
+                    exptime,
+                    None,
+                    noreply,
+                    data_block.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -1756,7 +2152,13 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// #     let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.replace(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.replace(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8007", "127.0.0.1:11214").await?;
     /// let result = conn.replace(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -1797,7 +2199,20 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                storage_cmd_udp(
+                    s,
+                    r,
+                    b"replace",
+                    key.as_ref(),
+                    flags,
+                    exptime,
+                    None,
+                    noreply,
+                    data_block.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -1808,7 +2223,13 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// #     let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.append(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.append(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8008", "127.0.0.1:11214").await?;
     /// let result = conn.append(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -1849,7 +2270,20 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                storage_cmd_udp(
+                    s,
+                    r,
+                    b"append",
+                    key.as_ref(),
+                    flags,
+                    exptime,
+                    None,
+                    noreply,
+                    data_block.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -1860,8 +2294,15 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
     /// let result = conn.prepend(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.prepend(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8009", "127.0.0.1:11214").await?;
+    /// let result = conn.prepend(b"key", 0, -1, true, b"value").await?;
+    /// assert!(result);
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -1901,7 +2342,20 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                storage_cmd_udp(
+                    s,
+                    r,
+                    b"prepend",
+                    key.as_ref(),
+                    flags,
+                    exptime,
+                    None,
+                    noreply,
+                    data_block.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -1912,7 +2366,13 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.cas(b"key", 0, -1, 0, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.cas(b"key", 0, -1, 0, true, b"value").await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8010", "127.0.0.1:11214").await?;
     /// let result = conn.cas(b"key", 0, -1, 0, true, b"value").await?;
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
@@ -1954,7 +2414,20 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                storage_cmd_udp(
+                    s,
+                    r,
+                    b"cas",
+                    key.as_ref(),
+                    flags,
+                    exptime,
+                    Some(cas_unique),
+                    noreply,
+                    data_block.as_ref(),
+                )
+                .await
+            }
         }
     }
 
@@ -1965,7 +2438,9 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// #     let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
+    /// let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
+    /// conn.auth(b"a", b"a").await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached2.sock").await?;
     /// conn.auth(b"a", b"a").await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -1978,7 +2453,9 @@ impl Connection {
         match self {
             Connection::Tcp(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
             Connection::Unix(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(_s, _r) => {
+                unreachable!("Cannot enable UDP while using binary SASL authentication.")
+            }
         }
     }
 
@@ -1989,7 +2466,11 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.delete(b"key", true).await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.delete(b"key", true).await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8011", "127.0.0.1:11214").await?;
     /// let result = conn.delete(b"key", true).await?;
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
@@ -1999,7 +2480,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => delete_cmd(s, key.as_ref(), noreply).await,
             Connection::Unix(s) => delete_cmd(s, key.as_ref(), noreply).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => delete_cmd_udp(s, r, key.as_ref(), noreply).await,
         }
     }
 
@@ -2009,7 +2490,13 @@ impl Connection {
     /// # use mcmc_rs::Connection;
     /// # use smol::{io, block_on};
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.incr(b"key", 1, true).await?;
+    /// assert!(result.is_none());
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.incr(b"key", 1, true).await?;
+    /// assert!(result.is_none());
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8012", "127.0.0.1:11214").await?;
     /// let result = conn.incr(b"key", 1, true).await?;
     /// assert!(result.is_none());
     /// # Ok::<(), io::Error>(())
@@ -2024,7 +2511,9 @@ impl Connection {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
             Connection::Unix(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                incr_decr_cmd_udp(s, r, b"incr", key.as_ref(), value, noreply).await
+            }
         }
     }
 
@@ -2035,7 +2524,13 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.decr(b"key", 1, true).await?;
+    /// assert!(result.is_none());
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.decr(b"key", 1, true).await?;
+    /// assert!(result.is_none());
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8013", "127.0.0.1:11214").await?;
     /// let result = conn.decr(b"key", 1, true).await?;
     /// assert!(result.is_none());
     /// # Ok::<(), io::Error>(())
@@ -2050,7 +2545,9 @@ impl Connection {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
             Connection::Unix(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                incr_decr_cmd_udp(s, r, b"decr", key.as_ref(), value, noreply).await
+            }
         }
     }
 
@@ -2061,7 +2558,13 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.touch(b"key", -1, true).await?;
+    /// assert!(result);
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.touch(b"key", -1, true).await?;
+    /// assert!(result);
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8014", "127.0.0.1:11214").await?;
     /// let result = conn.touch(b"key", -1, true).await?;
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
@@ -2076,7 +2579,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
             Connection::Unix(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => touch_cmd_udp(s, r, key.as_ref(), exptime, noreply).await,
         }
     }
 
@@ -2087,8 +2590,16 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
-    /// # assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
+    /// let result = conn.get(b"k1").await?;
+    /// assert_eq!(result.unwrap().key, "k1");
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
+    /// let result = conn.get(b"k1").await?;
+    /// assert_eq!(result.unwrap().key, "k1");
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8015", "127.0.0.1:11214").await?;
+    /// assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
     /// let result = conn.get(b"k1").await?;
     /// assert_eq!(result.unwrap().key, "k1");
     /// # Ok::<(), io::Error>(())
@@ -2098,7 +2609,9 @@ impl Connection {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => Ok(retrieval_cmd_udp(s, r, b"get", None, &[key.as_ref()])
+                .await?
+                .pop()),
         }
     }
 
@@ -2109,7 +2622,15 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k2", 0, 0, false, b"v2").await?);
+    /// let result = conn.gets(b"k2").await?;
+    /// assert_eq!(result.unwrap().key, "k2");
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k2", 0, 0, false, b"v2").await?);
+    /// let result = conn.gets(b"k2").await?;
+    /// assert_eq!(result.unwrap().key, "k2");
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8016", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k2", 0, 0, false, b"v2").await?);
     /// let result = conn.gets(b"k2").await?;
     /// assert_eq!(result.unwrap().key, "k2");
@@ -2124,7 +2645,9 @@ impl Connection {
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gets", None, &[key.as_ref()])
                 .await?
                 .pop()),
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => Ok(retrieval_cmd_udp(s, r, b"gets", None, &[key.as_ref()])
+                .await?
+                .pop()),
         }
     }
 
@@ -2135,7 +2658,15 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k3", 0, 0, false, b"v3").await?);
+    /// let result = conn.gat(0, b"k3").await?;
+    /// assert_eq!(result.unwrap().key, "k3");
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k3", 0, 0, false, b"v3").await?);
+    /// let result = conn.gat(0, b"k3").await?;
+    /// assert_eq!(result.unwrap().key, "k3");
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8017", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k3", 0, 0, false, b"v3").await?);
     /// let result = conn.gat(0, b"k3").await?;
     /// assert_eq!(result.unwrap().key, "k3");
@@ -2150,7 +2681,13 @@ impl Connection {
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gat", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                Ok(
+                    retrieval_cmd_udp(s, r, b"gat", Some(exptime), &[key.as_ref()])
+                        .await?
+                        .pop(),
+                )
+            }
         }
     }
 
@@ -2161,7 +2698,15 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k4", 0, 0, false, b"v4").await?);
+    /// let result = conn.gats(0, b"k4").await?;
+    /// assert_eq!(result.unwrap().key, "k4");
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k4", 0, 0, false, b"v4").await?);
+    /// let result = conn.gats(0, b"k4").await?;
+    /// assert_eq!(result.unwrap().key, "k4");
+    /// let mut conn = Connection::udp_connect("127.0.0.1:8018", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k4", 0, 0, false, b"v4").await?);
     /// let result = conn.gats(0, b"k4").await?;
     /// assert_eq!(result.unwrap().key, "k4");
@@ -2176,7 +2721,13 @@ impl Connection {
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gats", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                Ok(
+                    retrieval_cmd_udp(s, r, b"gats", Some(exptime), &[key.as_ref()])
+                        .await?
+                        .pop(),
+                )
+            }
         }
     }
 
@@ -2214,7 +2765,16 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                retrieval_cmd_udp(
+                    s,
+                    r,
+                    b"get",
+                    None,
+                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+                )
+                .await
+            }
         }
     }
 
@@ -2252,7 +2812,16 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                retrieval_cmd_udp(
+                    s,
+                    r,
+                    b"gets",
+                    None,
+                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+                )
+                .await
+            }
         }
     }
 
@@ -2294,7 +2863,16 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                retrieval_cmd_udp(
+                    s,
+                    r,
+                    b"gat",
+                    Some(exptime),
+                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+                )
+                .await
+            }
         }
     }
 
@@ -2336,7 +2914,16 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                retrieval_cmd_udp(
+                    s,
+                    r,
+                    b"gats",
+                    Some(exptime),
+                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+                )
+                .await
+            }
         }
     }
 
@@ -2357,7 +2944,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => stats_cmd(s, arg).await,
             Connection::Unix(s) => stats_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => stats_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2378,7 +2965,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => slabs_automove_cmd(s, arg).await,
             Connection::Unix(s) => slabs_automove_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => slabs_automove_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2399,7 +2986,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_crawler_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2419,7 +3006,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_sleep_cmd(s, microseconds).await,
             Connection::Unix(s) => lru_crawler_sleep_cmd(s, microseconds).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_crawler_sleep_cmd_udp(s, r, microseconds).await,
         }
     }
 
@@ -2439,7 +3026,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_crawler_tocrawl_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2459,7 +3046,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_crawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_crawl_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_crawler_crawl_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2484,7 +3071,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
             Connection::Unix(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => slabs_reassign_cmd_udp(s, r, source_class, dest_class).await,
         }
     }
 
@@ -2510,7 +3097,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_crawler_metadump_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2521,7 +3108,7 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::unix_connect("/tmp/memcached.sock").await?;
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn
     ///     .lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3]))
     ///     .await?;
@@ -2536,7 +3123,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_crawler_mgdump_cmd_udp(s, r, arg).await,
         }
     }
 
@@ -2556,7 +3143,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => mn_cmd(s).await,
             Connection::Unix(s) => mn_cmd(s).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => mn_cmd_udp(s, r).await,
         }
     }
 
@@ -2577,7 +3164,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => me_cmd(s, key.as_ref()).await,
             Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => me_cmd_udp(s, r, key.as_ref()).await,
         }
     }
 
@@ -2601,7 +3188,7 @@ impl Connection {
         match &mut self {
             Connection::Tcp(s) => watch_cmd(s, arg).await?,
             Connection::Unix(s) => watch_cmd(s, arg).await?,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(_s, r) => todo!(),
         };
         Ok(WatchStream(self))
     }
@@ -2666,7 +3253,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => mg_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => mg_cmd(s, key.as_ref(), flags).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => mg_cmd_udp(s, r, key.as_ref(), flags).await,
         }
     }
 
@@ -2721,7 +3308,9 @@ impl Connection {
         match self {
             Connection::Tcp(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
             Connection::Unix(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => {
+                ms_cmd_udp(s, r, key.as_ref(), flags, data_block.as_ref()).await
+            }
         }
     }
 
@@ -2764,7 +3353,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => md_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => md_cmd(s, key.as_ref(), flags).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => md_cmd_udp(s, r, key.as_ref(), flags).await,
         }
     }
 
@@ -2815,7 +3404,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => ma_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => ma_cmd(s, key.as_ref(), flags).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => ma_cmd_udp(s, r, key.as_ref(), flags).await,
         }
     }
 
@@ -2837,7 +3426,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_cmd(s, arg).await,
             Connection::Unix(s) => lru_cmd(s, arg).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(s, r) => lru_cmd_udp(s, r, arg).await,
         }
     }
 }
@@ -2865,7 +3454,7 @@ impl WatchStream {
         let n = match &mut self.0 {
             Connection::Tcp(s) => s.read_line(&mut line).await?,
             Connection::Unix(s) => s.read_line(&mut line).await?,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(_s, r) => todo!(),
         };
         if n == 0 {
             Ok(None)
@@ -2886,7 +3475,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -2904,7 +3493,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
@@ -2928,7 +3517,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
@@ -2952,7 +3541,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert!(client.set(b"k9", 0, 0, false, b"v9").await?);
     /// let result = client.gat(0, b"k9").await?;
@@ -2976,7 +3565,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert!(client.set(b"k10", 0, 0, false, b"v10").await?);
     /// let result = client.gats(0, b"k10").await?;
@@ -3000,7 +3589,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
@@ -3030,7 +3619,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
@@ -3060,7 +3649,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
@@ -3090,7 +3679,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
@@ -3120,7 +3709,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
@@ -3150,7 +3739,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
@@ -3188,7 +3777,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.delete(b"key", true).await?);
@@ -3211,7 +3800,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.incr(b"key", 1, true).await?.is_none());
@@ -3239,7 +3828,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.decr(b"key", 1, true).await?.is_none());
@@ -3267,7 +3856,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     ///
     /// assert!(client.touch(b"key", -1, true).await?);
@@ -3295,7 +3884,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
     /// assert!(client.me(b"k11").await?.is_some());
@@ -3318,7 +3907,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let result = client
     ///     .mg(
@@ -3380,7 +3969,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let result = client
     ///     .ms(
@@ -3437,7 +4026,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let result = client
     ///     .md(
@@ -3482,7 +4071,7 @@ impl ClientCrc32 {
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached.sock").await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let result = client
     ///     .ma(
@@ -3576,7 +4165,7 @@ impl<'a> Pipeline<'a> {
         match self.0 {
             Connection::Tcp(s) => execute_cmd(s, &self.1).await,
             Connection::Unix(s) => execute_cmd(s, &self.1).await,
-            Connection::Udp(_s) => todo!(),
+            Connection::Udp(_s, r) => todo!(),
         }
     }
 

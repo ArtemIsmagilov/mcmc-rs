@@ -6,7 +6,7 @@ services:
 
   md-unix0:
     image: "memcached:alpine"
-    command: ["-s", "/tmp/memcached.sock"]
+    command: ["-s", "/tmp/memcached0.sock"]
     volumes:
       - "/tmp:/tmp"
 
@@ -23,3 +23,28 @@ services:
     ports:
       - "11213:11213"
     command: ["-p", "11213", "-A"]
+
+  md-udp0:
+    image: "memcached:alpine"
+    command: ["-U", "11214"]
+    ports:
+      - "11214:11214/udp"
+
+  md-unix1:
+    image: "memcached:alpine"
+    command: ["-A", "-s", "/tmp/memcached1.sock"]
+    volumes:
+      - "/tmp:/tmp"
+
+  md-udp1:
+    image: "memcached:alpine"
+    command: ["-U", "11215", "-A"]
+    ports:
+      - "11215:11215/udp"
+
+  md-unix2:
+    image: "memcached:alpine"
+    command: ["-s", "/tmp/memcached2.sock", "-S", "-Y", "/app/sasl.txt"]
+    volumes:
+      - "./sasl.txt:/app/sasl.txt:ro"
+      - "/tmp:/tmp"
