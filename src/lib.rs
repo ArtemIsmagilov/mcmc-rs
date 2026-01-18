@@ -6124,7 +6124,7 @@ mod tests {
                 }
             );
 
-            let mut c = Cursor::new(b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0\r\nHD b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\n".to_vec());
+            let mut c = Cursor::new(b"mg 44OG44K544OI b c C0 f h k l Oopaque s t u E0 N0 R0 T0\r\nHD b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\n".to_vec());
             assert_eq!(
                 mg_cmd(
                     &mut c,
@@ -6132,6 +6132,7 @@ mod tests {
                     &[
                         MgFlag::Base64Key,
                         MgFlag::ReturnCas,
+                        MgFlag::CheckCas(0),
                         MgFlag::ReturnFlags,
                         MgFlag::ReturnHit,
                         MgFlag::ReturnKey,
@@ -6166,7 +6167,7 @@ mod tests {
                 }
             );
 
-            let mut c = Cursor::new(b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\nVA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec());
+            let mut c = Cursor::new(b"mg 44OG44K544OI b c C0 f h k l Oopaque s t u E0 N0 R0 T0 v\r\nVA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec());
             assert_eq!(
                 mg_cmd(
                     &mut c,
@@ -6174,6 +6175,7 @@ mod tests {
                     &[
                         MgFlag::Base64Key,
                         MgFlag::ReturnCas,
+                        MgFlag::CheckCas(0),
                         MgFlag::ReturnFlags,
                         MgFlag::ReturnHit,
                         MgFlag::ReturnKey,
