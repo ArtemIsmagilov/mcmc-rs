@@ -1676,6 +1676,11 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     Ok(result)
 }
 
+async fn watch_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: &[WatchArg]) -> io::Result<()> {
+    udp_send_cmd(s, r, &build_watch_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
 async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: &[WatchArg],
@@ -1871,7 +1876,7 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8080", "127.0.0.1:11214").await?;
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     pub async fn udp_connect(bind_addr: &str, connect_addr: &str) -> io::Result<Self> {
@@ -1890,10 +1895,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.version().await?;
     /// assert!(result.chars().any(|x| x.is_numeric()));
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.version().await?;
     /// assert!(result.chars().any(|x| x.is_numeric()));
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8000", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.version().await?;
     /// assert!(result.chars().any(|x| x.is_numeric()));
     /// #     Ok::<(), io::Error>(())
@@ -1916,9 +1923,11 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.quit().await?;
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// conn.quit().await?;
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8001", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// conn.quit().await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -1940,9 +1949,11 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::tcp_connect("127.0.0.1:11213").await?;
     /// conn.shutdown(true).await?;
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached1.sock").await?;
     /// conn.shutdown(true).await?;
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8002", "127.0.0.1:11215").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11215").await?;
     /// conn.shutdown(true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -1964,9 +1975,11 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.cache_memlimit(10, true).await?;
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// conn.cache_memlimit(10, true).await?;
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8003", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// conn.cache_memlimit(10, true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -1988,9 +2001,11 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.flush_all(Some(999), true).await?;
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// conn.flush_all(Some(999), true).await?;
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8004", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// conn.flush_all(Some(999), true).await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -2013,10 +2028,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.set(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.set(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8005", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.set(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -2084,10 +2101,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.add(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.add(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8006", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.add(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -2155,10 +2174,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.replace(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.replace(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8007", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.replace(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -2226,10 +2247,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.append(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.append(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8008", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.append(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// #     Ok::<(), io::Error>(())
@@ -2297,10 +2320,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.prepend(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.prepend(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8009", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.prepend(b"key", 0, -1, true, b"value").await?;
     /// assert!(result);
     /// assert!(result);
@@ -2369,10 +2394,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.cas(b"key", 0, -1, 0, true, b"value").await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.cas(b"key", 0, -1, 0, true, b"value").await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8010", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.cas(b"key", 0, -1, 0, true, b"value").await?;
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
@@ -2440,6 +2467,7 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
     /// conn.auth(b"a", b"a").await?;
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached2.sock").await?;
     /// conn.auth(b"a", b"a").await?;
     /// #     Ok::<(), io::Error>(())
@@ -2468,9 +2496,13 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.delete(b"key", true).await?;
+    /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.delete(b"key", true).await?;
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8011", "127.0.0.1:11214").await?;
+    /// assert!(result);
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.delete(b"key", true).await?;
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
@@ -2493,10 +2525,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.incr(b"key", 1, true).await?;
     /// assert!(result.is_none());
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.incr(b"key", 1, true).await?;
     /// assert!(result.is_none());
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8012", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.incr(b"key", 1, true).await?;
     /// assert!(result.is_none());
     /// # Ok::<(), io::Error>(())
@@ -2527,10 +2561,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.decr(b"key", 1, true).await?;
     /// assert!(result.is_none());
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.decr(b"key", 1, true).await?;
     /// assert!(result.is_none());
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8013", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.decr(b"key", 1, true).await?;
     /// assert!(result.is_none());
     /// # Ok::<(), io::Error>(())
@@ -2561,10 +2597,12 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.touch(b"key", -1, true).await?;
     /// assert!(result);
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn.touch(b"key", -1, true).await?;
     /// assert!(result);
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8014", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.touch(b"key", -1, true).await?;
     /// assert!(result);
     /// # Ok::<(), io::Error>(())
@@ -2594,11 +2632,13 @@ impl Connection {
     /// assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
     /// let result = conn.get(b"k1").await?;
     /// assert_eq!(result.unwrap().key, "k1");
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
     /// let result = conn.get(b"k1").await?;
     /// assert_eq!(result.unwrap().key, "k1");
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8015", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k1", 0, 0, false, b"v1").await?);
     /// let result = conn.get(b"k1").await?;
     /// assert_eq!(result.unwrap().key, "k1");
@@ -2626,11 +2666,13 @@ impl Connection {
     /// assert!(conn.set(b"k2", 0, 0, false, b"v2").await?);
     /// let result = conn.gets(b"k2").await?;
     /// assert_eq!(result.unwrap().key, "k2");
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// assert!(conn.set(b"k2", 0, 0, false, b"v2").await?);
     /// let result = conn.gets(b"k2").await?;
     /// assert_eq!(result.unwrap().key, "k2");
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8016", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k2", 0, 0, false, b"v2").await?);
     /// let result = conn.gets(b"k2").await?;
     /// assert_eq!(result.unwrap().key, "k2");
@@ -2662,11 +2704,13 @@ impl Connection {
     /// assert!(conn.set(b"k3", 0, 0, false, b"v3").await?);
     /// let result = conn.gat(0, b"k3").await?;
     /// assert_eq!(result.unwrap().key, "k3");
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// assert!(conn.set(b"k3", 0, 0, false, b"v3").await?);
     /// let result = conn.gat(0, b"k3").await?;
     /// assert_eq!(result.unwrap().key, "k3");
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8017", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k3", 0, 0, false, b"v3").await?);
     /// let result = conn.gat(0, b"k3").await?;
     /// assert_eq!(result.unwrap().key, "k3");
@@ -2702,11 +2746,13 @@ impl Connection {
     /// assert!(conn.set(b"k4", 0, 0, false, b"v4").await?);
     /// let result = conn.gats(0, b"k4").await?;
     /// assert_eq!(result.unwrap().key, "k4");
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// assert!(conn.set(b"k4", 0, 0, false, b"v4").await?);
     /// let result = conn.gats(0, b"k4").await?;
     /// assert_eq!(result.unwrap().key, "k4");
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8018", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k4", 0, 0, false, b"v4").await?);
     /// let result = conn.gats(0, b"k4").await?;
     /// assert_eq!(result.unwrap().key, "k4");
@@ -2742,11 +2788,13 @@ impl Connection {
     /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
     /// let result = conn.get_multi(&[b"k8"]).await?;
     /// assert_eq!(result[0].key, "k8");
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
     /// let result = conn.get_multi(&[b"k8"]).await?;
     /// assert_eq!(result[0].key, "k8");
-    /// let mut conn = Connection::udp_connect("127.0.0.1:8019", "127.0.0.1:11214").await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k8", 0, 0, false, b"v8").await?);
     /// let result = conn.get_multi(&[b"k8"]).await?;
     /// assert_eq!(result[0].key, "k8");
@@ -2793,7 +2841,17 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k7", 0, 0, false, b"v7").await?);
+    /// let result = conn.gets_multi(&[b"k7"]).await?;
+    /// assert_eq!(result[0].key, "k7");
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k7", 0, 0, false, b"v7").await?);
+    /// let result = conn.gets_multi(&[b"k7"]).await?;
+    /// assert_eq!(result[0].key, "k7");
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k7", 0, 0, false, b"v7").await?);
     /// let result = conn.gets_multi(&[b"k7"]).await?;
     /// assert_eq!(result[0].key, "k7");
@@ -2840,7 +2898,17 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// # let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
+    /// let result = conn.gat_multi(0, &[b"k6"]).await?;
+    /// assert_eq!(result[0].key, "k6");
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
+    /// let result = conn.gat_multi(0, &[b"k6"]).await?;
+    /// assert_eq!(result[0].key, "k6");
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
     /// let result = conn.gat_multi(0, &[b"k6"]).await?;
     /// assert_eq!(result[0].key, "k6");
@@ -2895,6 +2963,16 @@ impl Connection {
     /// assert!(conn.set(b"k5", 0, 0, false, b"v5").await?);
     /// let result = conn.gats_multi(0, &[b"k5"]).await?;
     /// assert_eq!(result[0].key, "k5");
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k5", 0, 0, false, b"v5").await?);
+    /// let result = conn.gats_multi(0, &[b"k5"]).await?;
+    /// assert_eq!(result[0].key, "k5");
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// assert!(conn.set(b"k5", 0, 0, false, b"v5").await?);
+    /// let result = conn.gats_multi(0, &[b"k5"]).await?;
+    /// assert_eq!(result[0].key, "k5");
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2945,6 +3023,14 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.stats(None).await?;
     /// assert!(result.len() > 0);
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.stats(None).await?;
+    /// assert!(result.len() > 0);
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// let result = conn.stats(None).await?;
+    /// assert!(result.len() > 0);
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -2965,6 +3051,12 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// conn.slabs_automove(SlabsAutomoveArg::Zero).await?;
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.slabs_automove(SlabsAutomoveArg::Zero).await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// conn.slabs_automove(SlabsAutomoveArg::Zero).await?;
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -2987,6 +3079,14 @@ impl Connection {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.lru_crawler(LruCrawlerArg::Enable).await;
     /// assert!(result.is_err());
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.lru_crawler(LruCrawlerArg::Enable).await;
+    /// assert!(result.is_err());
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// let result = conn.lru_crawler(LruCrawlerArg::Enable).await;
+    /// assert!(result.is_err());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3006,6 +3106,12 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// conn.lru_crawler_sleep(1_000_000).await?;
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.lru_crawler_sleep(1_000_000).await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// conn.lru_crawler_sleep(1_000_000).await?;
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -3027,6 +3133,12 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.lru_crawler_tocrawl(0).await?;
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.lru_crawler_tocrawl(0).await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// conn.lru_crawler_tocrawl(0).await?;
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3047,6 +3159,12 @@ impl Connection {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// conn.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// conn.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3066,6 +3184,14 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// let result = conn.slabs_reassign(1, 2).await;
+    /// assert!(result.is_err());
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn.slabs_reassign(1, 2).await;
+    /// assert!(result.is_err());
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn.slabs_reassign(1, 2).await;
     /// assert!(result.is_err());
     /// # Ok::<(), io::Error>(())
@@ -3095,6 +3221,12 @@ impl Connection {
     ///     .lru_crawler_metadump(LruCrawlerMetadumpArg::Classids(&[2]))
     ///     .await?;
     /// assert!(result.is_empty());
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn
+    ///     .lru_crawler_metadump(LruCrawlerMetadumpArg::Classids(&[2]))
+    ///     .await?;
+    /// assert!(result.is_empty());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3105,7 +3237,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
-            Connection::Udp(s, r) => lru_crawler_metadump_cmd_udp(s, r, arg).await,
+            Connection::Udp(_s, _r) => todo!(),
         }
     }
 
@@ -3116,6 +3248,12 @@ impl Connection {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn
+    ///     .lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3]))
+    ///     .await?;
+    /// assert!(result.is_empty());
+    ///
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
     /// let result = conn
     ///     .lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[3]))
@@ -3131,7 +3269,7 @@ impl Connection {
         match self {
             Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
-            Connection::Udp(s, r) => lru_crawler_mgdump_cmd_udp(s, r, arg).await,
+            Connection::Udp(_s, _r) => todo!(),
         }
     }
 
@@ -3143,6 +3281,12 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// assert!(conn.mn().await.is_ok());
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.mn().await.is_ok());
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.mn().await.is_ok());
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
@@ -3163,6 +3307,14 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
+    /// assert!(conn.me(b"k6").await?.is_some());
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
+    /// assert!(conn.me(b"k6").await?.is_some());
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// assert!(conn.set(b"k6", 0, 0, false, b"v6").await?);
     /// assert!(conn.me(b"k6").await?.is_some());
     /// # Ok::<(), io::Error>(())
@@ -3189,6 +3341,13 @@ impl Connection {
     ///         .await
     ///         .is_ok()
     /// );
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// assert!(
+    ///     conn.watch(&[WatchArg::Fetchers, WatchArg::Mutations])
+    ///         .await
+    ///         .is_ok()
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3196,7 +3355,7 @@ impl Connection {
         match &mut self {
             Connection::Tcp(s) => watch_cmd(s, arg).await?,
             Connection::Unix(s) => watch_cmd(s, arg).await?,
-            Connection::Udp(_s, r) => todo!(),
+            Connection::Udp(_s, _r) => todo!(),
         };
         Ok(WatchStream(self))
     }
@@ -3213,6 +3372,92 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// let result = conn
+    ///     .mg(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MgFlag::Base64Key,
+    ///             MgFlag::ReturnCas,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnHit,
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnLastAccess,
+    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnTtl,
+    ///             MgFlag::UnBump,
+    ///             MgFlag::ReturnValue,
+    ///             MgFlag::NewCas(0),
+    ///             MgFlag::Autovivify(-1),
+    ///             MgFlag::RecacheTtl(-1),
+    ///             MgFlag::UpdateTtl(-1),
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MgItem {
+    ///         success: true,
+    ///         base64_key: false,
+    ///         cas: Some(0),
+    ///         flags: Some(0),
+    ///         hit: Some(0),
+    ///         key: Some("テスト".to_string()),
+    ///         last_access_ttl: Some(0),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(0),
+    ///         ttl: Some(-1),
+    ///         data_block: Some(vec![]),
+    ///         already_win: false,
+    ///         won_recache: true,
+    ///         stale: false,
+    ///     }
+    /// );
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn
+    ///     .mg(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MgFlag::Base64Key,
+    ///             MgFlag::ReturnCas,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnHit,
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnLastAccess,
+    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnTtl,
+    ///             MgFlag::UnBump,
+    ///             MgFlag::ReturnValue,
+    ///             MgFlag::NewCas(0),
+    ///             MgFlag::Autovivify(-1),
+    ///             MgFlag::RecacheTtl(-1),
+    ///             MgFlag::UpdateTtl(-1),
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MgItem {
+    ///         success: true,
+    ///         base64_key: false,
+    ///         cas: Some(0),
+    ///         flags: Some(0),
+    ///         hit: Some(0),
+    ///         key: Some("テスト".to_string()),
+    ///         last_access_ttl: Some(0),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(0),
+    ///         ttl: Some(-1),
+    ///         data_block: Some(vec![]),
+    ///         already_win: false,
+    ///         won_recache: true,
+    ///         stale: false,
+    ///     }
+    /// );
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn
     ///     .mg(
     ///         b"44OG44K544OI",
@@ -3304,6 +3549,72 @@ impl Connection {
     ///         base64_key: true
     ///     }
     /// );
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn
+    ///     .ms(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MsFlag::Base64Key,
+    ///             MsFlag::ReturnCas,
+    ///             MsFlag::CompareCas(0),
+    ///             MsFlag::NewCas(0),
+    ///             MsFlag::SetFlags(0),
+    ///             MsFlag::Invalidate,
+    ///             MsFlag::ReturnKey,
+    ///             MsFlag::Opaque("opaque".to_string()),
+    ///             MsFlag::ReturnSize,
+    ///             MsFlag::Ttl(-1),
+    ///             MsFlag::Mode(MsMode::Set),
+    ///             MsFlag::Autovivify(0),
+    ///         ],
+    ///         b"hi",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MsItem {
+    ///         success: false,
+    ///         cas: Some(0),
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(2),
+    ///         base64_key: true
+    ///     }
+    /// );
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// let result = conn
+    ///     .ms(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MsFlag::Base64Key,
+    ///             MsFlag::ReturnCas,
+    ///             MsFlag::CompareCas(0),
+    ///             MsFlag::NewCas(0),
+    ///             MsFlag::SetFlags(0),
+    ///             MsFlag::Invalidate,
+    ///             MsFlag::ReturnKey,
+    ///             MsFlag::Opaque("opaque".to_string()),
+    ///             MsFlag::ReturnSize,
+    ///             MsFlag::Ttl(-1),
+    ///             MsFlag::Mode(MsMode::Set),
+    ///             MsFlag::Autovivify(0),
+    ///         ],
+    ///         b"hi",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MsItem {
+    ///         success: false,
+    ///         cas: Some(0),
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(2),
+    ///         base64_key: true
+    ///     }
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3354,6 +3665,58 @@ impl Connection {
     ///         base64_key: true
     ///     }
     /// );
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn
+    ///     .md(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MdFlag::Base64Key,
+    ///             MdFlag::CompareCas(0),
+    ///             MdFlag::NewCas(0),
+    ///             MdFlag::Invalidate,
+    ///             MdFlag::ReturnKey,
+    ///             MdFlag::Opaque("opaque".to_string()),
+    ///             MdFlag::UpdateTtl(-1),
+    ///             MdFlag::LeaveKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MdItem {
+    ///         success: false,
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
+    /// let result = conn
+    ///     .md(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MdFlag::Base64Key,
+    ///             MdFlag::CompareCas(0),
+    ///             MdFlag::NewCas(0),
+    ///             MdFlag::Invalidate,
+    ///             MdFlag::ReturnKey,
+    ///             MdFlag::Opaque("opaque".to_string()),
+    ///             MdFlag::UpdateTtl(-1),
+    ///             MdFlag::LeaveKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MdItem {
+    ///         success: false,
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -3373,6 +3736,74 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
+    /// let result = conn
+    ///     .ma(
+    ///         b"aGk=",
+    ///         &[
+    ///             MaFlag::Base64Key,
+    ///             MaFlag::CompareCas(0),
+    ///             MaFlag::NewCas(0),
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(0),
+    ///             MaFlag::DeltaApply(0),
+    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::Opaque("opaque".to_string()),
+    ///             MaFlag::ReturnTtl,
+    ///             MaFlag::ReturnCas,
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MaItem {
+    ///         success: true,
+    ///         opaque: Some("opaque".to_string()),
+    ///         ttl: Some(-1),
+    ///         cas: Some(0),
+    ///         number: Some(0),
+    ///         key: Some("aGk=".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
+    ///
+    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
+    /// let result = conn
+    ///     .ma(
+    ///         b"aGk=",
+    ///         &[
+    ///             MaFlag::Base64Key,
+    ///             MaFlag::CompareCas(0),
+    ///             MaFlag::NewCas(0),
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(0),
+    ///             MaFlag::DeltaApply(0),
+    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::Opaque("opaque".to_string()),
+    ///             MaFlag::ReturnTtl,
+    ///             MaFlag::ReturnCas,
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MaItem {
+    ///         success: true,
+    ///         opaque: Some("opaque".to_string()),
+    ///         ttl: Some(-1),
+    ///         cas: Some(0),
+    ///         number: Some(0),
+    ///         key: Some("aGk=".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
+    ///
+    /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// let result = conn
     ///     .ma(
     ///         b"aGk=",
@@ -3462,7 +3893,7 @@ impl WatchStream {
         let n = match &mut self.0 {
             Connection::Tcp(s) => s.read_line(&mut line).await?,
             Connection::Unix(s) => s.read_line(&mut line).await?,
-            Connection::Udp(_s, r) => todo!(),
+            Connection::Udp(_s, _r) => todo!(),
         };
         if n == 0 {
             Ok(None)
