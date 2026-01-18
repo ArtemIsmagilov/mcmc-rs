@@ -215,6 +215,7 @@ pub enum MsFlag {
 pub enum MgFlag {
     Base64Key,
     ReturnCas,
+    CheckCas(u64),
     ReturnFlags,
     ReturnHit,
     ReturnKey,
@@ -1032,6 +1033,7 @@ fn build_mg_flags(flags: &[MgFlag]) -> Vec<u8> {
     flags.iter().for_each(|x| match x {
         MgFlag::Base64Key => w.extend(b" b"),
         MgFlag::ReturnCas => w.extend(b" c"),
+        MgFlag::CheckCas(token) => write!(&mut w, " C{token}").unwrap(),
         MgFlag::ReturnFlags => w.extend(b" f"),
         MgFlag::ReturnHit => w.extend(b" h"),
         MgFlag::ReturnKey => w.extend(b" k"),
