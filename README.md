@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml)
 [![crates.io](https://img.shields.io/crates/v/mcmc-rs.svg)](https://crates.io/crates/mcmc-rs)
-[![docs.rs](https://img.shields.io/docsrs/mcmc_rs)](https://docs.rs/mcmc_rs)
+[![docs.rs](https://img.shields.io/docsrs/mcmc-rs)](https://docs.rs/mcmc-rs)
 
 ## Asynchronous memcached client on Rust.
 
