@@ -2,6 +2,22 @@
 
 [![ci](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/ArtemIsmagilov/mcmc-rs/actions/workflows/ci.yaml)
 [![crates.io](https://img.shields.io/crates/v/mcmc-rs.svg)](https://crates.io/crates/mcmc-rs)
+[![docs.rs](https://img.shields.io/docsrs/mcmc_rs)](https://docs.rs/mcmc_rs)
+
+## Asynchronous memcached client on Rust.
+
+This crate provides working with memcached server.
+All methods implemented.
+Available TCP/Unix/UDP connections.
+
+- [Connection] is a Enum that represents a
+  connection to memcached server.
+- [Pipeline] is a structure that represents a
+  pipeline of memcached commands.
+- [WatchStream] is a structure that represents a
+  stream of watch events.
+- [ClientCrc32] is a structure that represents a
+  Cluster connections for memcached server.
 
 ## Example
 

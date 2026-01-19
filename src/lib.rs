@@ -3380,6 +3380,7 @@ impl Connection {
     ///         &[
     ///             MgFlag::Base64Key,
     ///             MgFlag::ReturnCas,
+    ///             MgFlag::CheckCas(99),
     ///             MgFlag::ReturnFlags,
     ///             MgFlag::ReturnHit,
     ///             MgFlag::ReturnKey,
@@ -3423,6 +3424,7 @@ impl Connection {
     ///         &[
     ///             MgFlag::Base64Key,
     ///             MgFlag::ReturnCas,
+    ///             MgFlag::CheckCas(99),
     ///             MgFlag::ReturnFlags,
     ///             MgFlag::ReturnHit,
     ///             MgFlag::ReturnKey,
@@ -3466,6 +3468,7 @@ impl Connection {
     ///         &[
     ///             MgFlag::Base64Key,
     ///             MgFlag::ReturnCas,
+    ///             MgFlag::CheckCas(99),
     ///             MgFlag::ReturnFlags,
     ///             MgFlag::ReturnHit,
     ///             MgFlag::ReturnKey,
