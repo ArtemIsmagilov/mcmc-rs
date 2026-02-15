@@ -17,7 +17,9 @@ Available TCP/Unix/UDP connections.
 - [WatchStream] is a structure that represents a
   stream of watch events.
 - [ClientCrc32] is a structure that represents a
-  Cluster connections for memcached server.
+  Cluster connections with ModN hashing.
+- [ClientHashRing] is a structure that represents a
+  Cluster connections with Ring hashing.
 
 ## Example
 
@@ -161,3 +163,5 @@ cargo mutants
   - [https://github.com/Shopify/async-memcached]
 - [Memcached doc](https://docs.memcached.org)
 - [Managed pool](https://docs.rs/deadpool/0.12.2/deadpool/)
+- [Distributed hashing with ModN, HashRing, Rendezvouz](https://www.francofernando.com/blog/distributed-systems/2021-12-24-distributed-hashing/)
+- [Sharding algorithms](https://chaotic.land/ru/posts/2024/09/data-sharding-algorithms/)

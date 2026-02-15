@@ -11,7 +11,9 @@
 //! - [WatchStream] is a structure that represents a
 //!   stream of watch events.
 //! - [ClientCrc32] is a structure that represents a
-//!   Cluster connections for memcached server.
+//!   Cluster connections with ModN hashing.
+//! - [ClientHashRing] is a structure that represents a
+//!   Cluster connections with Ring hashing.
 //!
 //! # Examples
 //!
@@ -36,6 +38,7 @@ use std::io::Write;
 
 use crc32fast;
 use deadpool::managed;
+use hashring::HashRing;
 use smol::io::{self, BufReader, Cursor};
 use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
 use smol::prelude::*;
@@ -4557,6 +4560,633 @@ impl ClientCrc32 {
         self.0[crc32fast::hash(key.as_ref()) as usize % size]
             .ma(key.as_ref(), flags)
             .await
+    }
+}
+
+pub struct ClientHashRing(Vec<Connection>, HashRing<usize>);
+impl ClientHashRing {
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    pub fn new(conns: Vec<Connection>) -> Self {
+        let mut ring = HashRing::new();
+        ring.batch_add((0..conns.len()).collect());
+        Self(conns, ring)
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
+    /// assert_eq!(client.get(b"k7").await?.unwrap().key, "k7");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].get(key.as_ref()).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
+    /// assert_eq!(client.gets(b"k8").await?.unwrap().key, "k8");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].gets(key.as_ref()).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{Connection, ClientHashRing};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert!(client.set(b"k9", 0, 0, false, b"v9").await?);
+    /// let result = client.gat(0, b"k9").await?;
+    /// assert_eq!(result.unwrap().key, "k9");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].gat(exptime, key.as_ref()).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{Connection, ClientHashRing};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert!(client.set(b"k10", 0, 0, false, b"v10").await?);
+    /// let result = client.gats(0, b"k10").await?;
+    /// assert_eq!(result.unwrap().key, "k10");
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].gats(exptime, key.as_ref()).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn set(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i]
+            .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn add(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i]
+            .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn replace(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i]
+            .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn append(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i]
+            .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn prepend(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i]
+            .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn cas(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        cas_unique: u64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i]
+            .cas(
+                key.as_ref(),
+                flags,
+                exptime,
+                cas_unique,
+                noreply,
+                data_block.as_ref(),
+            )
+            .await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.delete(b"key", true).await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].delete(key.as_ref(), noreply).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.incr(b"key", 1, true).await?.is_none());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn incr(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        value: u64,
+        noreply: bool,
+    ) -> io::Result<Option<u64>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].incr(key.as_ref(), value, noreply).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.decr(b"key", 1, true).await?.is_none());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn decr(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        value: u64,
+        noreply: bool,
+    ) -> io::Result<Option<u64>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].decr(key.as_ref(), value, noreply).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    ///
+    /// assert!(client.touch(b"key", -1, true).await?);
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn touch(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        exptime: i64,
+        noreply: bool,
+    ) -> io::Result<bool> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].touch(key.as_ref(), exptime, noreply).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
+    /// assert!(client.me(b"k11").await?.is_some());
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].me(key.as_ref()).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection, MgFlag, MgItem};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let result = client
+    ///     .mg(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MgFlag::Base64Key,
+    ///             MgFlag::ReturnCas,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnHit,
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnLastAccess,
+    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnTtl,
+    ///             MgFlag::UnBump,
+    ///             MgFlag::ReturnValue,
+    ///             MgFlag::NewCas(0),
+    ///             MgFlag::Autovivify(-1),
+    ///             MgFlag::RecacheTtl(-1),
+    ///             MgFlag::UpdateTtl(-1),
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MgItem {
+    ///         success: true,
+    ///         base64_key: false,
+    ///         cas: Some(0),
+    ///         flags: Some(0),
+    ///         hit: Some(0),
+    ///         key: Some("テスト".to_string()),
+    ///         last_access_ttl: Some(0),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(0),
+    ///         ttl: Some(-1),
+    ///         data_block: Some(vec![]),
+    ///         already_win: false,
+    ///         won_recache: true,
+    ///         stale: false,
+    ///     }
+    /// );
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].mg(key.as_ref(), flags).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection, MsFlag, MsItem, MsMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let result = client
+    ///     .ms(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MsFlag::Base64Key,
+    ///             MsFlag::ReturnCas,
+    ///             MsFlag::CompareCas(0),
+    ///             MsFlag::NewCas(0),
+    ///             MsFlag::SetFlags(0),
+    ///             MsFlag::Invalidate,
+    ///             MsFlag::ReturnKey,
+    ///             MsFlag::Opaque("opaque".to_string()),
+    ///             MsFlag::ReturnSize,
+    ///             MsFlag::Ttl(-1),
+    ///             MsFlag::Mode(MsMode::Set),
+    ///             MsFlag::Autovivify(0),
+    ///         ],
+    ///         b"hi",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MsItem {
+    ///         success: false,
+    ///         cas: Some(0),
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         size: Some(2),
+    ///         base64_key: true
+    ///     }
+    /// );
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn ms(
+        &mut self,
+        key: impl AsRef<[u8]>,
+        flags: &[MsFlag],
+        data_block: impl AsRef<[u8]>,
+    ) -> io::Result<MsItem> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].ms(key.as_ref(), flags, data_block.as_ref()).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection, MdFlag, MdItem};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let result = client
+    ///     .md(
+    ///         b"44OG44K544OI",
+    ///         &[
+    ///             MdFlag::Base64Key,
+    ///             MdFlag::CompareCas(0),
+    ///             MdFlag::NewCas(0),
+    ///             MdFlag::Invalidate,
+    ///             MdFlag::ReturnKey,
+    ///             MdFlag::Opaque("opaque".to_string()),
+    ///             MdFlag::UpdateTtl(-1),
+    ///             MdFlag::LeaveKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MdItem {
+    ///         success: false,
+    ///         key: Some("44OG44K544OI".to_string()),
+    ///         opaque: Some("opaque".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].md(key.as_ref(), flags).await
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// use mcmc_rs::{ClientHashRing, Connection, MaFlag, MaItem, MaMode};
+    /// # use smol::{io, block_on};
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let result = client
+    ///     .ma(
+    ///         b"aGk=",
+    ///         &[
+    ///             MaFlag::Base64Key,
+    ///             MaFlag::CompareCas(0),
+    ///             MaFlag::NewCas(0),
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(0),
+    ///             MaFlag::DeltaApply(0),
+    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::Opaque("opaque".to_string()),
+    ///             MaFlag::ReturnTtl,
+    ///             MaFlag::ReturnCas,
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     MaItem {
+    ///         success: true,
+    ///         opaque: Some("opaque".to_string()),
+    ///         ttl: Some(-1),
+    ///         cas: Some(0),
+    ///         number: Some(0),
+    ///         key: Some("aGk=".to_string()),
+    ///         base64_key: true
+    ///     }
+    /// );
+    /// # Ok::<(), io::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+        let i = *self.1.get(&key.as_ref()).unwrap();
+        self.0[i].ma(key.as_ref(), flags).await
     }
 }
 
