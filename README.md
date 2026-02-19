@@ -8,7 +8,7 @@
 
 This crate provides working with memcached server.
 All methods implemented.
-Available TCP/Unix/UDP connections.
+Available TCP/Unix/UDP/TLS connections.
 
 - [Connection] is a Enum that represents a
   connection to memcached server.
