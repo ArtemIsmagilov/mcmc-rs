@@ -49,7 +49,7 @@ services:
       - "./sasl.txt:/app/sasl.txt:ro"
       - "/tmp:/tmp"
 
-  md-tcp3:
+  md-tls0:
     image: "memcached:alpine"
     command:
       [
@@ -64,3 +64,40 @@ services:
       - "./key.pem:/app/key.pem:ro"
     ports:
       - "11216:11216"
+
+  md-tls1:
+    image: "memcached:alpine"
+    command:
+      [
+        "-p",
+        "11217",
+        "-A",
+        "-Z",
+        "-o",
+        "ssl_chain_cert=/app/cert.pem,ssl_key=/app/key.pem",
+      ]
+    volumes:
+      - "./cert.pem:/app/cert.pem:ro"
+      - "./key.pem:/app/key.pem:ro"
+    ports:
+      - "11217:11217"
+
+  md-tls2:
+    image: "memcached:alpine"
+    command:
+      [
+        "-p",
+        "11218",
+        "-S",
+        "-Y",
+        "/app/sasl.txt",
+        "-Z",
+        "-o",
+        "ssl_chain_cert=/app/cert.pem,ssl_key=/app/key.pem",
+      ]
+    volumes:
+      - "./cert.pem:/app/cert.pem:ro"
+      - "./key.pem:/app/key.pem:ro"
+      - "./sasl.txt:/app/sasl.txt:ro"
+    ports:
+      - "11218:11218"
