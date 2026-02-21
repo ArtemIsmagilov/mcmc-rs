@@ -152,6 +152,12 @@ cargo llvm-cov
 cargo mutants
 ```
 
+## Formatting doc tests 
+
+```bash
+cargo fmt -- --config format_code_in_doc_comments=true
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
