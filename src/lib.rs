@@ -1980,10 +1980,10 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// for mut c in [
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    ///     Connection::tcp_connect("127.0.0.1:11213").await?,
+    ///     Connection::unix_connect("/tmp/memcached1.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11215").await?,
+    ///     Connection::tls_connect("localhost", 11217, "cert.pem").await?,
     /// ] {
     ///     c.shutdown(true).await?;
     /// }
