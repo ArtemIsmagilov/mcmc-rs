@@ -1,6 +1,6 @@
 [package]
 name = "mcmc-rs"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
@@ -14,7 +14,7 @@ harness = false
 name = "my_benchmark"
 
 [dependencies]
-async-native-tls = "0.5.0"
+async-native-tls = "0.6.0"
 crc32fast = "1.5.0"
 deadpool = "0.13.0"
 hashring = "0.3.6"
