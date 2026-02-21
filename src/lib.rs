@@ -2766,7 +2766,7 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert!(c.set(b"k2", 0, 0, false, b"v2").await?);
-    ///     let result = c.get(b"k2").await?;
+    ///     let result = c.gets(b"k2").await?;
     ///     assert_eq!(result.unwrap().key, "k2");
     /// }
     /// #     Ok::<(), io::Error>(())
