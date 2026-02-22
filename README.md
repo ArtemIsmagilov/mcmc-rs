@@ -4,8 +4,6 @@
 [![crates.io](https://img.shields.io/crates/v/mcmc-rs.svg)](https://crates.io/crates/mcmc-rs)
 [![docs.rs](https://img.shields.io/docsrs/mcmc-rs)](https://docs.rs/mcmc-rs)
 
-## Asynchronous memcached client on Rust.
-
 This crate provides working with memcached server.
 All methods implemented.
 Available TCP/Unix/UDP/TLS connections.

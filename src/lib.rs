@@ -1,4 +1,4 @@
-//! Asynchronous memcached client on Rust.
+//! Minimal Rust client for Memcached
 //!
 //! This crate provides working with memcached server.
 //! All methods implemented.
