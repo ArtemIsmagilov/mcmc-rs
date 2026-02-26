@@ -61,11 +61,18 @@ impl<'a> Manager<'a> {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211"));
-    /// let pool = Pool::builder(mgr).build().unwrap();
-    /// let mut conn = pool.get().await.unwrap();
-    /// let result = conn.version().await?;
-    /// assert!(result.chars().any(|x| x.is_numeric()));
+    /// for a in [
+    ///     AddrArg::Tcp("127.0.0.1:11211"),
+    ///     AddrArg::Unix("/tmp/memcached0.sock"),
+    ///     AddrArg::Udp("127.0.0.1:0", "127.0.0.1:11214"),
+    ///     AddrArg::Tls("localhost", 11216, "cert.pem"),
+    /// ] {
+    ///     let mgr = Manager::new(a);
+    ///     let pool = Pool::builder(mgr).build().unwrap();
+    ///     let mut conn = pool.get().await.unwrap();
+    ///     let result = conn.version().await?;
+    ///     assert!(result.chars().any(|x| x.is_numeric()));
+    /// }
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
@@ -1532,14 +1539,6 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_ok_rp(s, false).await
 }
 
-async fn lru_crawler_metadump_cmd_udp(
-    s: &mut UdpSocket,
-    r: &mut u16,
-    arg: LruCrawlerMetadumpArg<'_>,
-) -> io::Result<Vec<String>> {
-    udp_send_cmd(s, r, &build_lru_clawler_metadump_cmd(arg)).await?;
-    parse_lru_crawler_metadump_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
-}
 async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
@@ -1547,15 +1546,6 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
     s.flush().await?;
     parse_lru_crawler_metadump_rp(s).await
-}
-
-async fn lru_crawler_mgdump_cmd_udp(
-    s: &mut UdpSocket,
-    r: &mut u16,
-    arg: LruCrawlerMgdumpArg<'_>,
-) -> io::Result<Vec<String>> {
-    udp_send_cmd(s, r, &build_lru_clawler_mgdump_cmd(arg)).await?;
-    parse_lru_crawler_mgdump_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -1685,11 +1675,6 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
         }
     }
     Ok(result)
-}
-
-async fn watch_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: &[WatchArg]) -> io::Result<()> {
-    udp_send_cmd(s, r, &build_watch_cmd(arg)).await?;
-    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
 async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -3463,7 +3448,7 @@ impl Connection {
         match &mut self {
             Connection::Tcp(s) => watch_cmd(s, arg).await?,
             Connection::Unix(s) => watch_cmd(s, arg).await?,
-            Connection::Udp(_s, _r) => unimplemented!("this command not work with udp!"),
+            Connection::Udp(_s, _r) => unreachable!("this command not work with udp!"),
             Connection::Tls(s) => watch_cmd(s, arg).await?,
         };
         Ok(WatchStream(self))
@@ -5089,20 +5074,25 @@ impl<'a> Pipeline<'a> {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// let result = conn
-    ///     .pipeline()
-    ///     .set(b"key", 0, -1, false, b"value")
-    ///     .get("key")
-    ///     .execute()
-    ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     [
-    ///         PipelineResponse::Bool(true),
-    ///         PipelineResponse::OptionItem(None),
-    ///     ]
-    /// );
+    /// for mut c in [
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    /// ] {
+    ///     let result = c
+    ///         .pipeline()
+    ///         .set(b"key", 0, -1, false, b"value")
+    ///         .get("key")
+    ///         .execute()
+    ///         .await?;
+    ///     assert_eq!(
+    ///         result,
+    ///         [
+    ///             PipelineResponse::Bool(true),
+    ///             PipelineResponse::OptionItem(None),
+    ///         ]
+    ///     );
+    /// }
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
