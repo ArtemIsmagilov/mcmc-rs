@@ -1129,8 +1129,7 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
 
 async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> io::Result<()> {
     *r = r.wrapping_add(1);
-    let mut msg = Vec::new();
-    msg.extend(r.to_be_bytes());
+    let mut msg = Vec::from(r.to_be_bytes());
     msg.extend([0, 0, 0, 1, 0, 0]);
     msg.extend(cmd);
     s.send(&msg).await?;
