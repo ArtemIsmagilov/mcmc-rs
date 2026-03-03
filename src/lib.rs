@@ -1415,7 +1415,7 @@ async fn stats_cmd_udp(
     r: &mut u16,
     arg: Option<StatsArg>,
 ) -> io::Result<HashMap<String, String>> {
-    udp_send_cmd(s, r, &build_stats_cmd(arg)).await?;
+    udp_send_cmd(s, r, build_stats_cmd(arg)).await?;
     parse_stats_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
@@ -1423,7 +1423,7 @@ async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: Option<StatsArg>,
 ) -> io::Result<HashMap<String, String>> {
-    s.write_all(&build_stats_cmd(arg)).await?;
+    s.write_all(build_stats_cmd(arg)).await?;
     s.flush().await?;
     parse_stats_rp(s).await
 }
@@ -1433,7 +1433,7 @@ async fn slabs_automove_cmd_udp(
     r: &mut u16,
     arg: SlabsAutomoveArg,
 ) -> io::Result<()> {
-    udp_send_cmd(s, r, &build_slabs_automove_cmd(arg)).await?;
+    udp_send_cmd(s, r, build_slabs_automove_cmd(arg)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
@@ -1441,7 +1441,7 @@ async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: SlabsAutomoveArg,
 ) -> io::Result<()> {
-    s.write_all(&build_slabs_automove_cmd(arg)).await?;
+    s.write_all(build_slabs_automove_cmd(arg)).await?;
     s.flush().await?;
     parse_ok_rp(s, false).await
 }
