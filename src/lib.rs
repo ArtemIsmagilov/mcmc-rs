@@ -866,31 +866,25 @@ fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
     w
 }
 
-fn build_stats_cmd(arg: Option<StatsArg>) -> Vec<u8> {
-    let a = match arg {
+fn build_stats_cmd(arg: Option<StatsArg>) -> &'static [u8] {
+    match arg {
         Some(a) => match a {
-            StatsArg::Settings => " settings",
-            StatsArg::Items => " items",
-            StatsArg::Sizes => " sizes",
-            StatsArg::Slabs => " slabs",
-            StatsArg::Conns => " conns",
+            StatsArg::Settings => b"stats settings\r\n",
+            StatsArg::Items => b"stats items\r\n",
+            StatsArg::Sizes => b"stats sizes\r\n",
+            StatsArg::Slabs => b"stats slabs\r\n",
+            StatsArg::Conns => b"stats conns\r\n",
         },
-        None => "",
-    };
-    let mut w = Vec::new();
-    write!(&mut w, "stats{a}\r\n").unwrap();
-    w
+        None => b"stats\r\n",
+    }
 }
 
-fn build_slabs_automove_cmd(arg: SlabsAutomoveArg) -> Vec<u8> {
-    let a = match arg {
-        SlabsAutomoveArg::Zero => 0,
-        SlabsAutomoveArg::One => 1,
-        SlabsAutomoveArg::Two => 2,
-    };
-    let mut w = Vec::new();
-    write!(&mut w, "slabs automove {a}\r\n").unwrap();
-    w
+fn build_slabs_automove_cmd(arg: SlabsAutomoveArg) -> &'static [u8] {
+    match arg {
+        SlabsAutomoveArg::Zero => b"slabs automove 0\r\n",
+        SlabsAutomoveArg::One => b"slabs automove 1\r\n",
+        SlabsAutomoveArg::Two => b"slabs automove 2\r\n",
+    }
 }
 
 fn build_lru_crawler_cmd(arg: LruCrawlerArg) -> &'static [u8] {
@@ -5647,7 +5641,7 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn stats(mut self, arg: Option<StatsArg>) -> Self {
-        self.1.push(build_stats_cmd(arg));
+        self.1.push(build_stats_cmd(arg).to_vec());
         self
     }
 
@@ -5664,7 +5658,7 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn slabs_automove(mut self, arg: SlabsAutomoveArg) -> Self {
-        self.1.push(build_slabs_automove_cmd(arg));
+        self.1.push(build_slabs_automove_cmd(arg).to_vec());
         self
     }
 
