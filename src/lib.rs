@@ -533,11 +533,11 @@ async fn parse_me_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
 ) -> io::Result<Option<String>> {
     let mut line = String::new();
-    s.read_line(&mut line).await?;
+    let n = s.read_line(&mut line).await?;
     if line == "EN\r\n" {
         Ok(None)
     } else if line.starts_with("ME") {
-        Ok(Some(line[3..line.len() - 2].to_string()))
+        Ok(Some(line[3..n - 2].to_string()))
     } else {
         Err(io::Error::other(line))
     }
