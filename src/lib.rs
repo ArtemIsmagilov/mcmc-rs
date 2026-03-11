@@ -3693,15 +3693,19 @@ impl Connection {
 
     /// # Example
     ///
-    /// ## Now  lru memcached command always return ERROR!
-    ///
-    /// ```no_run
+    /// ```
     /// use mcmc_rs::{Connection, LruArg, LruMode};
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// assert!(conn.lru(LruArg::Mode(LruMode::Flat)).await.is_ok());
+    /// for mut c in [
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
+    ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    /// ] {
+    ///     assert!(conn.lru(LruArg::Mode(LruMode::Flat)).await.is_ok())
+    /// }
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```

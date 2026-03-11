@@ -18,7 +18,6 @@ jobs:
           bash chmod_unix.bash
       - name: Run tests
         run: |
-          cargo check
           cargo test
 
   coverage:
