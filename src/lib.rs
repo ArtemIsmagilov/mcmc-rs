@@ -3704,7 +3704,7 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(conn.lru(LruArg::Mode(LruMode::Flat)).await.is_ok())
+    ///     assert!(c.lru(LruArg::Mode(LruMode::Flat)).await.is_ok())
     /// }
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
