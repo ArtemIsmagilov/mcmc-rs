@@ -3728,26 +3728,23 @@ impl WatchStream {
     /// # use smol::{io, block_on};
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// let mut w = conn.watch(&[WatchArg::Fetchers]).await?;
-    /// let mut conn = Connection::default().await?;
-    /// conn.get(b"key").await?;
-    /// let result = w.message().await?;
-    /// assert!(result.is_some());
     ///
-    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
-    /// let mut w = conn.watch(&[WatchArg::Fetchers]).await?;
-    /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
-    /// conn.get(b"key").await?;
-    /// let result = w.message().await?;
-    /// assert!(result.is_some());
-    ///
-    /// let mut conn = Connection::tls_connect("localhost", 11216, "cert.pem").await?;
-    /// let mut w = conn.watch(&[WatchArg::Fetchers]).await?;
-    /// let mut conn = Connection::tls_connect("localhost", 11216, "cert.pem").await?;
-    /// conn.get(b"key").await?;
-    /// let result = w.message().await?;
-    /// assert!(result.is_some());
+    /// for (mut c1, mut c2) in [
+    ///     (Connection::default().await?, Connection::default().await?),
+    ///     (
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ),
+    ///     (
+    ///         Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    ///         Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    ///     ),
+    /// ] {
+    ///     let mut w = c1.watch(&[WatchArg::Fetchers]).await?;
+    ///     c2.get(b"key").await?;
+    ///     let result = w.message().await?;
+    ///     assert!(result.is_some())
+    /// }
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
