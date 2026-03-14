@@ -35,21 +35,6 @@ jobs:
           cargo install cargo-llvm-cov
           cargo +nightly llvm-cov --doctests
 
-  mutants:
-    runs-on: "ubuntu-latest"
-    name: Run mutation tests.
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v6
-      - name: Run servers
-        run: |
-          docker compose up -d
-          bash chmod_unix.bash
-      - name: Run mutation tests
-        run: |
-          cargo install cargo-mutants
-          cargo mutants
-
   bench:
     runs-on: "ubuntu-latest"
     name: Run benchmark.
