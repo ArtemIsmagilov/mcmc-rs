@@ -1151,9 +1151,9 @@ async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> io::Result<Vec<u8>> {
             break;
         }
     }
-    let mut response = Vec::new();
-    (0..count_datagrams).for_each(|x| response.extend(result.get(&x).unwrap()));
-    Ok(response)
+    Ok((0..count_datagrams)
+        .flat_map(|x| result.remove(&x).unwrap())
+        .collect())
 }
 
 async fn version_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<String> {
