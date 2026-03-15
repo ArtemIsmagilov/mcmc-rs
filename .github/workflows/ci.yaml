@@ -1,9 +1,6 @@
 name: CI
 
-on:
-  push:
-    branches:
-      - main
+on: [pull_request, push]
 
 jobs:
   test:
@@ -26,14 +23,17 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run servers
         run: |
           docker compose up -d
           bash chmod_unix.bash
       - name: Run tests coverage
         run: |
-          cargo install cargo-llvm-cov
-          cargo +nightly llvm-cov --doctests
+          cargo llvm-cov --doctests
 
   bench:
     runs-on: "ubuntu-latest"
@@ -45,6 +45,6 @@ jobs:
         run: |
           docker compose up -d
           bash chmod_unix.bash
-      - name: Run tests
+      - name: Run benchmark
         run: |
           cargo bench
