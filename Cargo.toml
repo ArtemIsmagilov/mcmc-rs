@@ -18,6 +18,7 @@ async-native-tls = "0.6.0"
 crc32fast = "1.5.0"
 deadpool = "0.13.0"
 hashring = "0.3.6"
+hrw-hash = "2.0.3"
 smol = "2.0.2"
 
 [dev-dependencies]
