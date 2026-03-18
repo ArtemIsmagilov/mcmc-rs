@@ -14,6 +14,8 @@
 //!   Cluster connections with ModN hashing.
 //! - [ClientHashRing] is a structure that represents a
 //!   Cluster connections with Ring hashing.
+//! - [ClientRendezvous] is a structure that represents a
+//!   Cluster connections with Rendezvous hashing.
 //!
 //! # Examples
 //!
