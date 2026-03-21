@@ -53,7 +53,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: iepathos/debtmap-action@v1
+      - name: Analyze code
+        uses: iepathos/debtmap-action@v1
+      - name: View Report
+        run: |
+          cat debtmap-report.md
 
   format:
     name: Format
