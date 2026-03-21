@@ -9,21 +9,31 @@ fn criterion_benchmark(c: &mut Criterion) {
     for (name, mut conn) in [
         (
             "tcp",
-            block_on(async { Connection::default().await }).unwrap(),
+            block_on(async { Connection::default().await.unwrap() }),
         ),
         (
             "unix",
-            block_on(async { Connection::unix_connect("/tmp/memcached0.sock").await }).unwrap(),
+            block_on(async {
+                Connection::unix_connect("/tmp/memcached0.sock")
+                    .await
+                    .unwrap()
+            }),
         ),
         (
             "udp",
-            block_on(async { Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await })
-                .unwrap(),
+            block_on(async {
+                Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214")
+                    .await
+                    .unwrap()
+            }),
         ),
         (
             "tls",
-            block_on(async { Connection::tls_connect("localhost", 11216, "cert.pem").await })
-                .unwrap(),
+            block_on(async {
+                Connection::tls_connect("localhost", 11216, "cert.pem")
+                    .await
+                    .unwrap()
+            }),
         ),
     ] {
         c.bench_function(&format!("{name}->get"), |b| {

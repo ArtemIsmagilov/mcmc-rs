@@ -920,7 +920,7 @@ fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
             }
         }),
         LruCrawlerCrawlArg::All => w.extend(b"all"),
-    };
+    }
     w.extend(b"\r\n");
     w
 }
@@ -943,7 +943,7 @@ fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
         }),
         LruCrawlerMetadumpArg::All => w.extend(b"all"),
         LruCrawlerMetadumpArg::Hash => w.extend(b"hash"),
-    };
+    }
     w.extend(b"\r\n");
     w
 }
@@ -1120,7 +1120,7 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
             LruMode::Segmented => w.extend(b"lru mode segmented\r\n"),
         },
         LruArg::TempTtl(ttl) => write!(&mut w, "lru temp_ttl {ttl}\r\n").unwrap(),
-    };
+    }
     w
 }
 
