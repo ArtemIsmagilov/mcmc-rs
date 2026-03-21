@@ -48,3 +48,18 @@ jobs:
       - name: Run benchmark
         run: |
           cargo bench
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: iepathos/debtmap-action@v1
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+      - name: Check formatting
+        run: cargo fmt --all -- --check

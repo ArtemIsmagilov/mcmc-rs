@@ -960,7 +960,7 @@ fn build_lru_clawler_mgdump_cmd(arg: LruCrawlerMgdumpArg) -> Vec<u8> {
         }),
         LruCrawlerMgdumpArg::All => w.extend(b"all"),
         LruCrawlerMgdumpArg::Hash => w.extend(b"hash"),
-    };
+    }
     w.extend(b"\r\n");
     w
 }

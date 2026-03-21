@@ -153,6 +153,12 @@ cargo llvm-cov
 cargo mutants
 ```
 
+## Quality code
+
+```bash
+debtmap analyze .
+```
+
 ## Formatting doc tests 
 
 ```bash
