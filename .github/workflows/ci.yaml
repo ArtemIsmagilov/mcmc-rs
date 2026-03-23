@@ -73,7 +73,10 @@ jobs:
     name: Fuzzing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout sources
+        uses: actions/checkout@v6
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
       - uses: dtolnay/install@cargo-fuzz
       - run: |
           cargo fuzz run fuzz_target_1 -- -max_total_time=60
