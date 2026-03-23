@@ -50,6 +50,7 @@ jobs:
           cargo bench
 
   quality:
+    name: Quality code
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -60,10 +61,20 @@ jobs:
           cat debtmap-report.md
 
   format:
-    name: Format
+    name: Format code
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  fuzz:
+    name: Fuzzing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/install@cargo-fuzz
+      - run: |
+          cargo fuzz run fuzz_target_1 -- -max_total_time=60
+          cargo fuzz run fuzz_target_2 -- -max_total_time=60

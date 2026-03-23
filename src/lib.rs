@@ -1272,7 +1272,7 @@ async fn storage_cmd_udp(
     }
 }
 
-async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     command_name: &[u8],
     key: &[u8],
@@ -1401,7 +1401,7 @@ async fn retrieval_cmd_udp(
     parse_retrieval_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     command_name: &[u8],
     exptime: Option<i64>,
