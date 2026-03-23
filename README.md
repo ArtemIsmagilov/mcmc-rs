@@ -165,6 +165,12 @@ debtmap analyze .
 cargo fmt -- --config format_code_in_doc_comments=true
 ```
 
+## Fuzzing test
+
+```bash
+cargo fuzz run fuzz_target_1
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
