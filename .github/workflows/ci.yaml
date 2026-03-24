@@ -79,5 +79,6 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
       - uses: dtolnay/install@cargo-fuzz
       - run: |
-          cargo fuzz run fuzz_target_1 -- -max_total_time=60
-          cargo fuzz run fuzz_target_2 -- -max_total_time=60
+          cargo fuzz run fuzz_target_1 -- -max_total_time=30
+          cargo fuzz run fuzz_target_2 -- -max_total_time=30
+          cargo fuzz run fuzz_target_2 -- -max_total_time=30

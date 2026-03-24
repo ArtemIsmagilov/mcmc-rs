@@ -1164,7 +1164,7 @@ async fn version_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<String> {
     parse_version_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
+pub async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
     s.flush().await?;
     parse_version_rp(s).await

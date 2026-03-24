@@ -12,7 +12,7 @@ fuzz_target!(|data: &[u8]| {
         if data.is_empty() {
             return;
         }
-        //get key\r\nVALUE key 0 1\r\na\r\nEND\r\n
+        // get key\r\nVALUE key 0 1\r\na\r\nEND\r\n
         let mut w = Vec::from(b"get key\r\nVALUE key 0 ");
         w.extend(data.len().to_string().as_bytes());
         w.extend(b"\r\n");
