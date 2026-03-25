@@ -81,4 +81,5 @@ jobs:
       - run: |
           cargo fuzz run fuzz_target_1 -- -max_total_time=30
           cargo fuzz run fuzz_target_2 -- -max_total_time=30
-          cargo fuzz run fuzz_target_2 -- -max_total_time=30
+          cargo fuzz run fuzz_target_3 -- -max_total_time=30
+          cargo fuzz run fuzz_target_4 -- -max_total_time=30

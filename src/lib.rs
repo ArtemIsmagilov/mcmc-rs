@@ -1351,7 +1351,7 @@ async fn incr_decr_cmd_udp(
     }
 }
 
-async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     command_name: &[u8],
     key: &[u8],
