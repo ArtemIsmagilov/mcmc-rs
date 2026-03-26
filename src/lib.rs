@@ -44,18 +44,19 @@ use deadpool::managed;
 use hashring::HashRing;
 use hrw_hash::HrwNodes;
 
+#[cfg(all(feature = "smol-runtime", feature = "tokio-runtime"))]
+compile_error!(
+    "feature \"smol-runtime\" and feature \"tokio-runtime\" cannot be enabled at the same time"
+);
 #[cfg(feature = "smol-runtime")]
-mod smol_rt {
+mod rt {
     pub use smol::fs;
     pub use smol::io::{self, BufReader, Cursor};
     pub use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
     pub use smol::prelude::*;
 }
-#[cfg(feature = "smol-runtime")]
-use smol_rt::*;
-
 #[cfg(feature = "tokio-runtime")]
-mod tokio_rt {
+mod rt {
     pub use std::io::Cursor;
     pub use tokio::fs;
     pub use tokio::io::{
@@ -63,8 +64,7 @@ mod tokio_rt {
     };
     pub use tokio::net::{TcpStream, UdpSocket, UnixStream};
 }
-#[cfg(feature = "tokio-runtime")]
-use tokio_rt::*;
+use rt::*;
 
 pub enum AddrArg<'a> {
     Tcp(&'a str),
@@ -479,13 +479,13 @@ async fn parse_touch_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     }
 }
 
-#[cfg(feature = "smol-runtime")]
 async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
 ) -> io::Result<HashMap<String, String>> {
-    let mut lines = s.lines();
     let mut items = HashMap::new();
-    while let Some(data) = lines.next().await.transpose()? {
+    let mut data = String::new();
+    s.read_line(&mut data).await?;
+    while data != "END\r\n" {
         if data.starts_with("STAT") {
             let mut split = data.split(' ');
             split.next();
@@ -494,32 +494,8 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
                 split.next().unwrap().trim_end().to_string(),
             );
             items.insert(k, v);
-        } else if data == "END" {
-            break;
-        } else {
-            return Err(io::Error::other(data));
-        }
-    }
-    Ok(items)
-}
-
-#[cfg(feature = "tokio-runtime")]
-async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
-    s: &mut S,
-) -> io::Result<HashMap<String, String>> {
-    let mut lines = s.lines();
-    let mut items = HashMap::new();
-    while let Some(data) = lines.next_line().await? {
-        if data.starts_with("STAT") {
-            let mut split = data.split(' ');
-            split.next();
-            let (k, v) = (
-                split.next().unwrap().to_string(),
-                split.next().unwrap().trim_end().to_string(),
-            );
-            items.insert(k, v);
-        } else if data == "END" {
-            break;
+            data.clear();
+            s.read_line(&mut data).await?;
         } else {
             return Err(io::Error::other(data));
         }

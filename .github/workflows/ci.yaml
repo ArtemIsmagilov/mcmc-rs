@@ -3,17 +3,6 @@ name: CI
 on: [pull_request, push]
 
 jobs:
-  check:
-    runs-on: "ubuntu-latest"
-    name: Run tests.
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v6
-      - name: Run check
-        run: |
-          cargo check
-          cargo check --no-default-features --features tokio-runtime
-
   test:
     runs-on: "ubuntu-latest"
     name: Run tests.
@@ -94,3 +83,19 @@ jobs:
           cargo fuzz run fuzz_target_2 -- -max_total_time=30
           cargo fuzz run fuzz_target_3 -- -max_total_time=30
           cargo fuzz run fuzz_target_4 -- -max_total_time=30
+
+  check-runtimes:
+    runs-on: "ubuntu-latest"
+    name: Run check runtimes.
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+      - name: Run servers
+        run: |
+          docker compose up -d
+      - name: Run checks
+        run: |
+          cargo check
+          cargo check --no-default-features --features tokio-runtime
+          cargo run --example simple-smol
+          cargo run --example simple-tokio --no-default-features --features tokio-runtime

@@ -1,6 +1,6 @@
 [package]
 name = "mcmc-rs"
-version = "0.7.5"
+version = "0.8.0"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
@@ -27,5 +27,5 @@ criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [features]
 default = ["smol-runtime"]
-smol-runtime = ["async-native-tls/runtime-smol", "smol"]
-tokio-runtime = ["async-native-tls/runtime-tokio", "tokio"]
+smol-runtime = ["async-native-tls/runtime-smol", "dep:smol"]
+tokio-runtime = ["async-native-tls/runtime-tokio", "dep:tokio"]
