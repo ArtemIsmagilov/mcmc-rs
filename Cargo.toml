@@ -9,6 +9,14 @@ license = "MIT"
 keywords = ["memcached"]
 categories = ["asynchronous", "caching", "database"]
 
+[[example]]
+name = "simple-smol"
+required-features = ["smol-runtime"]
+
+[[example]]
+name = "simple-tokio"
+required-features = ["tokio-runtime"]
+
 [[bench]]
 harness = false
 name = "my_benchmark"

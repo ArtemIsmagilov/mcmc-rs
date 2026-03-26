@@ -37,7 +37,7 @@ fn main() -> io::Result<()> {
         let r = conn.version().await?;
         println!("{r:#?}");
         // Watch mode
-        let mut conn = Connection::default().await?;
+        let conn = Connection::default().await?;
         let mut w = conn.watch(&[WatchArg::Fetchers]).await?;
         let mut conn = Connection::default().await?;
         conn.get(b"key").await?;

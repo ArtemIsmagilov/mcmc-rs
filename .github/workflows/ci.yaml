@@ -93,6 +93,7 @@ jobs:
       - name: Run servers
         run: |
           docker compose up -d
+          bash chmod_unix.bash
       - name: Run checks
         run: |
           cargo check
