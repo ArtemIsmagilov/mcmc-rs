@@ -43,10 +43,28 @@ use crc32fast::hash as crc32;
 use deadpool::managed;
 use hashring::HashRing;
 use hrw_hash::HrwNodes;
-use smol::fs;
-use smol::io::{self, BufReader, Cursor};
-use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
-use smol::prelude::*;
+
+#[cfg(feature = "smol-runtime")]
+mod smol_rt {
+    pub use smol::fs;
+    pub use smol::io::{self, BufReader, Cursor};
+    pub use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
+    pub use smol::prelude::*;
+}
+#[cfg(feature = "smol-runtime")]
+use smol_rt::*;
+
+#[cfg(feature = "tokio-runtime")]
+mod tokio_rt {
+    pub use std::io::Cursor;
+    pub use tokio::fs;
+    pub use tokio::io::{
+        self, AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+    };
+    pub use tokio::net::{TcpStream, UdpSocket, UnixStream};
+}
+#[cfg(feature = "tokio-runtime")]
+use tokio_rt::*;
 
 pub enum AddrArg<'a> {
     Tcp(&'a str),
@@ -461,12 +479,37 @@ async fn parse_touch_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     }
 }
 
+#[cfg(feature = "smol-runtime")]
 async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
 ) -> io::Result<HashMap<String, String>> {
     let mut lines = s.lines();
     let mut items = HashMap::new();
     while let Some(data) = lines.next().await.transpose()? {
+        if data.starts_with("STAT") {
+            let mut split = data.split(' ');
+            split.next();
+            let (k, v) = (
+                split.next().unwrap().to_string(),
+                split.next().unwrap().trim_end().to_string(),
+            );
+            items.insert(k, v);
+        } else if data == "END" {
+            break;
+        } else {
+            return Err(io::Error::other(data));
+        }
+    }
+    Ok(items)
+}
+
+#[cfg(feature = "tokio-runtime")]
+async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+) -> io::Result<HashMap<String, String>> {
+    let mut lines = s.lines();
+    let mut items = HashMap::new();
+    while let Some(data) = lines.next_line().await? {
         if data.starts_with("STAT") {
             let mut split = data.split(' ');
             split.next();
@@ -6561,7 +6604,7 @@ impl<'a> Pipeline<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smol::{block_on, io::Cursor};
+    use smol::block_on;
 
     #[test]
     fn test_version() {

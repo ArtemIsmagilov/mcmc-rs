@@ -3,6 +3,17 @@ name: CI
 on: [pull_request, push]
 
 jobs:
+  check:
+    runs-on: "ubuntu-latest"
+    name: Run tests.
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+      - name: Run check
+        run: |
+          cargo check
+          cargo check --no-default-features --features tokio-runtime
+
   test:
     runs-on: "ubuntu-latest"
     name: Run tests.
