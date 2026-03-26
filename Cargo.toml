@@ -1,6 +1,6 @@
 [package]
 name = "mcmc-rs"
-version = "0.7.5"
+version = "0.8.0"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
@@ -9,17 +9,31 @@ license = "MIT"
 keywords = ["memcached"]
 categories = ["asynchronous", "caching", "database"]
 
+[[example]]
+name = "simple-smol"
+required-features = ["smol-runtime"]
+
+[[example]]
+name = "simple-tokio"
+required-features = ["tokio-runtime"]
+
 [[bench]]
 harness = false
 name = "my_benchmark"
 
 [dependencies]
-async-native-tls = "0.6.0"
+async-native-tls = { version = "0.6.0", default-features = false }
 crc32fast = "1.5.0"
 deadpool = "0.13.0"
 hashring = "0.3.6"
 hrw-hash = "2.0.3"
-smol = "2.0.2"
+smol = { version = "2.0.2", optional = true }
+tokio = { version = "1.50.0", features = ["full"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
+
+[features]
+default = ["smol-runtime"]
+smol-runtime = ["async-native-tls/runtime-smol", "dep:smol"]
+tokio-runtime = ["async-native-tls/runtime-tokio", "dep:tokio"]

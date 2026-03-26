@@ -83,3 +83,20 @@ jobs:
           cargo fuzz run fuzz_target_2 -- -max_total_time=30
           cargo fuzz run fuzz_target_3 -- -max_total_time=30
           cargo fuzz run fuzz_target_4 -- -max_total_time=30
+
+  check-runtimes:
+    runs-on: "ubuntu-latest"
+    name: Run check runtimes.
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+      - name: Run servers
+        run: |
+          docker compose up -d
+          bash chmod_unix.bash
+      - name: Run checks
+        run: |
+          cargo check
+          cargo check --no-default-features --features tokio-runtime
+          cargo run --example simple-smol
+          cargo run --example simple-tokio --no-default-features --features tokio-runtime
