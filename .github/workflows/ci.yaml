@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/install@debtmap
+      - uses: taiki-e/install-action@debtmap
       - name: Analyze code
         run: |
           debtmap analyze . -f markdown
