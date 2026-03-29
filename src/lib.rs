@@ -10,6 +10,8 @@
 //!   pipeline of memcached commands.
 //! - [WatchStream] is a structure that represents a
 //!   stream of watch events.
+//!-  [Pool] is a structure that represents a
+//!   pool of connections.
 //! - [ClientCrc32] is a structure that represents a
 //!   Cluster connections with ModN hashing.
 //! - [ClientHashRing] is a structure that represents a
@@ -484,8 +486,7 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<HashMap<String, String>> {
     let mut items = HashMap::new();
     let mut data = String::new();
-    s.read_line(&mut data).await?;
-    while data != "END\r\n" {
+    while s.read_line(&mut data).await? > 0 && data != "END\r\n" {
         if data.starts_with("STAT") {
             let mut split = data.split(' ');
             split.next();
@@ -495,7 +496,6 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
             );
             items.insert(k, v);
             data.clear();
-            s.read_line(&mut data).await?;
         } else {
             return Err(io::Error::other(data));
         }
