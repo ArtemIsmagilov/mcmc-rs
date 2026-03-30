@@ -5745,7 +5745,7 @@ impl<'a> Pipeline<'a> {
         match self.0 {
             Connection::Tcp(s) => execute_cmd(s, &self.1).await,
             Connection::Unix(s) => execute_cmd(s, &self.1).await,
-            Connection::Udp(_s, _r) => todo!(),
+            Connection::Udp(_s, _r) => unreachable!("pipeline not work with udp!"),
             Connection::Tls(s) => execute_cmd(s, &self.1).await,
         }
     }
