@@ -100,3 +100,14 @@ jobs:
           cargo check --no-default-features --features tokio-runtime
           cargo run --example simple-smol
           cargo run --example simple-tokio --no-default-features --features tokio-runtime
+
+  semgrep-scan:
+    name: Run Semgrep Scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Run Semgrep scan
+        run: semgrep scan --config auto --error --exclude=key.pem
