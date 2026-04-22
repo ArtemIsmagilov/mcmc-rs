@@ -96,6 +96,12 @@ cargo fmt -- --config format_code_in_doc_comments=true
 cargo fuzz run fuzz_target_1
 ```
 
+## Security scanning
+
+```bash
+semgrep scan --config auto
+```
+
 ## Links
 
 - [Minimal C client](https://github.com/dormando/mcmc)
