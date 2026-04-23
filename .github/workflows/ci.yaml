@@ -78,7 +78,9 @@ jobs:
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
       - run: |
           cargo fuzz run fuzz_target_1 -- -max_total_time=30
           cargo fuzz run fuzz_target_2 -- -max_total_time=30
@@ -111,4 +113,4 @@ jobs:
       - name: Run Opengrep scan
         run: |
           curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
-          opengrep scan --config auto --error --exclude=key.pem
+          /home/runner/.opengrep/cli/latest/opengrep scan --config auto --error --exclude=key.pem
