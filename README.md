@@ -99,7 +99,7 @@ cargo fuzz run fuzz_target_1
 ## Security scanning
 
 ```bash
-semgrep scan --config auto
+opengrep scan --config auto
 ```
 
 ## Links
