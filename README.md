@@ -43,7 +43,7 @@ fn main() -> io::Result<()> {
     block_on(async {
         let mut conn = Connection::default().await?;
         conn.set(b"key", 0, 0, false, b"value").await?;
-        let item = conn.get(b"key").await?.unwrap();
+        let item = conn.get(b"key").await?;
         println!("{item:#?}");
         Ok(())
     })

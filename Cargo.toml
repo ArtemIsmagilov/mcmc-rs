@@ -28,7 +28,11 @@ deadpool = "0.13.0"
 hashring = "0.3.6"
 hrw-hash = "2.0.3"
 smol = { version = "2.0.2", optional = true }
-tokio = { version = "1.50.0", features = ["full"], optional = true }
+tokio = { version = "1.52.3", features = [
+  "net",
+  "io-util",
+  "fs",
+], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }

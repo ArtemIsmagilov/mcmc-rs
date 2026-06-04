@@ -10,7 +10,7 @@
 //!   pipeline of memcached commands.
 //! - [WatchStream] is a structure that represents a
 //!   stream of watch events.
-//!-  [Pool] is a structure that represents a
+//! - [Pool] is a structure that represents a
 //!   pool of connections.
 //! - [ClientCrc32] is a structure that represents a
 //!   Cluster connections with ModN hashing.
@@ -30,7 +30,7 @@
 //!     block_on(async {
 //!         let mut conn = Connection::default().await?;
 //!         conn.set(b"key", 0, 0, false, b"value").await?;
-//!         let item = conn.get(b"key").await?.unwrap();
+//!         let item = conn.get(b"key").await?;
 //!         println!("{item:#?}");
 //!         Ok(())
 //!     })
