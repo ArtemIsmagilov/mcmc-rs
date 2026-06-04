@@ -28,7 +28,7 @@ deadpool = "0.13.0"
 hashring = "0.3.6"
 hrw-hash = "2.0.3"
 smol = { version = "2.0.2", optional = true }
-tokio = { version = "1.52.3", features = ["full"], optional = true }
+tokio = { version = "1.52.3", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
@@ -36,4 +36,4 @@ criterion = { version = "0.8.2", features = ["html_reports"] }
 [features]
 default = ["smol-runtime"]
 smol-runtime = ["async-native-tls/runtime-smol", "dep:smol"]
-tokio-runtime = ["async-native-tls/runtime-tokio", "dep:tokio"]
+tokio-runtime = ["async-native-tls/runtime-tokio", "dep:tokio", "tokio/full"]
