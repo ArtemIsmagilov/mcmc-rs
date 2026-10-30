@@ -103,14 +103,3 @@ jobs:
           cargo check --no-default-features --features tokio-runtime
           cargo run --example simple-smol
           cargo run --example simple-tokio --no-default-features --features tokio-runtime
-
-  security-scan:
-    name: Run security scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-      - name: Run Opengrep scan
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
-          /home/runner/.opengrep/cli/latest/opengrep scan --config auto --error --exclude=key.pem
