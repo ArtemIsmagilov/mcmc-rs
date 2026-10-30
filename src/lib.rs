@@ -647,15 +647,14 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
 async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MsItem> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    let success;
     let (mut cas, mut key, mut opaque, mut size, mut base64_key) = (None, None, None, None, false);
-    if line.starts_with("HD") {
-        success = true
+    let success = if line.starts_with("HD") {
+        true
     } else if line.starts_with("NS") || line.starts_with("EX") || line.starts_with("NF") {
-        success = false
+        false
     } else {
         return Err(io::Error::other(line));
-    }
+    };
     let mut split = line.trim_end().split(' ');
     split.next();
     for flag in split {
@@ -682,15 +681,14 @@ async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
 async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MdItem> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    let success;
     let (mut key, mut opaque, mut base64_key) = (None, None, false);
-    if line.starts_with("HD") {
-        success = true
+    let success = if line.starts_with("HD") {
+        true
     } else if line.starts_with("NF") || line.starts_with("EX") {
-        success = false
+        false
     } else {
         return Err(io::Error::other(line));
-    }
+    };
     let mut split = line.trim_end().split(' ');
     split.next();
     for flag in split {
@@ -1145,7 +1143,8 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
 
 async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> io::Result<()> {
     *r = r.wrapping_add(1);
-    let mut msg = Vec::from(r.to_be_bytes());
+    let mut msg = Vec::with_capacity(8 + cmd.len());
+    msg.extend(r.to_be_bytes());
     msg.extend([0, 0, 0, 1, 0, 0]);
     msg.extend(cmd);
     s.send(&msg).await?;
@@ -1153,7 +1152,6 @@ async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> io::Result<
 }
 
 async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> io::Result<Vec<u8>> {
-    let mut count_datagrams = 0;
     let mut result = HashMap::new();
     loop {
         let mut buf = [0; 1400];
@@ -1167,13 +1165,12 @@ async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> io::Result<Vec<u8>> {
         if *r != request_id {
             continue;
         }
-        count_datagrams += 1;
         result.insert(sequence_number, buf[8..n].to_vec());
-        if total_number_datagrams == count_datagrams {
+        if total_number_datagrams == result.len() as u16 {
             break;
         }
     }
-    Ok((0..count_datagrams)
+    Ok((0..result.len() as u16)
         .flat_map(|x| result.remove(&x).unwrap())
         .collect())
 }
@@ -1185,7 +1182,6 @@ async fn version_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<String> {
 
 pub async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     s.write_all(build_version_cmd()).await?;
-    s.flush().await?;
     parse_version_rp(s).await
 }
 
@@ -1194,8 +1190,7 @@ async fn quit_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<()> {
 }
 
 async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
-    s.write_all(build_quit_cmd()).await?;
-    s.flush().await
+    s.write_all(build_quit_cmd()).await
 }
 
 async fn shutdown_cmd_udp(s: &mut UdpSocket, r: &mut u16, graceful: bool) -> io::Result<()> {
@@ -1206,8 +1201,7 @@ async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     graceful: bool,
 ) -> io::Result<()> {
-    s.write_all(build_shutdown_cmd(graceful)).await?;
-    s.flush().await
+    s.write_all(build_shutdown_cmd(graceful)).await
 }
 
 async fn cache_memlimit_cmd_udp(
@@ -1231,7 +1225,6 @@ async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     s.write_all(&build_cache_memlimit_cmd(limit, noreply))
         .await?;
-    s.flush().await?;
     parse_ok_rp(s, noreply).await
 }
 
@@ -1255,7 +1248,6 @@ async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     noreply: bool,
 ) -> io::Result<()> {
     s.write_all(&build_flush_all_cmd(exptime, noreply)).await?;
-    s.flush().await?;
     parse_ok_rp(s, noreply).await
 }
 
@@ -1311,7 +1303,6 @@ pub async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
         data_block,
     ))
     .await?;
-    s.flush().await?;
     parse_storage_rp(s, noreply).await
 }
 
@@ -1335,7 +1326,6 @@ async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     noreply: bool,
 ) -> io::Result<bool> {
     s.write_all(&build_delete_cmd(key, noreply)).await?;
-    s.flush().await?;
     parse_delete_rp(s, noreply).await
 }
 
@@ -1345,7 +1335,6 @@ async fn auth_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     password: &[u8],
 ) -> io::Result<()> {
     s.write_all(&build_auth_cmd(username, password)).await?;
-    s.flush().await?;
     parse_auth_rp(s).await
 }
 
@@ -1379,7 +1368,6 @@ pub async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<Option<u64>> {
     s.write_all(&build_incr_decr_cmd(command_name, key, value, noreply))
         .await?;
-    s.flush().await?;
     parse_incr_decr_rp(s, noreply).await
 }
 
@@ -1405,7 +1393,6 @@ async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     noreply: bool,
 ) -> io::Result<bool> {
     s.write_all(&build_touch_cmd(key, exptime, noreply)).await?;
-    s.flush().await?;
     parse_touch_rp(s, noreply).await
 }
 
@@ -1428,7 +1415,6 @@ pub async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<Vec<Item>> {
     s.write_all(&build_retrieval_cmd(command_name, exptime, keys))
         .await?;
-    s.flush().await?;
     parse_retrieval_rp(s).await
 }
 
@@ -1446,7 +1432,6 @@ async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: Option<StatsArg>,
 ) -> io::Result<HashMap<String, String>> {
     s.write_all(build_stats_cmd(arg)).await?;
-    s.flush().await?;
     parse_stats_rp(s).await
 }
 
@@ -1464,7 +1449,6 @@ async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: SlabsAutomoveArg,
 ) -> io::Result<()> {
     s.write_all(build_slabs_automove_cmd(arg)).await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1478,7 +1462,6 @@ async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: LruCrawlerArg,
 ) -> io::Result<()> {
     s.write_all(build_lru_crawler_cmd(arg)).await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1497,7 +1480,6 @@ async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     s.write_all(&build_lru_clawler_sleep_cmd(microseconds))
         .await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1511,7 +1493,6 @@ async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: u32,
 ) -> io::Result<()> {
     s.write_all(&build_lru_crawler_tocrawl_cmd(arg)).await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1529,7 +1510,6 @@ async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: LruCrawlerCrawlArg<'_>,
 ) -> io::Result<()> {
     s.write_all(&build_lru_clawler_crawl_cmd(arg)).await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1550,7 +1530,6 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     s.write_all(&build_slabs_reassign_cmd(source_class, dest_class))
         .await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1559,7 +1538,6 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: LruCrawlerMetadumpArg<'_>,
 ) -> io::Result<Vec<String>> {
     s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
-    s.flush().await?;
     parse_lru_crawler_metadump_rp(s).await
 }
 
@@ -1568,7 +1546,6 @@ async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: LruCrawlerMgdumpArg<'_>,
 ) -> io::Result<Vec<String>> {
     s.write_all(&build_lru_clawler_mgdump_cmd(arg)).await?;
-    s.flush().await?;
     parse_lru_crawler_mgdump_rp(s).await
 }
 
@@ -1579,7 +1556,6 @@ async fn mn_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<()> {
 
 async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
     s.write_all(build_mn_cmd()).await?;
-    s.flush().await?;
     parse_mn_rp(s).await
 }
 
@@ -1593,7 +1569,6 @@ async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
 ) -> io::Result<Option<String>> {
     s.write_all(&build_me_cmd(key)).await?;
-    s.flush().await?;
     parse_me_rp(s).await
 }
 
@@ -1602,7 +1577,6 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     cmds: &[Vec<u8>],
 ) -> io::Result<Vec<PipelineResponse>> {
     s.write_all(&cmds.concat()).await?;
-    s.flush().await?;
     let mut result = Vec::new();
     for cmd in cmds {
         if cmd.starts_with(b"gets ")
@@ -1697,7 +1671,6 @@ async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     arg: &[WatchArg],
 ) -> io::Result<()> {
     s.write_all(&build_watch_cmd(arg)).await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
@@ -1730,7 +1703,6 @@ async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
         Some(data_block),
     ))
     .await?;
-    s.flush().await?;
     parse_ms_rp(s).await
 }
 
@@ -1756,7 +1728,6 @@ async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<MgItem> {
     s.write_all(&build_mc_cmd(b"mg", key, &build_mg_flags(flags), None))
         .await?;
-    s.flush().await?;
     parse_mg_rp(s).await
 }
 
@@ -1782,7 +1753,6 @@ async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<MdItem> {
     s.write_all(&build_mc_cmd(b"md", key, &build_md_flags(flags), None))
         .await?;
-    s.flush().await?;
     parse_md_rp(s).await
 }
 
@@ -1808,7 +1778,6 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> io::Result<MaItem> {
     s.write_all(&build_mc_cmd(b"ma", key, &build_ma_flags(flags), None))
         .await?;
-    s.flush().await?;
     parse_ma_rp(s).await
 }
 
@@ -1819,7 +1788,6 @@ async fn lru_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruArg) -> io::Result<
 
 async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> io::Result<()> {
     s.write_all(&build_lru_cmd(arg)).await?;
-    s.flush().await?;
     parse_ok_rp(s, false).await
 }
 
