@@ -37,12 +37,11 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use async_native_tls::{Certificate, TlsConnector, TlsStream};
 use crc32fast::hash as crc32;
-use deadpool::managed;
 use hashring::HashRing;
 use hrw_hash::HrwNodes;
 
@@ -68,72 +67,81 @@ mod rt {
 }
 use rt::*;
 
-pub enum AddrArg<'a> {
-    Tcp(&'a str),
-    Unix(&'a str),
-    Udp(&'a str, &'a str),
-    Tls(&'a str, u16, &'a str),
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("I/O error: {0}")]
+    IoError(#[from] io::Error),
+
+    #[error("Error: {0}")]
+    Error(String),
+
+    #[error("Client error: {0}")]
+    ClientError(String),
+
+    #[error("Server error: {0}")]
+    ServerError(String),
+
+    #[error("Unexpected error: {0}")]
+    UnexpectedError(String),
 }
 
-pub struct Manager<'a>(AddrArg<'a>);
-impl<'a> Manager<'a> {
-    /// # Example
-    ///
-    /// ```
-    /// use mcmc_rs::{AddrArg, Manager, Pool};
-    /// # use smol::{io, block_on};
-    /// #
-    /// # block_on(async {
-    /// for a in [
-    ///     AddrArg::Tcp("127.0.0.1:11211"),
-    ///     AddrArg::Unix("/tmp/memcached0.sock"),
-    ///     AddrArg::Udp("127.0.0.1:0", "127.0.0.1:11214"),
-    ///     AddrArg::Tls("localhost", 11216, "cert.pem"),
-    /// ] {
-    ///     let mgr = Manager::new(a);
-    ///     let pool = Pool::builder(mgr).build().unwrap();
-    ///     let mut conn = pool.get().await.unwrap();
-    ///     let result = conn.version().await?;
-    ///     assert!(result.chars().any(|x| x.is_numeric()));
-    /// }
-    /// #     Ok::<(), io::Error>(())
-    /// # }).unwrap()
-    /// ```
-    pub fn new(addr: AddrArg<'a>) -> Self {
-        Self(addr)
+type Result<T> = std::result::Result<T, Error>;
+
+fn check_error(line: String) -> Error {
+    if line.starts_with("ERROR") {
+        return Error::Error(line);
+    };
+    if line.starts_with("CLIENT_ERROR") {
+        return Error::ClientError(line);
     }
+    if line.starts_with("SERVER_ERROR") {
+        return Error::ServerError(line);
+    };
+    Error::UnexpectedError(line)
 }
 
-impl<'a> managed::Manager for Manager<'a> {
-    type Type = Connection;
-    type Error = io::Error;
-
-    async fn create(&self) -> Result<Connection, io::Error> {
-        match self.0 {
-            AddrArg::Tcp(addr) => Connection::tcp_connect(addr).await,
-            AddrArg::Unix(addr) => Connection::unix_connect(addr).await,
-            AddrArg::Udp(bind_addr, connect_addr) => {
-                Connection::udp_connect(bind_addr, connect_addr).await
-            }
-            AddrArg::Tls(hostname, port, ca_path) => {
-                Connection::tls_connect(hostname, port, ca_path).await
-            }
-        }
-    }
-
-    async fn recycle(
-        &self,
-        conn: &mut Connection,
-        _: &managed::Metrics,
-    ) -> managed::RecycleResult<io::Error> {
-        match conn.version().await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into()),
-        }
-    }
+#[derive(Debug, PartialEq)]
+pub enum StorageResult {
+    Stored,
+    NotStored,
+    Exists,
+    NotFound,
 }
 
-pub type Pool<'a> = managed::Pool<Manager<'a>>;
+#[derive(Debug, PartialEq)]
+pub enum DeleteResult {
+    Deleted,
+    NotFound,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TouchResult {
+    Touched,
+    NotFound,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum MgStatus {
+    WithBody,
+    WithoutBody,
+    NotFound,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum MdStatus {
+    Deleted,
+    NotFound,
+    Exists,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum MaStatus {
+    WithBody,
+    WithoutBody,
+    NotFound,
+    NotStored,
+    Exists,
+}
 
 pub enum StatsArg {
     Settings,
@@ -299,7 +307,7 @@ pub enum MaFlag {
 
 #[derive(Debug, PartialEq)]
 pub struct MgItem {
-    pub success: bool,
+    pub status: MgStatus,
     pub base64_key: bool,
     pub cas: Option<u64>,
     pub flags: Option<u32>,
@@ -317,7 +325,7 @@ pub struct MgItem {
 
 #[derive(Debug, PartialEq)]
 pub struct MsItem {
-    pub success: bool,
+    pub status: StorageResult,
     pub cas: Option<u64>,
     pub key: Option<String>,
     pub opaque: Option<String>,
@@ -327,7 +335,7 @@ pub struct MsItem {
 
 #[derive(Debug, PartialEq)]
 pub struct MdItem {
-    pub success: bool,
+    pub status: MdStatus,
     pub key: Option<String>,
     pub opaque: Option<String>,
     pub base64_key: bool,
@@ -335,7 +343,7 @@ pub struct MdItem {
 
 #[derive(Debug, PartialEq)]
 pub struct MaItem {
-    pub success: bool,
+    pub status: MaStatus,
     pub opaque: Option<String>,
     pub ttl: Option<i64>,
     pub cas: Option<u64>,
@@ -347,26 +355,25 @@ pub struct MaItem {
 async fn parse_storage_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<StorageResult> {
     if noreply {
-        return Ok(true);
+        return Ok(StorageResult::Stored);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     match line.as_str() {
-        "STORED\r\n" => Ok(true),
-        "NOT_STORED\r\n" | "EXISTS\r\n" | "NOT_FOUND\r\n" => Ok(false),
-        _ => Err(io::Error::other(line)),
+        "STORED\r\n" => Ok(StorageResult::Stored),
+        "NOT_STORED\r\n" => Ok(StorageResult::NotStored),
+        "EXISTS\r\n" => Ok(StorageResult::Exists),
+        "NOT_FOUND\r\n" => Ok(StorageResult::NotFound),
+        _ => Err(check_error(line)),
     }
 }
 
-async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
-    s: &mut S,
-) -> io::Result<Vec<Item>> {
+async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<Vec<Item>> {
     let mut line = String::new();
-    s.read_line(&mut line).await?;
     let mut items = Vec::new();
-    while line.starts_with("VALUE") {
+    while s.read_line(&mut line).await? > 0 && line.starts_with("VALUE") {
         let mut split = line.split(' ');
         split.next();
         let (key, flags, bytes, cas_unique) = (
@@ -385,70 +392,64 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
             data_block,
         });
         line.clear();
-        s.read_line(&mut line).await?;
     }
-    if line == "END\r\n" {
-        Ok(items)
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "END\r\n" => Ok(items),
+        _ => Err(check_error(line)),
     }
 }
 
-async fn parse_version_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
+async fn parse_version_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<String> {
     let mut line = String::new();
     let n = s.read_line(&mut line).await?;
     if line.starts_with("VERSION") {
         Ok(line[8..n - 2].to_string())
     } else {
-        Err(io::Error::other(line))
+        Err(check_error(line))
     }
 }
 
-async fn parse_ok_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
-    s: &mut S,
-    noreply: bool,
-) -> io::Result<()> {
+async fn parse_ok_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, noreply: bool) -> Result<()> {
     if noreply {
         return Ok(());
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    if line == "OK\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "OK\r\n" => Ok(()),
+        _ => Err(check_error(line)),
     }
 }
 
 async fn parse_delete_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<DeleteResult> {
     if noreply {
-        return Ok(true);
+        return Ok(DeleteResult::Deleted);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     match line.as_str() {
-        "DELETED\r\n" => Ok(true),
-        "NOT_FOUND\r\n" => Ok(false),
-        _ => Err(io::Error::other(line)),
+        "DELETED\r\n" => Ok(DeleteResult::Deleted),
+        "NOT_FOUND\r\n" => Ok(DeleteResult::NotFound),
+        _ => Err(check_error(line)),
     }
 }
 
-async fn parse_auth_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
+async fn parse_auth_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     match line.as_str() {
         "STORED\r\n" => Ok(()),
-        _ => Err(io::Error::other(line)),
+        _ => Err(check_error(line)),
     }
 }
 
 async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     noreply: bool,
-) -> io::Result<Option<u64>> {
+) -> Result<Option<u64>> {
     if noreply {
         return Ok(None);
     }
@@ -459,116 +460,102 @@ async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     }
     match line.trim_end().parse() {
         Ok(v) => Ok(Some(v)),
-        Err(_) => Err(io::Error::other(line)),
+        Err(_) => Err(check_error(line)),
     }
 }
 
 async fn parse_touch_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<TouchResult> {
     if noreply {
-        return Ok(true);
+        return Ok(TouchResult::Touched);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    if line == "TOUCHED\r\n" {
-        Ok(true)
-    } else if line == "NOT_FOUND\r\n" {
-        Ok(false)
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "TOUCHED\r\n" => Ok(TouchResult::Touched),
+        "NOT_FOUND\r\n" => Ok(TouchResult::NotFound),
+        _ => Err(check_error(line)),
     }
 }
 
 async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-) -> io::Result<HashMap<String, String>> {
+) -> Result<HashMap<String, String>> {
     let mut items = HashMap::new();
     let mut data = String::new();
-    while s.read_line(&mut data).await? > 0 && data != "END\r\n" {
-        if data.starts_with("STAT") {
-            let mut split = data.split(' ');
-            split.next();
-            let (k, v) = (
-                split.next().unwrap().to_string(),
-                split.next().unwrap().trim_end().to_string(),
-            );
-            items.insert(k, v);
-            data.clear();
-        } else {
-            return Err(io::Error::other(data));
-        }
+    while s.read_line(&mut data).await? > 0 && data.starts_with("STAT") {
+        let mut split = data.split(' ');
+        split.next();
+        let (k, v) = (
+            split.next().unwrap().to_string(),
+            split.next().unwrap().trim_end().to_string(),
+        );
+        items.insert(k, v);
+        data.clear();
     }
-    Ok(items)
+    match data.as_str() {
+        "END\r\n" => Ok(items),
+        _ => Err(check_error(data)),
+    }
 }
 
 async fn parse_lru_crawler_metadump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-) -> io::Result<Vec<String>> {
+) -> Result<Vec<String>> {
     let mut line = String::new();
-    s.read_line(&mut line).await?;
     let mut items = Vec::new();
-    while line.starts_with("key=") {
+    while s.read_line(&mut line).await? > 0 && line.starts_with("key=") {
         items.push(line.trim_end().to_string());
         line.clear();
-        s.read_line(&mut line).await?;
     }
-    if line == "END\r\n" {
-        Ok(items)
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "END\r\n" => Ok(items),
+        _ => Err(check_error(line)),
     }
 }
 
 async fn parse_lru_crawler_mgdump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-) -> io::Result<Vec<String>> {
+) -> Result<Vec<String>> {
     let mut line = String::new();
-    s.read_line(&mut line).await?;
     let mut items = Vec::new();
-    while line.starts_with("mg ") {
+    while s.read_line(&mut line).await? > 0 && line.starts_with("mg ") {
         let mut split = line.split(' ');
         split.next();
         items.push(split.next().unwrap().trim_end().to_string());
         line.clear();
-        s.read_line(&mut line).await?;
     }
-    if line == "EN\r\n" {
-        Ok(items)
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "EN\r\n" => Ok(items),
+        _ => Err(check_error(line)),
     }
 }
 
-async fn parse_mn_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
+async fn parse_mn_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    if line == "MN\r\n" {
-        Ok(())
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "MN\r\n" => Ok(()),
+        _ => Err(check_error(line)),
     }
 }
 
-async fn parse_me_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
-    s: &mut S,
-) -> io::Result<Option<String>> {
+async fn parse_me_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<Option<String>> {
     let mut line = String::new();
     let n = s.read_line(&mut line).await?;
-    if line == "EN\r\n" {
-        Ok(None)
-    } else if line.starts_with("ME") {
-        Ok(Some(line[3..n - 2].to_string()))
-    } else {
-        Err(io::Error::other(line))
+    match line.as_str() {
+        "EN\r\n" => Ok(None),
+        _ if line.starts_with("ME") => Ok(Some(line[3..n - 2].to_string())),
+        _ => Err(check_error(line)),
     }
 }
 
-async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MgItem> {
+async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<MgItem> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    let success;
+    let status;
     let (
         mut base64_key,
         mut cas,
@@ -588,19 +575,19 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
     );
     let mut split = line.trim_end().split(' ');
     let data_len = if line.starts_with("VA") {
-        success = true;
+        status = MgStatus::WithBody;
         split.next();
         Some(split.next().unwrap().parse().unwrap())
     } else if line.starts_with("HD") {
-        success = true;
+        status = MgStatus::WithoutBody;
         split.next();
         None
     } else if line.starts_with("EN") {
-        success = false;
+        status = MgStatus::NotFound;
         split.next();
         None
     } else {
-        return Err(io::Error::other(line));
+        return Err(check_error(line));
     };
     for flag in split {
         let f = &flag[1..];
@@ -627,7 +614,7 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
         data_block = Some(buf);
     }
     Ok(MgItem {
-        success,
+        status,
         base64_key,
         cas,
         flags,
@@ -644,16 +631,20 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
     })
 }
 
-async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MsItem> {
+async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<MsItem> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     let (mut cas, mut key, mut opaque, mut size, mut base64_key) = (None, None, None, None, false);
-    let success = if line.starts_with("HD") {
-        true
-    } else if line.starts_with("NS") || line.starts_with("EX") || line.starts_with("NF") {
-        false
+    let status = if line.starts_with("HD") {
+        StorageResult::Stored
+    } else if line.starts_with("NS") {
+        StorageResult::NotStored
+    } else if line.starts_with("EX") {
+        StorageResult::Exists
+    } else if line.starts_with("NF") {
+        StorageResult::NotFound
     } else {
-        return Err(io::Error::other(line));
+        return Err(check_error(line));
     };
     let mut split = line.trim_end().split(' ');
     split.next();
@@ -669,7 +660,7 @@ async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
         }
     }
     Ok(MsItem {
-        success,
+        status,
         cas,
         opaque,
         key,
@@ -678,16 +669,18 @@ async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
     })
 }
 
-async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MdItem> {
+async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<MdItem> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
     let (mut key, mut opaque, mut base64_key) = (None, None, false);
-    let success = if line.starts_with("HD") {
-        true
-    } else if line.starts_with("NF") || line.starts_with("EX") {
-        false
+    let status = if line.starts_with("HD") {
+        MdStatus::Deleted
+    } else if line.starts_with("NF") {
+        MdStatus::NotFound
+    } else if line.starts_with("EX") {
+        MdStatus::Exists
     } else {
-        return Err(io::Error::other(line));
+        return Err(check_error(line));
     };
     let mut split = line.trim_end().split(' ');
     split.next();
@@ -701,34 +694,42 @@ async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
         }
     }
     Ok(MdItem {
-        success,
+        status,
         key,
         opaque,
         base64_key,
     })
 }
 
-async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<MaItem> {
+async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<MaItem> {
     let mut line = String::new();
     s.read_line(&mut line).await?;
-    let success;
+    let status;
     let (mut opaque, mut ttl, mut cas, mut number, mut key, mut base64_key) =
         (None, None, None, None, None, false);
     let mut split = line.trim_end().split(' ');
     let data_len = if line.starts_with("VA") {
         split.next();
-        success = true;
+        status = MaStatus::WithBody;
         Some(split.next().unwrap().parse().unwrap())
     } else if line.starts_with("HD") {
         split.next();
-        success = true;
+        status = MaStatus::WithoutBody;
         None
-    } else if line.starts_with("NS") || line.starts_with("EX") || line.starts_with("NF") {
+    } else if line.starts_with("NS") {
         split.next();
-        success = false;
+        status = MaStatus::NotStored;
+        None
+    } else if line.starts_with("EX") {
+        split.next();
+        status = MaStatus::Exists;
+        None
+    } else if line.starts_with("NF") {
+        split.next();
+        status = MaStatus::NotFound;
         None
     } else {
-        return Err(io::Error::other(line));
+        return Err(check_error(line));
     };
     for flag in split {
         let f = &flag[1..];
@@ -748,7 +749,7 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Res
         number = Some(buf.parse().unwrap());
     }
     Ok(MaItem {
-        success,
+        status,
         opaque,
         ttl,
         cas,
@@ -1141,7 +1142,7 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
     w
 }
 
-async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> io::Result<()> {
+async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> {
     *r = r.wrapping_add(1);
     let mut msg = Vec::with_capacity(8 + cmd.len());
     msg.extend(r.to_be_bytes());
@@ -1151,13 +1152,13 @@ async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> io::Result<
     Ok(())
 }
 
-async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> io::Result<Vec<u8>> {
+async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> Result<Vec<u8>> {
     let mut result = HashMap::new();
+    let mut buf = [0; 1400];
     loop {
-        let mut buf = [0; 1400];
         let n = s.recv(&mut buf).await?;
         if n < 8 {
-            return Err(io::Error::other("Invalid UDP header"));
+            return Err(Error::Error("Invalid UDP header".to_string()));
         }
         let request_id = u16::from_be_bytes([buf[0], buf[1]]);
         let sequence_number = u16::from_be_bytes([buf[2], buf[3]]);
@@ -1175,17 +1176,17 @@ async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> io::Result<Vec<u8>> {
         .collect())
 }
 
-async fn version_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<String> {
+async fn version_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> Result<String> {
     udp_send_cmd(s, r, build_version_cmd()).await?;
     parse_version_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-pub async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
+pub async fn version_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<String> {
     s.write_all(build_version_cmd()).await?;
     parse_version_rp(s).await
 }
 
-async fn quit_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<()> {
+async fn quit_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> Result<()> {
     udp_send_cmd(s, r, build_quit_cmd()).await
 }
 
@@ -1193,15 +1194,16 @@ async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result
     s.write_all(build_quit_cmd()).await
 }
 
-async fn shutdown_cmd_udp(s: &mut UdpSocket, r: &mut u16, graceful: bool) -> io::Result<()> {
+async fn shutdown_cmd_udp(s: &mut UdpSocket, r: &mut u16, graceful: bool) -> Result<()> {
     udp_send_cmd(s, r, build_shutdown_cmd(graceful)).await
 }
 
 async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     graceful: bool,
-) -> io::Result<()> {
-    s.write_all(build_shutdown_cmd(graceful)).await
+) -> Result<()> {
+    s.write_all(build_shutdown_cmd(graceful)).await;
+    Ok(())
 }
 
 async fn cache_memlimit_cmd_udp(
@@ -1209,7 +1211,7 @@ async fn cache_memlimit_cmd_udp(
     r: &mut u16,
     limit: usize,
     noreply: bool,
-) -> io::Result<()> {
+) -> Result<()> {
     udp_send_cmd(s, r, &build_cache_memlimit_cmd(limit, noreply)).await?;
     if noreply {
         Ok(())
@@ -1222,7 +1224,7 @@ async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     limit: usize,
     noreply: bool,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_cache_memlimit_cmd(limit, noreply))
         .await?;
     parse_ok_rp(s, noreply).await
@@ -1233,7 +1235,7 @@ async fn flush_all_cmd_udp(
     r: &mut u16,
     exptime: Option<i64>,
     noreply: bool,
-) -> io::Result<()> {
+) -> Result<()> {
     udp_send_cmd(s, r, &build_flush_all_cmd(exptime, noreply)).await?;
     if noreply {
         Ok(())
@@ -1246,7 +1248,7 @@ async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     exptime: Option<i64>,
     noreply: bool,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_flush_all_cmd(exptime, noreply)).await?;
     parse_ok_rp(s, noreply).await
 }
@@ -1261,7 +1263,7 @@ async fn storage_cmd_udp(
     cas_unique: Option<u64>,
     noreply: bool,
     data_block: &[u8],
-) -> io::Result<bool> {
+) -> Result<StorageResult> {
     udp_send_cmd(
         s,
         r,
@@ -1277,7 +1279,7 @@ async fn storage_cmd_udp(
     )
     .await?;
     if noreply {
-        Ok(true)
+        Ok(StorageResult::Stored)
     } else {
         parse_storage_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -1292,7 +1294,7 @@ pub async fn storage_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     cas_unique: Option<u64>,
     noreply: bool,
     data_block: &[u8],
-) -> io::Result<bool> {
+) -> Result<StorageResult> {
     s.write_all(&build_storage_cmd(
         command_name,
         key,
@@ -1311,10 +1313,10 @@ async fn delete_cmd_udp(
     r: &mut u16,
     key: &[u8],
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<DeleteResult> {
     udp_send_cmd(s, r, &build_delete_cmd(key, noreply)).await?;
     if noreply {
-        Ok(true)
+        Ok(DeleteResult::Deleted)
     } else {
         parse_delete_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -1324,7 +1326,7 @@ async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<DeleteResult> {
     s.write_all(&build_delete_cmd(key, noreply)).await?;
     parse_delete_rp(s, noreply).await
 }
@@ -1333,7 +1335,7 @@ async fn auth_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     username: &[u8],
     password: &[u8],
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_auth_cmd(username, password)).await?;
     parse_auth_rp(s).await
 }
@@ -1345,7 +1347,7 @@ async fn incr_decr_cmd_udp(
     key: &[u8],
     value: u64,
     noreply: bool,
-) -> io::Result<Option<u64>> {
+) -> Result<Option<u64>> {
     udp_send_cmd(
         s,
         r,
@@ -1365,7 +1367,7 @@ pub async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     value: u64,
     noreply: bool,
-) -> io::Result<Option<u64>> {
+) -> Result<Option<u64>> {
     s.write_all(&build_incr_decr_cmd(command_name, key, value, noreply))
         .await?;
     parse_incr_decr_rp(s, noreply).await
@@ -1377,10 +1379,10 @@ async fn touch_cmd_udp(
     key: &[u8],
     exptime: i64,
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<TouchResult> {
     udp_send_cmd(s, r, &build_touch_cmd(key, exptime, noreply)).await?;
     if noreply {
-        Ok(true)
+        Ok(TouchResult::Touched)
     } else {
         parse_touch_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -1391,7 +1393,7 @@ async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     exptime: i64,
     noreply: bool,
-) -> io::Result<bool> {
+) -> Result<TouchResult> {
     s.write_all(&build_touch_cmd(key, exptime, noreply)).await?;
     parse_touch_rp(s, noreply).await
 }
@@ -1402,7 +1404,7 @@ async fn retrieval_cmd_udp(
     command_name: &[u8],
     exptime: Option<i64>,
     keys: &[&[u8]],
-) -> io::Result<Vec<Item>> {
+) -> Result<Vec<Item>> {
     udp_send_cmd(s, r, &build_retrieval_cmd(command_name, exptime, keys)).await?;
     parse_retrieval_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
@@ -1412,7 +1414,7 @@ pub async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     command_name: &[u8],
     exptime: Option<i64>,
     keys: &[&[u8]],
-) -> io::Result<Vec<Item>> {
+) -> Result<Vec<Item>> {
     s.write_all(&build_retrieval_cmd(command_name, exptime, keys))
         .await?;
     parse_retrieval_rp(s).await
@@ -1422,7 +1424,7 @@ async fn stats_cmd_udp(
     s: &mut UdpSocket,
     r: &mut u16,
     arg: Option<StatsArg>,
-) -> io::Result<HashMap<String, String>> {
+) -> Result<HashMap<String, String>> {
     udp_send_cmd(s, r, build_stats_cmd(arg)).await?;
     parse_stats_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
@@ -1430,7 +1432,7 @@ async fn stats_cmd_udp(
 async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: Option<StatsArg>,
-) -> io::Result<HashMap<String, String>> {
+) -> Result<HashMap<String, String>> {
     s.write_all(build_stats_cmd(arg)).await?;
     parse_stats_rp(s).await
 }
@@ -1439,7 +1441,7 @@ async fn slabs_automove_cmd_udp(
     s: &mut UdpSocket,
     r: &mut u16,
     arg: SlabsAutomoveArg,
-) -> io::Result<()> {
+) -> Result<()> {
     udp_send_cmd(s, r, build_slabs_automove_cmd(arg)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
@@ -1447,12 +1449,12 @@ async fn slabs_automove_cmd_udp(
 async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: SlabsAutomoveArg,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(build_slabs_automove_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
 
-async fn lru_crawler_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruCrawlerArg) -> io::Result<()> {
+async fn lru_crawler_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruCrawlerArg) -> Result<()> {
     udp_send_cmd(s, r, build_lru_crawler_cmd(arg)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
@@ -1460,7 +1462,7 @@ async fn lru_crawler_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruCrawlerArg)
 async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerArg,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(build_lru_crawler_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
@@ -1469,7 +1471,7 @@ async fn lru_crawler_sleep_cmd_udp(
     s: &mut UdpSocket,
     r: &mut u16,
     microseconds: usize,
-) -> io::Result<()> {
+) -> Result<()> {
     udp_send_cmd(s, r, &build_lru_clawler_sleep_cmd(microseconds)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
@@ -1477,13 +1479,13 @@ async fn lru_crawler_sleep_cmd_udp(
 async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     microseconds: usize,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_lru_clawler_sleep_cmd(microseconds))
         .await?;
     parse_ok_rp(s, false).await
 }
 
-async fn lru_crawler_tocrawl_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: u32) -> io::Result<()> {
+async fn lru_crawler_tocrawl_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: u32) -> Result<()> {
     udp_send_cmd(s, r, &build_lru_crawler_tocrawl_cmd(arg)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
@@ -1491,7 +1493,7 @@ async fn lru_crawler_tocrawl_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: u32) -
 async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: u32,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_lru_crawler_tocrawl_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
@@ -1500,7 +1502,7 @@ async fn lru_crawler_crawl_cmd_udp(
     s: &mut UdpSocket,
     r: &mut u16,
     arg: LruCrawlerCrawlArg<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     udp_send_cmd(s, r, &build_lru_clawler_crawl_cmd(arg)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
@@ -1508,7 +1510,7 @@ async fn lru_crawler_crawl_cmd_udp(
 async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerCrawlArg<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_lru_clawler_crawl_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
@@ -1518,7 +1520,7 @@ async fn slabs_reassign_cmd_udp(
     r: &mut u16,
     source_class: isize,
     dest_class: isize,
-) -> io::Result<()> {
+) -> Result<()> {
     udp_send_cmd(s, r, &build_slabs_reassign_cmd(source_class, dest_class)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
@@ -1536,7 +1538,7 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
-) -> io::Result<Vec<String>> {
+) -> Result<Vec<String>> {
     s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
     parse_lru_crawler_metadump_rp(s).await
 }
@@ -1544,22 +1546,22 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMgdumpArg<'_>,
-) -> io::Result<Vec<String>> {
+) -> Result<Vec<String>> {
     s.write_all(&build_lru_clawler_mgdump_cmd(arg)).await?;
     parse_lru_crawler_mgdump_rp(s).await
 }
 
-async fn mn_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> io::Result<()> {
+async fn mn_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> Result<()> {
     udp_send_cmd(s, r, build_mn_cmd()).await?;
     parse_mn_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
+async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
     s.write_all(build_mn_cmd()).await?;
     parse_mn_rp(s).await
 }
 
-async fn me_cmd_udp(s: &mut UdpSocket, r: &mut u16, key: &[u8]) -> io::Result<Option<String>> {
+async fn me_cmd_udp(s: &mut UdpSocket, r: &mut u16, key: &[u8]) -> Result<Option<String>> {
     udp_send_cmd(s, r, &build_me_cmd(key)).await?;
     parse_me_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
@@ -1567,7 +1569,7 @@ async fn me_cmd_udp(s: &mut UdpSocket, r: &mut u16, key: &[u8]) -> io::Result<Op
 async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
-) -> io::Result<Option<String>> {
+) -> Result<Option<String>> {
     s.write_all(&build_me_cmd(key)).await?;
     parse_me_rp(s).await
 }
@@ -1575,7 +1577,7 @@ async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     cmds: &[Vec<u8>],
-) -> io::Result<Vec<PipelineResponse>> {
+) -> Result<Vec<PipelineResponse>> {
     s.write_all(&cmds.concat()).await?;
     let mut result = Vec::new();
     for cmd in cmds {
@@ -1669,7 +1671,7 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 async fn watch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: &[WatchArg],
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_watch_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
@@ -1680,7 +1682,7 @@ async fn ms_cmd_udp(
     key: &[u8],
     flags: &[MsFlag],
     data_block: &[u8],
-) -> io::Result<MsItem> {
+) -> Result<MsItem> {
     udp_send_cmd(
         s,
         r,
@@ -1695,7 +1697,7 @@ async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MsFlag],
     data_block: &[u8],
-) -> io::Result<MsItem> {
+) -> Result<MsItem> {
     s.write_all(&build_mc_cmd(
         b"ms",
         key,
@@ -1711,7 +1713,7 @@ async fn mg_cmd_udp(
     r: &mut u16,
     key: &[u8],
     flags: &[MgFlag],
-) -> io::Result<MgItem> {
+) -> Result<MgItem> {
     udp_send_cmd(
         s,
         r,
@@ -1725,7 +1727,7 @@ async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MgFlag],
-) -> io::Result<MgItem> {
+) -> Result<MgItem> {
     s.write_all(&build_mc_cmd(b"mg", key, &build_mg_flags(flags), None))
         .await?;
     parse_mg_rp(s).await
@@ -1750,7 +1752,7 @@ async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MdFlag],
-) -> io::Result<MdItem> {
+) -> Result<MdItem> {
     s.write_all(&build_mc_cmd(b"md", key, &build_md_flags(flags), None))
         .await?;
     parse_md_rp(s).await
@@ -1761,7 +1763,7 @@ async fn ma_cmd_udp(
     r: &mut u16,
     key: &[u8],
     flags: &[MaFlag],
-) -> io::Result<MaItem> {
+) -> Result<MaItem> {
     udp_send_cmd(
         s,
         r,
@@ -1775,18 +1777,18 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MaFlag],
-) -> io::Result<MaItem> {
+) -> Result<MaItem> {
     s.write_all(&build_mc_cmd(b"ma", key, &build_ma_flags(flags), None))
         .await?;
     parse_ma_rp(s).await
 }
 
-async fn lru_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruArg) -> io::Result<()> {
+async fn lru_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruArg) -> Result<()> {
     udp_send_cmd(s, r, &build_lru_cmd(arg)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> io::Result<()> {
+async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> Result<()> {
     s.write_all(&build_lru_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
