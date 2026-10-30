@@ -1,47 +1,33 @@
+use criterion::{Criterion, criterion_group, criterion_main};
+use mcmc_rs::Connection;
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
-use smol::block_on;
-
-use mcmc_rs::Connection;
-
 fn criterion_benchmark(c: &mut Criterion) {
-    for (name, mut conn) in [
-        (
-            "tcp",
-            block_on(async { Connection::default().await.unwrap() }),
-        ),
-        (
-            "unix",
-            block_on(async {
-                Connection::unix_connect("/tmp/memcached0.sock")
-                    .await
-                    .unwrap()
-            }),
-        ),
-        (
-            "udp",
-            block_on(async {
-                Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214")
-                    .await
-                    .unwrap()
-            }),
-        ),
-        (
-            "tls",
-            block_on(async {
-                Connection::tls_connect("localhost", 11216, "cert.pem")
-                    .await
-                    .unwrap()
-            }),
-        ),
-    ] {
-        c.bench_function(&format!("{name}->get"), |b| {
-            b.iter(|| block_on(async { conn.get(black_box(b"key0")).await.unwrap() }))
-        });
+    let targets = ["tcp", "unix", "udp", "tls"];
 
-        c.bench_function(&format!("{name}->version"), |b| {
-            b.iter(|| block_on(async { conn.version().await.unwrap() }))
+    for name in targets {
+        c.bench_function(&format!("{name}->get"), |b| {
+            b.to_async(criterion::async_executor::SmolExecutor)
+                .iter_with_setup(
+                    || {
+                        smol::block_on(async {
+                            match name {
+                                "tcp" => Connection::default().await.unwrap(),
+                                "unix" => Connection::unix_connect("/tmp/memcached0.sock")
+                                    .await
+                                    .unwrap(),
+                                "udp" => Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214")
+                                    .await
+                                    .unwrap(),
+                                "tls" => Connection::tls_connect("localhost", 11216, "cert.pem")
+                                    .await
+                                    .unwrap(),
+                                _ => unreachable!(),
+                            }
+                        })
+                    },
+                    |mut conn| async move { conn.get(black_box(b"key0")).await.unwrap() },
+                );
         });
     }
 }
