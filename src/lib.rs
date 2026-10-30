@@ -1190,8 +1190,9 @@ async fn quit_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> Result<()> {
     udp_send_cmd(s, r, build_quit_cmd()).await
 }
 
-async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<()> {
-    s.write_all(build_quit_cmd()).await
+async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
+    s.write_all(build_quit_cmd()).await;
+    Ok(())
 }
 
 async fn shutdown_cmd_udp(s: &mut UdpSocket, r: &mut u16, graceful: bool) -> Result<()> {
@@ -1529,7 +1530,7 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     source_class: isize,
     dest_class: isize,
-) -> io::Result<()> {
+) -> Result<()> {
     s.write_all(&build_slabs_reassign_cmd(source_class, dest_class))
         .await?;
     parse_ok_rp(s, false).await
@@ -1738,7 +1739,7 @@ async fn md_cmd_udp(
     r: &mut u16,
     key: &[u8],
     flags: &[MdFlag],
-) -> io::Result<MdItem> {
+) -> Result<MdItem> {
     udp_send_cmd(
         s,
         r,
@@ -1811,7 +1812,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn default() -> io::Result<Self> {
+    pub async fn default() -> Result<Self> {
         Ok(Connection::Tcp(BufReader::new(
             TcpStream::connect("127.0.0.1:11211").await?,
         )))
@@ -1828,7 +1829,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn tcp_connect(addr: &str) -> io::Result<Self> {
+    pub async fn tcp_connect(addr: &str) -> Result<Self> {
         Ok(Connection::Tcp(BufReader::new(
             TcpStream::connect(addr).await?,
         )))
@@ -1845,7 +1846,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn unix_connect(path: &str) -> io::Result<Self> {
+    pub async fn unix_connect(path: &str) -> Result<Self> {
         Ok(Connection::Unix(BufReader::new(
             UnixStream::connect(path).await?,
         )))
@@ -1861,7 +1862,7 @@ impl Connection {
     /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
-    pub async fn udp_connect(bind_addr: &str, connect_addr: &str) -> io::Result<Self> {
+    pub async fn udp_connect(bind_addr: &str, connect_addr: &str) -> Result<Self> {
         let s = UdpSocket::bind(bind_addr).await?;
         s.connect(connect_addr).await?;
         Ok(Connection::Udp(s, 0))
@@ -1877,7 +1878,7 @@ impl Connection {
     /// let mut conn = Connection::tls_connect("localhost", 11216, "cert.pem").await?;
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
-    pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> io::Result<Self> {
+    pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> Result<Self> {
         let cert = fs::read(ca_path).await?;
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let connector =
@@ -1906,7 +1907,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn version(&mut self) -> io::Result<String> {
+    pub async fn version(&mut self) -> Result<String> {
         match self {
             Connection::Tcp(s) => version_cmd(s).await,
             Connection::Unix(s) => version_cmd(s).await,
@@ -1933,7 +1934,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn quit(mut self) -> io::Result<()> {
+    pub async fn quit(mut self) -> Result<()> {
         match &mut self {
             Connection::Tcp(s) => quit_cmd(s).await,
             Connection::Unix(s) => quit_cmd(s).await,
@@ -1960,7 +1961,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn shutdown(mut self, graceful: bool) -> io::Result<()> {
+    pub async fn shutdown(mut self, graceful: bool) -> Result<()> {
         match &mut self {
             Connection::Tcp(s) => shutdown_cmd(s, graceful).await,
             Connection::Unix(s) => shutdown_cmd(s, graceful).await,
@@ -1987,7 +1988,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn cache_memlimit(&mut self, limit: usize, noreply: bool) -> io::Result<()> {
+    pub async fn cache_memlimit(&mut self, limit: usize, noreply: bool) -> Result<()> {
         match self {
             Connection::Tcp(s) => cache_memlimit_cmd(s, limit, noreply).await,
             Connection::Unix(s) => cache_memlimit_cmd(s, limit, noreply).await,
@@ -2014,7 +2015,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn flush_all(&mut self, exptime: Option<i64>, noreply: bool) -> io::Result<()> {
+    pub async fn flush_all(&mut self, exptime: Option<i64>, noreply: bool) -> Result<()> {
         match self {
             Connection::Tcp(s) => flush_all_cmd(s, exptime, noreply).await,
             Connection::Unix(s) => flush_all_cmd(s, exptime, noreply).await,
@@ -2049,7 +2050,7 @@ impl Connection {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         match self {
             Connection::Tcp(s) => {
                 storage_cmd(
@@ -2133,7 +2134,7 @@ impl Connection {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         match self {
             Connection::Tcp(s) => {
                 storage_cmd(
@@ -2217,7 +2218,7 @@ impl Connection {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         match self {
             Connection::Tcp(s) => {
                 storage_cmd(
@@ -2301,7 +2302,7 @@ impl Connection {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         match self {
             Connection::Tcp(s) => {
                 storage_cmd(
@@ -2385,7 +2386,7 @@ impl Connection {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         match self {
             Connection::Tcp(s) => {
                 storage_cmd(
@@ -2470,7 +2471,7 @@ impl Connection {
         cas_unique: u64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         match self {
             Connection::Tcp(s) => {
                 storage_cmd(
@@ -2549,7 +2550,7 @@ impl Connection {
         &mut self,
         username: impl AsRef<[u8]>,
         password: impl AsRef<[u8]>,
-    ) -> io::Result<()> {
+    ) -> Result<()> {
         match self {
             Connection::Tcp(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
             Connection::Unix(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
@@ -2579,7 +2580,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> io::Result<bool> {
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<bool> {
         match self {
             Connection::Tcp(s) => delete_cmd(s, key.as_ref(), noreply).await,
             Connection::Unix(s) => delete_cmd(s, key.as_ref(), noreply).await,
@@ -2612,7 +2613,7 @@ impl Connection {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
             Connection::Unix(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
@@ -2647,7 +2648,7 @@ impl Connection {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
             Connection::Unix(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
@@ -2682,7 +2683,7 @@ impl Connection {
         key: impl AsRef<[u8]>,
         exptime: i64,
         noreply: bool,
-    ) -> io::Result<bool> {
+    ) -> Result<TouchResult> {
         match self {
             Connection::Tcp(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
             Connection::Unix(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
