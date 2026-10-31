@@ -3,7 +3,7 @@ use mcmc_rs::Connection;
 use std::hint::black_box;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let targets = ["unix", "udp", "tls", "tcp"];
+    let targets = ["unix", "tls", "tcp", "unix"];
 
     for name in targets {
         c.bench_function(&format!("{name}->get"), |b| {
@@ -11,7 +11,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 .iter_with_setup(
                     || {
                         smol::block_on(async {
-                            match name {
+                            let mut c = match name {
                                 "tcp" => Connection::default().await.unwrap(),
                                 "unix" => Connection::unix_connect("/tmp/memcached0.sock")
                                     .await
@@ -23,7 +23,9 @@ fn criterion_benchmark(c: &mut Criterion) {
                                     .await
                                     .unwrap(),
                                 _ => unreachable!(),
-                            }
+                            };
+                            c.set("key0", 0, 0, false, vec![b'a'; 4096]).await.unwrap();
+                            c
                         })
                     },
                     |mut conn| async move { conn.get(black_box(b"key0")).await.unwrap() },

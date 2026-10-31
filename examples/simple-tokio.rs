@@ -1,9 +1,9 @@
 use tokio::io;
 use tokio::runtime::Runtime;
 
-use mcmc_rs::{AddrArg, ClientCrc32, Connection, Manager, Pool, WatchArg};
+use mcmc_rs::{ClientCrc32, Connection, WatchArg};
 
-fn main() -> io::Result<()> {
+fn main() -> mcmc_rs::Result<()> {
     let rt = Runtime::new()?;
     rt.block_on(async {
         // Connection mode
@@ -29,12 +29,6 @@ fn main() -> io::Result<()> {
             .version()
             .execute()
             .await?;
-        println!("{r:#?}");
-        // Pool mode
-        let mgr = Manager::new(AddrArg::Tcp("127.0.0.1:11211"));
-        let pool = Pool::builder(mgr).build().unwrap();
-        let mut conn = pool.get().await.unwrap();
-        let r = conn.version().await?;
         println!("{r:#?}");
         // Watch mode
         let conn = Connection::default().await?;

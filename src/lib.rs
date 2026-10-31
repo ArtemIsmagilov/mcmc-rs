@@ -10,8 +10,6 @@
 //!   pipeline of memcached commands.
 //! - [WatchStream] is a structure that represents a
 //!   stream of watch events.
-//! - [Pool] is a structure that represents a
-//!   pool of connections.
 //! - [ClientCrc32] is a structure that represents a
 //!   Cluster connections with ModN hashing.
 //! - [ClientHashRing] is a structure that represents a
@@ -37,7 +35,7 @@
 //! }
 //! ```
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 
 use async_native_tls::{Certificate, TlsConnector, TlsStream};
@@ -85,7 +83,7 @@ pub enum Error {
     UnexpectedError(String),
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 fn check_error(line: String) -> Error {
     if line.starts_with("ERROR") {
@@ -229,6 +227,9 @@ pub enum PipelineResponse {
     MetaSet(MsItem),
     MetaDelete(MdItem),
     MetaArithmetic(MaItem),
+    StorageResult(StorageResult),
+    DeleteResult(DeleteResult),
+    TouchResult(TouchResult),
 }
 
 pub enum MsMode {
@@ -1154,8 +1155,8 @@ async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> 
 
 async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> Result<Vec<u8>> {
     let mut result = HashMap::new();
-    let mut buf = [0; 1400];
     loop {
+        let mut buf = [0; 1400];
         let n = s.recv(&mut buf).await?;
         if n < 8 {
             return Err(Error::Error("Invalid UDP header".to_string()));
@@ -1191,8 +1192,7 @@ async fn quit_cmd_udp(s: &mut UdpSocket, r: &mut u16) -> Result<()> {
 }
 
 async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
-    s.write_all(build_quit_cmd()).await;
-    Ok(())
+    Ok(s.write_all(build_quit_cmd()).await?)
 }
 
 async fn shutdown_cmd_udp(s: &mut UdpSocket, r: &mut u16, graceful: bool) -> Result<()> {
@@ -1203,8 +1203,7 @@ async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     graceful: bool,
 ) -> Result<()> {
-    s.write_all(build_shutdown_cmd(graceful)).await;
-    Ok(())
+    Ok(s.write_all(build_shutdown_cmd(graceful)).await?)
 }
 
 async fn cache_memlimit_cmd_udp(
@@ -1607,13 +1606,13 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
         {
             let mut split = cmd.split(|x| x == &b'\r');
             let n = split.next().unwrap();
-            result.push(PipelineResponse::Bool(
+            result.push(PipelineResponse::StorageResult(
                 parse_storage_rp(s, n.ends_with(b"noreply")).await?,
             ))
         } else if cmd == build_version_cmd() {
             result.push(PipelineResponse::String(parse_version_rp(s).await?))
         } else if cmd.starts_with(b"delete ") {
-            result.push(PipelineResponse::Bool(
+            result.push(PipelineResponse::DeleteResult(
                 parse_delete_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
             ))
         } else if cmd.starts_with(b"incr ") || cmd.starts_with(b"decr ") {
@@ -1621,7 +1620,7 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
                 parse_incr_decr_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
             ))
         } else if cmd.starts_with(b"touch ") {
-            result.push(PipelineResponse::Bool(
+            result.push(PipelineResponse::TouchResult(
                 parse_touch_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
             ))
         } else if cmd == build_quit_cmd() || cmd.starts_with(b"shutdown") {
@@ -3790,7 +3789,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .get(key.as_ref())
@@ -3814,7 +3813,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .gets(key.as_ref())
@@ -3838,7 +3837,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .gat(exptime, key.as_ref())
@@ -3862,7 +3861,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .gats(exptime, key.as_ref())
@@ -3892,7 +3891,7 @@ impl ClientCrc32 {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -3922,7 +3921,7 @@ impl ClientCrc32 {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -3952,7 +3951,7 @@ impl ClientCrc32 {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -3982,7 +3981,7 @@ impl ClientCrc32 {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4012,7 +4011,7 @@ impl ClientCrc32 {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4043,7 +4042,7 @@ impl ClientCrc32 {
         cas_unique: u64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .cas(
@@ -4073,7 +4072,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> io::Result<bool> {
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .delete(key.as_ref(), noreply)
@@ -4101,7 +4100,7 @@ impl ClientCrc32 {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .incr(key.as_ref(), value, noreply)
@@ -4129,7 +4128,7 @@ impl ClientCrc32 {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .decr(key.as_ref(), value, noreply)
@@ -4157,7 +4156,7 @@ impl ClientCrc32 {
         key: impl AsRef<[u8]>,
         exptime: i64,
         noreply: bool,
-    ) -> io::Result<bool> {
+    ) -> Result<TouchResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .touch(key.as_ref(), exptime, noreply)
@@ -4180,7 +4179,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .me(key.as_ref())
@@ -4242,7 +4241,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .mg(key.as_ref(), flags)
@@ -4299,7 +4298,7 @@ impl ClientCrc32 {
         key: impl AsRef<[u8]>,
         flags: &[MsFlag],
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<MsItem> {
+    ) -> Result<MsItem> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .ms(key.as_ref(), flags, data_block.as_ref())
@@ -4344,7 +4343,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .md(key.as_ref(), flags)
@@ -4397,7 +4396,7 @@ impl ClientCrc32 {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .ma(key.as_ref(), flags)
@@ -4443,7 +4442,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].get(key.as_ref()).await
     }
@@ -4465,7 +4464,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].gets(key.as_ref()).await
     }
@@ -4487,7 +4486,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].gat(exptime, key.as_ref()).await
     }
@@ -4509,7 +4508,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].gats(exptime, key.as_ref()).await
     }
@@ -4537,7 +4536,7 @@ impl ClientHashRing {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i]
             .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4567,7 +4566,7 @@ impl ClientHashRing {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i]
             .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4597,7 +4596,7 @@ impl ClientHashRing {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i]
             .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4627,7 +4626,7 @@ impl ClientHashRing {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i]
             .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4657,7 +4656,7 @@ impl ClientHashRing {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i]
             .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -4688,7 +4687,7 @@ impl ClientHashRing {
         cas_unique: u64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i]
             .cas(
@@ -4718,7 +4717,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> io::Result<bool> {
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].delete(key.as_ref(), noreply).await
     }
@@ -4744,7 +4743,7 @@ impl ClientHashRing {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].incr(key.as_ref(), value, noreply).await
     }
@@ -4770,7 +4769,7 @@ impl ClientHashRing {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].decr(key.as_ref(), value, noreply).await
     }
@@ -4796,7 +4795,7 @@ impl ClientHashRing {
         key: impl AsRef<[u8]>,
         exptime: i64,
         noreply: bool,
-    ) -> io::Result<bool> {
+    ) -> Result<TouchResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].touch(key.as_ref(), exptime, noreply).await
     }
@@ -4817,7 +4816,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].me(key.as_ref()).await
     }
@@ -4877,7 +4876,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].mg(key.as_ref(), flags).await
     }
@@ -4932,7 +4931,7 @@ impl ClientHashRing {
         key: impl AsRef<[u8]>,
         flags: &[MsFlag],
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<MsItem> {
+    ) -> Result<MsItem> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].ms(key.as_ref(), flags, data_block.as_ref()).await
     }
@@ -4975,7 +4974,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].md(key.as_ref(), flags).await
     }
@@ -5026,7 +5025,7 @@ impl ClientHashRing {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].ma(key.as_ref(), flags).await
     }
@@ -5069,7 +5068,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].get(key.as_ref()).await
     }
@@ -5091,7 +5090,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].gets(key.as_ref()).await
     }
@@ -5113,7 +5112,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].gat(exptime, key.as_ref()).await
     }
@@ -5135,7 +5134,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].gats(exptime, key.as_ref()).await
     }
@@ -5163,7 +5162,7 @@ impl ClientRendezvous {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i]
             .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -5193,7 +5192,7 @@ impl ClientRendezvous {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i]
             .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -5223,7 +5222,7 @@ impl ClientRendezvous {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i]
             .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -5253,7 +5252,7 @@ impl ClientRendezvous {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i]
             .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -5283,7 +5282,7 @@ impl ClientRendezvous {
         exptime: i64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i]
             .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
@@ -5314,7 +5313,7 @@ impl ClientRendezvous {
         cas_unique: u64,
         noreply: bool,
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<bool> {
+    ) -> Result<StorageResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i]
             .cas(
@@ -5344,7 +5343,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> io::Result<bool> {
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].delete(key.as_ref(), noreply).await
     }
@@ -5370,7 +5369,7 @@ impl ClientRendezvous {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].incr(key.as_ref(), value, noreply).await
     }
@@ -5396,7 +5395,7 @@ impl ClientRendezvous {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> io::Result<Option<u64>> {
+    ) -> Result<Option<u64>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].decr(key.as_ref(), value, noreply).await
     }
@@ -5422,7 +5421,7 @@ impl ClientRendezvous {
         key: impl AsRef<[u8]>,
         exptime: i64,
         noreply: bool,
-    ) -> io::Result<bool> {
+    ) -> Result<TouchResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].touch(key.as_ref(), exptime, noreply).await
     }
@@ -5443,7 +5442,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].me(key.as_ref()).await
     }
@@ -5503,7 +5502,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].mg(key.as_ref(), flags).await
     }
@@ -5558,7 +5557,7 @@ impl ClientRendezvous {
         key: impl AsRef<[u8]>,
         flags: &[MsFlag],
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<MsItem> {
+    ) -> Result<MsItem> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].ms(key.as_ref(), flags, data_block.as_ref()).await
     }
@@ -5601,7 +5600,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].md(key.as_ref(), flags).await
     }
@@ -5652,7 +5651,7 @@ impl ClientRendezvous {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].ma(key.as_ref(), flags).await
     }
@@ -5705,7 +5704,7 @@ impl<'a> Pipeline<'a> {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn execute(self) -> io::Result<Vec<PipelineResponse>> {
+    pub async fn execute(self) -> Result<Vec<PipelineResponse>> {
         if self.1.is_empty() {
             return Ok(Vec::new());
         };
@@ -6556,7 +6555,25 @@ mod tests {
             assert_eq!("1.2.3", version_cmd(&mut c).await.unwrap());
 
             let mut c = Cursor::new(b"version\r\nERROR\r\n".to_vec());
-            assert!(version_cmd(&mut c).await.is_err())
+            assert!(matches!(version_cmd(&mut c).await, Err(Error::Error(_))));
+
+            let mut c = Cursor::new(b"version\r\nCLIENT_ERROR\r\n".to_vec());
+            assert!(matches!(
+                version_cmd(&mut c).await,
+                Err(Error::ClientError(_))
+            ));
+
+            let mut c = Cursor::new(b"version\r\nSERVER_ERROR\r\n".to_vec());
+            assert!(matches!(
+                version_cmd(&mut c).await,
+                Err(Error::ServerError(_))
+            ));
+
+            let mut c = Cursor::new(b"version\r\nUNEXPECTED_ERROR\r\n".to_vec());
+            assert!(matches!(
+                version_cmd(&mut c).await,
+                Err(Error::UnexpectedError(_))
+            ));
         })
     }
 
@@ -6589,7 +6606,10 @@ mod tests {
             assert!(cache_memlimit_cmd(&mut c, 1, true).await.is_ok());
 
             let mut c = Cursor::new(b"cache_memlimit 1\r\nERROR\r\n".to_vec());
-            assert!(cache_memlimit_cmd(&mut c, 1, false).await.is_err());
+            assert!(matches!(
+                cache_memlimit_cmd(&mut c, 1, false).await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -6603,7 +6623,10 @@ mod tests {
             assert!(flush_all_cmd(&mut c, Some(1), true).await.is_ok());
 
             let mut c = Cursor::new(b"flush_all\r\nERROR\r\n".to_vec());
-            assert!(flush_all_cmd(&mut c, None, false).await.is_err());
+            assert!(matches!(
+                flush_all_cmd(&mut c, None, false).await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -6611,32 +6634,50 @@ mod tests {
     fn test_storage() {
         block_on(async {
             let mut c = Cursor::new(b"cas key 0 0 0 0\r\nvalue\r\nSTORED\r\n".to_vec());
-            assert!(
+            assert_eq!(
                 storage_cmd(&mut c, b"cas", b"key", 0, 0, Some(0), false, b"value")
                     .await
-                    .unwrap()
+                    .unwrap(),
+                StorageResult::Stored
             );
 
             let mut c = Cursor::new(b"append key 0 0 0 noreply\r\nvalue\r\n".to_vec());
-            assert!(
+            assert_eq!(
                 storage_cmd(&mut c, b"append", b"key", 0, 0, None, true, b"value")
                     .await
-                    .unwrap()
+                    .unwrap(),
+                StorageResult::Stored
             );
 
             let mut c = Cursor::new(b"prepend key 0 0 0\r\nvalue\r\nNOT_STORED\r\n".to_vec());
-            assert!(
-                !storage_cmd(&mut c, b"prepend", b"key", 0, 0, None, false, b"value")
+            assert_eq!(
+                storage_cmd(&mut c, b"prepend", b"key", 0, 0, None, false, b"value")
                     .await
-                    .unwrap()
+                    .unwrap(),
+                StorageResult::NotStored
+            );
+
+            let mut c = Cursor::new(b"prepend key 0 0 0\r\nvalue\r\nEXISTS\r\n".to_vec());
+            assert_eq!(
+                storage_cmd(&mut c, b"prepend", b"key", 0, 0, None, false, b"value")
+                    .await
+                    .unwrap(),
+                StorageResult::Exists
+            );
+
+            let mut c = Cursor::new(b"prepend key 0 0 0\r\nvalue\r\nNOT_FOUND\r\n".to_vec());
+            assert_eq!(
+                storage_cmd(&mut c, b"prepend", b"key", 0, 0, None, false, b"value")
+                    .await
+                    .unwrap(),
+                StorageResult::NotFound
             );
 
             let mut c = Cursor::new(b"add key 0 0 0\r\nvalue\r\nERROR\r\n".to_vec());
-            assert!(
-                storage_cmd(&mut c, b"add", b"key", 0, 0, None, false, b"value")
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                storage_cmd(&mut c, b"add", b"key", 0, 0, None, false, b"value").await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6644,16 +6685,28 @@ mod tests {
     fn test_delete() {
         block_on(async {
             let mut c = Cursor::new(b"delete key\r\nDELETED\r\n".to_vec());
-            assert!(delete_cmd(&mut c, b"key", false).await.unwrap());
+            assert_eq!(
+                delete_cmd(&mut c, b"key", false).await.unwrap(),
+                DeleteResult::Deleted
+            );
 
             let mut c = Cursor::new(b"delete key\r\nNOT_FOUND\r\n".to_vec());
-            assert!(!delete_cmd(&mut c, b"key", false).await.unwrap());
+            assert_eq!(
+                delete_cmd(&mut c, b"key", false).await.unwrap(),
+                DeleteResult::NotFound
+            );
 
             let mut c = Cursor::new(b"delete key noreply\r\n".to_vec());
-            assert!(delete_cmd(&mut c, b"key", true).await.unwrap());
+            assert_eq!(
+                delete_cmd(&mut c, b"key", true).await.unwrap(),
+                DeleteResult::Deleted
+            );
 
             let mut c = Cursor::new(b"delete key\r\nERROR\r\n".to_vec());
-            assert!(delete_cmd(&mut c, b"key", false).await.is_err());
+            assert!(matches!(
+                delete_cmd(&mut c, b"key", false).await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -6664,7 +6717,10 @@ mod tests {
             assert!(auth_cmd(&mut c, b"a", b"b").await.is_ok());
 
             let mut c = Cursor::new(b"set _ _ _ 3\r\na b\r\nERROR\r\n".to_vec());
-            assert!(auth_cmd(&mut c, b"a", b"b").await.is_err());
+            assert!(matches!(
+                auth_cmd(&mut c, b"a", b"b").await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -6696,11 +6752,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"incr key 1\r\nERROR\r\n".to_vec());
-            assert!(
-                incr_decr_cmd(&mut c, b"incr", b"key", 1, false)
-                    .await
-                    .is_err()
-            );
+            assert!(matches!(
+                incr_decr_cmd(&mut c, b"incr", b"key", 1, false).await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -6708,16 +6763,28 @@ mod tests {
     fn test_touch() {
         block_on(async {
             let mut c = Cursor::new(b"touch key 0\r\nTOUCHED\r\n".to_vec());
-            assert!(touch_cmd(&mut c, b"key", 0, false).await.unwrap());
+            assert_eq!(
+                touch_cmd(&mut c, b"key", 0, false).await.unwrap(),
+                TouchResult::Touched
+            );
 
             let mut c = Cursor::new(b"touch key 0\r\nNOT_FOUND\r\n".to_vec());
-            assert!(!touch_cmd(&mut c, b"key", 0, false).await.unwrap());
+            assert_eq!(
+                touch_cmd(&mut c, b"key", 0, false).await.unwrap(),
+                TouchResult::NotFound
+            );
 
             let mut c = Cursor::new(b"touch key 0 noreply\r\n".to_vec());
-            assert!(touch_cmd(&mut c, b"key", 0, true).await.unwrap());
+            assert_eq!(
+                touch_cmd(&mut c, b"key", 0, true).await.unwrap(),
+                TouchResult::Touched
+            );
 
             let mut c = Cursor::new(b"touch key 0\r\nERROR\r\n".to_vec());
-            assert!(touch_cmd(&mut c, b"key", 0, false).await.is_err())
+            assert!(matches!(
+                touch_cmd(&mut c, b"key", 0, false).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6770,11 +6837,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"get key\r\nERROR\r\n".to_vec());
-            assert!(
-                retrieval_cmd(&mut c, b"get", None, &[b"key"])
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                retrieval_cmd(&mut c, b"get", None, &[b"key"]).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6792,19 +6858,34 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"stats settings\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, Some(StatsArg::Settings)).await.is_err());
+            assert!(matches!(
+                stats_cmd(&mut c, Some(StatsArg::Settings)).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"stats items\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, Some(StatsArg::Items)).await.is_err());
+            assert!(matches!(
+                stats_cmd(&mut c, Some(StatsArg::Items)).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"stats sizes\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, Some(StatsArg::Sizes)).await.is_err());
+            assert!(matches!(
+                stats_cmd(&mut c, Some(StatsArg::Sizes)).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"stats slabs\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, Some(StatsArg::Slabs)).await.is_err());
+            assert!(matches!(
+                stats_cmd(&mut c, Some(StatsArg::Slabs)).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
-            assert!(stats_cmd(&mut c, Some(StatsArg::Conns)).await.is_err())
+            assert!(matches!(
+                stats_cmd(&mut c, Some(StatsArg::Conns)).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6819,18 +6900,16 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
-            assert!(
-                slabs_automove_cmd(&mut c, SlabsAutomoveArg::One)
-                    .await
-                    .is_err()
-            );
+            assert!(matches!(
+                slabs_automove_cmd(&mut c, SlabsAutomoveArg::One).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"slabs automove 2\r\nERROR\r\n".to_vec());
-            assert!(
-                slabs_automove_cmd(&mut c, SlabsAutomoveArg::Two)
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                slabs_automove_cmd(&mut c, SlabsAutomoveArg::Two).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6841,11 +6920,10 @@ mod tests {
             assert!(lru_crawler_cmd(&mut c, LruCrawlerArg::Enable).await.is_ok());
 
             let mut c = Cursor::new(b"lru_crawler disable\r\nERROR\r\n".to_vec());
-            assert!(
-                lru_crawler_cmd(&mut c, LruCrawlerArg::Disable)
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                lru_crawler_cmd(&mut c, LruCrawlerArg::Disable).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6856,7 +6934,10 @@ mod tests {
             assert!(lru_crawler_sleep_cmd(&mut c, 1_000_000).await.is_ok());
 
             let mut c = Cursor::new(b"lru_crawler sleep 0\r\nERROR\r\n".to_vec());
-            assert!(lru_crawler_sleep_cmd(&mut c, 0).await.is_err())
+            assert!(matches!(
+                lru_crawler_sleep_cmd(&mut c, 0).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6867,7 +6948,10 @@ mod tests {
             assert!(lru_crawler_tocrawl_cmd(&mut c, 0).await.is_ok());
 
             let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nERROR\r\n".to_vec());
-            assert!(lru_crawler_tocrawl_cmd(&mut c, 0).await.is_err())
+            assert!(matches!(
+                lru_crawler_tocrawl_cmd(&mut c, 0).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6882,11 +6966,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"lru_crawler crawl all\r\nERROR\r\n".to_vec());
-            assert!(
-                lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::All)
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::All).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6897,7 +6980,10 @@ mod tests {
             assert!(slabs_reassign_cmd(&mut c, 1, 10).await.is_ok());
 
             let mut c = Cursor::new(b"slabs reassign 1 10\r\nERROR\r\n".to_vec());
-            assert!(slabs_reassign_cmd(&mut c, 1, 10).await.is_err())
+            assert!(matches!(
+                slabs_reassign_cmd(&mut c, 1, 10).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6916,18 +7002,16 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"lru_crawler metadump 1,2,3\r\nERROR\r\n".to_vec());
-            assert!(
-                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3]))
-                    .await
-                    .is_err()
-            );
+            assert!(matches!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3])).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"lru_crawler metadump hash\r\nERROR\r\n".to_vec());
-            assert!(
-                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Hash)
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Hash).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6944,18 +7028,16 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"lru_crawler mgdump all\r\nERROR\r\n".to_vec());
-            assert!(
-                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All)
-                    .await
-                    .is_err()
-            );
+            assert!(matches!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"lru_crawler mgdump hash\r\nERROR\r\n".to_vec());
-            assert!(
-                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Hash)
-                    .await
-                    .is_err()
-            )
+            assert!(matches!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Hash).await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -6966,7 +7048,7 @@ mod tests {
             assert!(mn_cmd(&mut c).await.is_ok());
 
             let mut c = Cursor::new(b"mn\r\nERROR\r\n".to_vec());
-            assert!(mn_cmd(&mut c).await.is_err())
+            assert!(matches!(mn_cmd(&mut c).await, Err(Error::Error(_))))
         })
     }
 
@@ -6985,7 +7067,7 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"me key\r\nERROR\r\n".to_vec());
-            assert!(me_cmd(&mut c, b"key").await.is_err());
+            assert!(matches!(me_cmd(&mut c, b"key").await, Err(Error::Error(_))));
         })
     }
 
@@ -7073,15 +7155,15 @@ mod tests {
                     PipelineResponse::Unit(()),
                     PipelineResponse::Unit(()),
                     PipelineResponse::Unit(()),
-                    PipelineResponse::Bool(true),
-                    PipelineResponse::Bool(true),
-                    PipelineResponse::Bool(true),
-                    PipelineResponse::Bool(true),
+                    PipelineResponse::StorageResult(StorageResult::Stored),
+                    PipelineResponse::StorageResult(StorageResult::Stored),
+                    PipelineResponse::DeleteResult(DeleteResult::Deleted),
+                    PipelineResponse::DeleteResult(DeleteResult::Deleted),
                     PipelineResponse::Unit(()),
                     PipelineResponse::Value(Some(2)),
                     PipelineResponse::Value(None),
-                    PipelineResponse::Bool(true),
-                    PipelineResponse::Bool(true),
+                    PipelineResponse::TouchResult(TouchResult::Touched),
+                    PipelineResponse::TouchResult(TouchResult::Touched),
                     PipelineResponse::OptionItem(None),
                     PipelineResponse::VecItem(Vec::new()),
                     PipelineResponse::VecItem(vec![
@@ -7127,7 +7209,7 @@ mod tests {
                         "key exp=-1 la=3 cas=2 fetch=no cls=1 size=63".to_string()
                     )),
                     PipelineResponse::MetaGet(MgItem {
-                        success: true,
+                        status: MgStatus::WithBody,
                         base64_key: true,
                         cas: Some(0),
                         flags: Some(0),
@@ -7143,7 +7225,7 @@ mod tests {
                         already_win: true
                     }),
                     PipelineResponse::MetaSet(MsItem {
-                        success: true,
+                        status: StorageResult::Stored,
                         cas: Some(0),
                         key: Some("44OG44K544OI".to_string()),
                         opaque: Some("opaque".to_string()),
@@ -7151,13 +7233,13 @@ mod tests {
                         base64_key: true
                     }),
                     PipelineResponse::MetaDelete(MdItem {
-                        success: true,
+                        status: MdStatus::Deleted,
                         key: Some("44OG44K544OI".to_string()),
                         opaque: Some("opaque".to_string()),
                         base64_key: true
                     }),
                     PipelineResponse::MetaArithmetic(MaItem {
-                        success: true,
+                        status: MaStatus::WithBody,
                         opaque: Some("opaque".to_string()),
                         ttl: Some(0),
                         cas: Some(0),
@@ -7169,10 +7251,21 @@ mod tests {
                 ]
             );
 
-            let cmds = [b"version\r\n".to_vec(), b"quit\r\n".to_vec()];
-            let rps = [b"ERROR\r\n".to_vec(), b"OK\r\n".to_vec()];
+            let cmds = [
+                b"version\r\n".to_vec(),
+                b"version\r\n".to_vec(),
+                b"version\r\n".to_vec(),
+            ];
+            let rps = [
+                b"VERSION 1.2.3\r\n".to_vec(),
+                b"ERROR\r\n".to_vec(),
+                b"VERSION 1.2.3\r\n".to_vec(),
+            ];
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
-            assert!(execute_cmd(&mut c, &cmds).await.is_err());
+            assert!(matches!(
+                execute_cmd(&mut c, &cmds).await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -7199,11 +7292,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"watch fetchers mutations\r\nERROR\r\n".to_vec());
-            assert!(
-                watch_cmd(&mut c, &[WatchArg::Fetchers, WatchArg::Mutations])
-                    .await
-                    .is_err()
-            );
+            assert!(matches!(
+                watch_cmd(&mut c, &[WatchArg::Fetchers, WatchArg::Mutations]).await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -7214,7 +7306,7 @@ mod tests {
             assert_eq!(
                 mg_cmd(&mut c, b"key", &[MgFlag::Base64Key]).await.unwrap(),
                 MgItem {
-                    success: false,
+                    status: MgStatus::NotFound,
                     base64_key: true,
                     cas: None,
                     flags: None,
@@ -7257,7 +7349,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MgItem {
-                    success: true,
+                    status: MgStatus::WithoutBody,
                     base64_key: true,
                     cas: Some(0),
                     flags: Some(0),
@@ -7301,7 +7393,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MgItem {
-                    success: true,
+                    status: MgStatus::WithBody,
                     base64_key: true,
                     cas: Some(0),
                     flags: Some(0),
@@ -7321,7 +7413,7 @@ mod tests {
             let mut c = Cursor::new(
                 b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\nERROR\r\n".to_vec(),
             );
-            assert!(
+            assert!(matches!(
                 mg_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -7343,9 +7435,9 @@ mod tests {
                         MgFlag::UpdateTtl(0),
                     ]
                 )
-                .await
-                .is_err(),
-            );
+                .await,
+                Err(Error::Error(_))
+            ));
         })
     }
 
@@ -7378,7 +7470,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MsItem {
-                    success: false,
+                    status: StorageResult::NotFound,
                     cas: None,
                     key: None,
                     opaque: None,
@@ -7398,7 +7490,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MsItem {
-                    success: false,
+                    status: StorageResult::Exists,
                     cas: None,
                     key: None,
                     opaque: None,
@@ -7433,7 +7525,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MsItem {
-                    success: false,
+                    status: StorageResult::NotStored,
                     cas: None,
                     key: None,
                     opaque: None,
@@ -7446,7 +7538,7 @@ mod tests {
                 b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 ME N0\r\nhi\r\nERROR\r\n"
                     .to_vec(),
             );
-            assert!(
+            assert!(matches!(
                 ms_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -7466,9 +7558,9 @@ mod tests {
                     ],
                     b"hi"
                 )
-                .await
-                .is_err()
-            );
+                .await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(
                 b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\nHD b c0 k44OG44K544OI Oopaque s0\r\n".to_vec(),
@@ -7496,7 +7588,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MsItem {
-                    success: true,
+                    status: StorageResult::Stored,
                     cas: Some(0),
                     key: Some("44OG44K544OI".to_string()),
                     opaque: Some("opaque".to_string()),
@@ -7529,7 +7621,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MdItem {
-                    success: false,
+                    status: MdStatus::NotFound,
                     key: None,
                     opaque: None,
                     base64_key: false,
@@ -7540,7 +7632,7 @@ mod tests {
             assert_eq!(
                 md_cmd(&mut c, b"44OG44K544OI", &[]).await.unwrap(),
                 MdItem {
-                    success: false,
+                    status: MdStatus::Exists,
                     key: None,
                     opaque: None,
                     base64_key: false,
@@ -7569,7 +7661,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MdItem {
-                    success: true,
+                    status: MdStatus::Deleted,
                     key: Some("44OG44K544OI".to_string()),
                     opaque: Some("opaque".to_string()),
                     base64_key: true
@@ -7578,7 +7670,7 @@ mod tests {
 
             let mut c =
                 Cursor::new(b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\nERROR\r\n".to_vec());
-            assert!(
+            assert!(matches!(
                 md_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -7593,9 +7685,9 @@ mod tests {
                         MdFlag::LeaveKey,
                     ]
                 )
-                .await
-                .is_err(),
-            )
+                .await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -7628,7 +7720,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MaItem {
-                    success: false,
+                    status: MaStatus::NotFound,
                     opaque: None,
                     ttl: None,
                     cas: None,
@@ -7665,7 +7757,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MaItem {
-                    success: false,
+                    status: MaStatus::NotStored,
                     opaque: Some("opaque".to_string()),
                     ttl: Some(0),
                     cas: Some(0),
@@ -7679,7 +7771,7 @@ mod tests {
             assert_eq!(
                 ma_cmd(&mut c, b"44OG44K544OI", &[],).await.unwrap(),
                 MaItem {
-                    success: false,
+                    status: MaStatus::Exists,
                     opaque: None,
                     ttl: None,
                     cas: None,
@@ -7692,7 +7784,7 @@ mod tests {
             assert_eq!(
                 ma_cmd(&mut c, b"44OG44K544OI", &[],).await.unwrap(),
                 MaItem {
-                    success: true,
+                    status: MaStatus::WithoutBody,
                     opaque: None,
                     ttl: None,
                     cas: None,
@@ -7729,7 +7821,7 @@ mod tests {
                 .await
                 .unwrap(),
                 MaItem {
-                    success: true,
+                    status: MaStatus::WithBody,
                     opaque: Some("opaque".to_string()),
                     ttl: Some(0),
                     cas: Some(0),
@@ -7742,7 +7834,7 @@ mod tests {
             let mut c = Cursor::new(
                 b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nERROR\r\n".to_vec(),
             );
-            assert!(
+            assert!(matches!(
                 ma_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -7762,9 +7854,9 @@ mod tests {
                         MaFlag::ReturnKey,
                     ],
                 )
-                .await
-                .is_err()
-            )
+                .await,
+                Err(Error::Error(_))
+            ))
         })
     }
 
@@ -7772,7 +7864,10 @@ mod tests {
     fn test_lru() {
         block_on(async {
             let mut c = Cursor::new(b"lru mode flat\r\nERROR\r\n".to_vec());
-            assert!(lru_cmd(&mut c, LruArg::Mode(LruMode::Flat)).await.is_err());
+            assert!(matches!(
+                lru_cmd(&mut c, LruArg::Mode(LruMode::Flat)).await,
+                Err(Error::Error(_))
+            ));
 
             let mut c = Cursor::new(b"lru mode segmented\r\nOK\r\n".to_vec());
             assert!(

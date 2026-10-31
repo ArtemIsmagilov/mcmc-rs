@@ -14,8 +14,6 @@ Available TCP/Unix/UDP/TLS connections.
   pipeline of memcached commands.
 - [WatchStream] is a structure that represents a
   stream of watch events.
-- [Pool] is a structure that represents a
-  pool of connections.
 - [ClientCrc32] is a structure that represents a
   Cluster connections with ModN hashing.
 - [ClientHashRing] is a structure that represents a
@@ -24,22 +22,25 @@ Available TCP/Unix/UDP/TLS connections.
   Cluster connections with Rendezvous hashing.
 
 ### smol-runtime feature by default
+
 ```toml
 mcmc-rs = "0.8.0"
 ```
 
 ### tokio-runtime feature by flag
+
 ```toml
 mcmc-rs = { version = "0.8.0", default-features = false, features = ["tokio-runtime"] }
 ```
 
 ## Examples
+
 ```rust
-use smol::{block_on, io};
+use smol::block_on;
 
 use mcmc_rs::Connection;
 
-fn main() -> io::Result<()> {
+fn main() -> mcmc_rs::Result<()> {
     block_on(async {
         let mut conn = Connection::default().await?;
         conn.set(b"key", 0, 0, false, b"value").await?;
@@ -49,6 +50,7 @@ fn main() -> io::Result<()> {
     })
 }
 ```
+
 - There's a lot more in the [examples] directory.
 
 ## Tests
@@ -84,7 +86,7 @@ cargo mutants
 debtmap analyze .
 ```
 
-## Formatting doc tests 
+## Formatting doc tests
 
 ```bash
 cargo fmt -- --config format_code_in_doc_comments=true
