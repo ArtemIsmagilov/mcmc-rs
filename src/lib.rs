@@ -2580,7 +2580,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<bool> {
+    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
         match self {
             Connection::Tcp(s) => delete_cmd(s, key.as_ref(), noreply).await,
             Connection::Unix(s) => delete_cmd(s, key.as_ref(), noreply).await,
@@ -2712,7 +2712,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
@@ -2743,7 +2743,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"gets", None, &[key.as_ref()])
                 .await?
@@ -2780,7 +2780,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"gat", Some(exptime), &[key.as_ref()])
                 .await?
@@ -2821,7 +2821,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> io::Result<Option<Item>> {
+    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"gats", Some(exptime), &[key.as_ref()])
                 .await?
@@ -2862,7 +2862,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn get_multi(&mut self, keys: &[impl AsRef<[u8]>]) -> io::Result<Vec<Item>> {
+    pub async fn get_multi(&mut self, keys: &[impl AsRef<[u8]>]) -> Result<Vec<Item>> {
         match self {
             Connection::Tcp(s) => {
                 retrieval_cmd(
@@ -2924,7 +2924,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn gets_multi(&mut self, keys: &[impl AsRef<[u8]>]) -> io::Result<Vec<Item>> {
+    pub async fn gets_multi(&mut self, keys: &[impl AsRef<[u8]>]) -> Result<Vec<Item>> {
         match self {
             Connection::Tcp(s) => {
                 retrieval_cmd(
@@ -2990,7 +2990,7 @@ impl Connection {
         &mut self,
         exptime: i64,
         keys: &[impl AsRef<[u8]>],
-    ) -> io::Result<Vec<Item>> {
+    ) -> Result<Vec<Item>> {
         match self {
             Connection::Tcp(s) => {
                 retrieval_cmd(
@@ -3056,7 +3056,7 @@ impl Connection {
         &mut self,
         exptime: i64,
         keys: &[impl AsRef<[u8]>],
-    ) -> io::Result<Vec<Item>> {
+    ) -> Result<Vec<Item>> {
         match self {
             Connection::Tcp(s) => {
                 retrieval_cmd(
@@ -3117,7 +3117,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn stats(&mut self, arg: Option<StatsArg>) -> io::Result<HashMap<String, String>> {
+    pub async fn stats(&mut self, arg: Option<StatsArg>) -> Result<HashMap<String, String>> {
         match self {
             Connection::Tcp(s) => stats_cmd(s, arg).await,
             Connection::Unix(s) => stats_cmd(s, arg).await,
@@ -3144,7 +3144,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn slabs_automove(&mut self, arg: SlabsAutomoveArg) -> io::Result<()> {
+    pub async fn slabs_automove(&mut self, arg: SlabsAutomoveArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => slabs_automove_cmd(s, arg).await,
             Connection::Unix(s) => slabs_automove_cmd(s, arg).await,
@@ -3172,7 +3172,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru_crawler(&mut self, arg: LruCrawlerArg) -> io::Result<()> {
+    pub async fn lru_crawler(&mut self, arg: LruCrawlerArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_cmd(s, arg).await,
@@ -3199,7 +3199,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru_crawler_sleep(&mut self, microseconds: usize) -> io::Result<()> {
+    pub async fn lru_crawler_sleep(&mut self, microseconds: usize) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_sleep_cmd(s, microseconds).await,
             Connection::Unix(s) => lru_crawler_sleep_cmd(s, microseconds).await,
@@ -3226,7 +3226,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru_crawler_tocrawl(&mut self, arg: u32) -> io::Result<()> {
+    pub async fn lru_crawler_tocrawl(&mut self, arg: u32) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
@@ -3253,7 +3253,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru_crawler_crawl(&mut self, arg: LruCrawlerCrawlArg<'_>) -> io::Result<()> {
+    pub async fn lru_crawler_crawl(&mut self, arg: LruCrawlerCrawlArg<'_>) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_crawl_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_crawl_cmd(s, arg).await,
@@ -3281,11 +3281,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn slabs_reassign(
-        &mut self,
-        source_class: isize,
-        dest_class: isize,
-    ) -> io::Result<()> {
+    pub async fn slabs_reassign(&mut self, source_class: isize, dest_class: isize) -> Result<()> {
         match self {
             Connection::Tcp(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
             Connection::Unix(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
@@ -3317,7 +3313,7 @@ impl Connection {
     pub async fn lru_crawler_metadump(
         &mut self,
         arg: LruCrawlerMetadumpArg<'_>,
-    ) -> io::Result<Vec<String>> {
+    ) -> Result<Vec<String>> {
         match self {
             Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
@@ -3349,7 +3345,7 @@ impl Connection {
     pub async fn lru_crawler_mgdump(
         &mut self,
         arg: LruCrawlerMgdumpArg<'_>,
-    ) -> io::Result<Vec<String>> {
+    ) -> Result<Vec<String>> {
         match self {
             Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
             Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
@@ -3376,7 +3372,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn mn(&mut self) -> io::Result<()> {
+    pub async fn mn(&mut self) -> Result<()> {
         match self {
             Connection::Tcp(s) => mn_cmd(s).await,
             Connection::Unix(s) => mn_cmd(s).await,
@@ -3404,7 +3400,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> io::Result<Option<String>> {
+    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
         match self {
             Connection::Tcp(s) => me_cmd(s, key.as_ref()).await,
             Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
@@ -3430,7 +3426,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn watch(mut self, arg: &[WatchArg]) -> io::Result<WatchStream> {
+    pub async fn watch(mut self, arg: &[WatchArg]) -> Result<WatchStream> {
         match &mut self {
             Connection::Tcp(s) => watch_cmd(s, arg).await?,
             Connection::Unix(s) => watch_cmd(s, arg).await?,
@@ -3503,7 +3499,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> io::Result<MgItem> {
+    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
         match self {
             Connection::Tcp(s) => mg_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => mg_cmd(s, key.as_ref(), flags).await,
@@ -3565,7 +3561,7 @@ impl Connection {
         key: impl AsRef<[u8]>,
         flags: &[MsFlag],
         data_block: impl AsRef<[u8]>,
-    ) -> io::Result<MsItem> {
+    ) -> Result<MsItem> {
         match self {
             Connection::Tcp(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
             Connection::Unix(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
@@ -3617,7 +3613,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> io::Result<MdItem> {
+    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
         match self {
             Connection::Tcp(s) => md_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => md_cmd(s, key.as_ref(), flags).await,
@@ -3675,7 +3671,7 @@ impl Connection {
     /// #     Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> io::Result<MaItem> {
+    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
         match self {
             Connection::Tcp(s) => ma_cmd(s, key.as_ref(), flags).await,
             Connection::Unix(s) => ma_cmd(s, key.as_ref(), flags).await,
@@ -3702,7 +3698,7 @@ impl Connection {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru(&mut self, arg: LruArg) -> io::Result<()> {
+    pub async fn lru(&mut self, arg: LruArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_cmd(s, arg).await,
             Connection::Unix(s) => lru_cmd(s, arg).await,
@@ -3741,7 +3737,7 @@ impl WatchStream {
     /// # Ok::<(), io::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn message(&mut self) -> io::Result<Option<String>> {
+    pub async fn message(&mut self) -> Result<Option<String>> {
         let mut line = String::new();
         let n = match &mut self.0 {
             Connection::Tcp(s) => s.read_line(&mut line).await?,
