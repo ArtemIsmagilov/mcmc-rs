@@ -1155,8 +1155,8 @@ async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> 
 
 async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> Result<Vec<u8>> {
     let mut result = HashMap::new();
+    let mut buf = [0; 1400];
     loop {
-        let mut buf = [0; 1400];
         let n = s.recv(&mut buf).await?;
         if n < 8 {
             return Err(Error::Error("Invalid UDP header".to_string()));

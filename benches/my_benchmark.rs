@@ -3,7 +3,7 @@ use mcmc_rs::Connection;
 use std::hint::black_box;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let targets = ["unix", "tls", "tcp", "unix"];
+    let targets = ["unix", "tls", "tcp", "udp"];
 
     for name in targets {
         c.bench_function(&format!("{name}->get"), |b| {
