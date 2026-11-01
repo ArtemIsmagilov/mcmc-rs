@@ -33,9 +33,9 @@ jobs:
         run: |
           cargo llvm-cov --doctests
 
-  bench:
+  bench-time:
     runs-on: "ubuntu-latest"
-    name: Run benchmark.
+    name: Run benchmark rime.
     steps:
       - name: Checkout Source
         uses: actions/checkout@v7
@@ -44,7 +44,7 @@ jobs:
           docker compose up -d
       - name: Run benchmark
         run: |
-          cargo bench --bench my_benchmark
+          cargo bench --bench bench_time
 
   quality:
     name: Quality code
@@ -100,8 +100,8 @@ jobs:
           cargo run --example simple-smol
           cargo run --example simple-tokio --no-default-features --features tokio-runtime
 
-  gungraun:
-    name: Gungraun
+  bench-perf:
+    name: Run benchmark performance
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -112,4 +112,4 @@ jobs:
         run: |
           docker compose up -d
       - run: |
-          cargo bench --bench my_benchmark2
+          cargo bench --bench bench_perf

@@ -1,5 +1,4 @@
 use gungraun::prelude::*;
-use smol::Executor;
 use std::hint::black_box;
 
 use mcmc_rs::{Connection, Item};
@@ -31,5 +30,4 @@ fn bench_processing(mut c: Connection) -> Item {
 }
 
 library_benchmark_group!(name = bench_processing_group, benchmarks = bench_processing);
-
 main!(library_benchmark_groups = bench_processing_group);

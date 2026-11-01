@@ -19,11 +19,11 @@ required-features = ["tokio-runtime"]
 
 [[bench]]
 harness = false
-name = "my_benchmark"
+name = "bench_time"
 
 [[bench]]
 harness = false
-name = "my_benchmark2"
+name = "bench_perf"
 
 
 [dependencies]

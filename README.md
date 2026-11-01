@@ -64,7 +64,8 @@ docker compose down
 ## Benchmarks
 
 ```bash
-cargo bench
+cargo bench --bench bench_time
+cargo bench --bench bench_perf
 ```
 
 ## Test coverage
