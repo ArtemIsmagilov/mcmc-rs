@@ -44,7 +44,7 @@ jobs:
           docker compose up -d
       - name: Run benchmark
         run: |
-          cargo bench
+          cargo bench --bench my_benchmark
 
   quality:
     name: Quality code
@@ -100,19 +100,16 @@ jobs:
           cargo run --example simple-smol
           cargo run --example simple-tokio --no-default-features --features tokio-runtime
 
-  codspeed:
-    name: Codspeed
+  gungraun:
+    name: Gungraun
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v7
-      - name: Install cargo-codspeed
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-codspeed
+      - name: Setup gungraun-runner and Valgrind
+        uses: gungraun/setup-gungraun@v1
       - name: Run servers
         run: |
           docker compose up -d
       - run: |
-          cargo codspeed build
-          cargo codspeed run
+          cargo bench --bench my_benchmark2

@@ -21,6 +21,11 @@ required-features = ["tokio-runtime"]
 harness = false
 name = "my_benchmark"
 
+[[bench]]
+harness = false
+name = "my_benchmark2"
+
+
 [dependencies]
 async-native-tls = { version = "0.6.0", default-features = false }
 crc32fast = "1.5.3"
@@ -31,9 +36,8 @@ tokio = { version = "1.54.1", optional = true }
 thiserror = "2.0.21"
 
 [dev-dependencies]
-criterion = { version = "6.0.0", package = "codspeed-criterion-compat", features = [
-  "async_smol",
-] }
+criterion = { version = "0.8.2", features = ["async_smol"] }
+gungraun = "0.20.0"
 
 [features]
 default = ["smol-runtime"]
