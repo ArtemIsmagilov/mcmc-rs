@@ -99,3 +99,17 @@ jobs:
           cargo check --no-default-features --features tokio-runtime
           cargo run --example simple-smol
           cargo run --example simple-tokio --no-default-features --features tokio-runtime
+
+  codspeed:
+    name: Codspeed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-codspeed
+      - run: |
+          cargo codspeed build
+          cargo codspeed run
