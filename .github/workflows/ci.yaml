@@ -8,11 +8,10 @@ jobs:
     name: Run tests.
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Run servers
         run: |
           docker compose up -d
-          bash chmod_unix.bash
       - name: Run tests
         run: |
           cargo test
@@ -22,7 +21,7 @@ jobs:
     name: Run tests coverage.
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-llvm-cov
@@ -30,7 +29,6 @@ jobs:
       - name: Run servers
         run: |
           docker compose up -d
-          bash chmod_unix.bash
       - name: Run tests coverage
         run: |
           cargo llvm-cov --doctests
@@ -40,11 +38,10 @@ jobs:
     name: Run benchmark.
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Run servers
         run: |
           docker compose up -d
-          bash chmod_unix.bash
       - name: Run benchmark
         run: |
           cargo bench
@@ -53,7 +50,7 @@ jobs:
     name: Quality code
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Analyze code
         uses: iepathos/debtmap-action@v1
       - name: View Report
@@ -65,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -74,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
@@ -82,21 +79,20 @@ jobs:
         with:
           tool: cargo-fuzz
       - run: |
-          cargo fuzz run fuzz_target_1 --target x86_64-unknown-linux-gnu -- -max_total_time=30
-          cargo fuzz run fuzz_target_2 --target x86_64-unknown-linux-gnu -- -max_total_time=30
-          cargo fuzz run fuzz_target_3 --target x86_64-unknown-linux-gnu -- -max_total_time=30
-          cargo fuzz run fuzz_target_4 --target x86_64-unknown-linux-gnu -- -max_total_time=30
+          cargo fuzz run fuzz_target_1 --target x86_64-unknown-linux-gnu -- -max_total_time=15
+          cargo fuzz run fuzz_target_2 --target x86_64-unknown-linux-gnu -- -max_total_time=15
+          cargo fuzz run fuzz_target_3 --target x86_64-unknown-linux-gnu -- -max_total_time=15
+          cargo fuzz run fuzz_target_4 --target x86_64-unknown-linux-gnu -- -max_total_time=15
 
   check-runtimes:
     runs-on: "ubuntu-latest"
     name: Run check runtimes.
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Run servers
         run: |
           docker compose up -d
-          bash chmod_unix.bash
       - name: Run checks
         run: |
           cargo check

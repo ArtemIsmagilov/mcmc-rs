@@ -57,7 +57,6 @@ fn main() -> mcmc_rs::Result<()> {
 
 ```bash
 docker compose up
-bash chmod_unix.bash
 cargo test
 docker compose down
 ```

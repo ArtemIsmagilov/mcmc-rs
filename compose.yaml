@@ -6,7 +6,7 @@ services:
 
   md-unix0:
     image: "memcached:1.6.41-alpine"
-    command: ["-s", "/tmp/memcached0.sock"]
+    command: ["-s", "/tmp/memcached0.sock", "-a", "0666"]
     volumes:
       - "/tmp:/tmp"
 
@@ -20,6 +20,7 @@ services:
 
   md-tcp2:
     image: "memcached:1.6.41-alpine"
+    restart: unless-stopped
     ports:
       - "11213:11213"
     command: ["-p", "11213", "-A"]
@@ -32,19 +33,22 @@ services:
 
   md-unix1:
     image: "memcached:1.6.41-alpine"
-    command: ["-A", "-s", "/tmp/memcached1.sock"]
+    restart: unless-stopped
+    command: ["-A", "-s", "/tmp/memcached1.sock", "-a", "0666"]
     volumes:
       - "/tmp:/tmp"
 
   md-udp1:
     image: "memcached:1.6.41-alpine"
+    restart: unless-stopped
     command: ["-U", "11215", "-A"]
     ports:
       - "11215:11215/udp"
 
   md-unix2:
     image: "memcached:1.6.41-alpine"
-    command: ["-s", "/tmp/memcached2.sock", "-S", "-Y", "/app/sasl.txt"]
+    command:
+      ["-s", "/tmp/memcached2.sock", "-S", "-Y", "/app/sasl.txt", "-a", "0666"]
     volumes:
       - "./sasl.txt:/app/sasl.txt:ro"
       - "/tmp:/tmp"
@@ -67,6 +71,7 @@ services:
 
   md-tls1:
     image: "memcached:1.6.41-alpine"
+    restart: unless-stopped
     command:
       [
         "-p",

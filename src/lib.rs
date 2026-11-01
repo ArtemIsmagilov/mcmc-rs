@@ -20,16 +20,19 @@
 //! # Examples
 //!
 //! ```
-//! use smol::{block_on, io};
+//! use smol::block_on;
 //!
-//! use mcmc_rs::Connection;
+//! use mcmc_rs::{Connection, StorageResult};
 //!
-//! fn main() -> io::Result<()> {
+//! fn main() -> mcmc_rs::Result<()> {
 //!     block_on(async {
 //!         let mut conn = Connection::default().await?;
-//!         conn.set(b"key", 0, 0, false, b"value").await?;
-//!         let item = conn.get(b"key").await?;
-//!         println!("{item:#?}");
+//!         assert_eq!(
+//!             conn.set(b"doc_main", 0, 0, false, b"value").await?,
+//!             StorageResult::Stored
+//!         );
+//!         let item = conn.get(b"doc_main").await?.unwrap();
+//!         assert_eq!(item.data_block, b"value");
 //!         Ok(())
 //!     })
 //! }
@@ -1159,7 +1162,7 @@ async fn udp_recv_rp(s: &mut UdpSocket, r: &u16) -> Result<Vec<u8>> {
     loop {
         let n = s.recv(&mut buf).await?;
         if n < 8 {
-            return Err(Error::Error("Invalid UDP header".to_string()));
+            return Err(Error::UnexpectedError("Invalid UDP header".to_string()));
         }
         let request_id = u16::from_be_bytes([buf[0], buf[1]]);
         let sequence_number = u16::from_be_bytes([buf[2], buf[3]]);
@@ -1803,12 +1806,20 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// #     Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     conn.set(b"doc_conn_default", 0, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     conn.get(b"doc_conn_default").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn default() -> Result<Self> {
@@ -1820,12 +1831,21 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::tcp_connect("127.0.0.1:11211").await?;
-    /// #     Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     conn.set(b"doc_conn_tcp_connect", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     conn.get(b"doc_conn_tcp_connect").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn tcp_connect(addr: &str) -> Result<Self> {
@@ -1837,12 +1857,24 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::unix_connect("/tmp/memcached0.sock").await?;
-    /// #     Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     conn.set(b"doc_conn_unix_connect", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     conn.get(b"doc_conn_unix_connect")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn unix_connect(path: &str) -> Result<Self> {
@@ -1854,13 +1886,23 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?;
-    /// #     Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     conn.set(b"doc_conn_udp_connect", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     conn.get(b"doc_conn_udp_connect").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
+    /// ```
     pub async fn udp_connect(bind_addr: &str, connect_addr: &str) -> Result<Self> {
         let s = UdpSocket::bind(bind_addr).await?;
         s.connect(connect_addr).await?;
@@ -1870,13 +1912,23 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::tls_connect("localhost", 11216, "cert.pem").await?;
-    /// #     Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     conn.set(b"doc_conn_tls_connect", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     conn.get(b"doc_conn_tls_connect").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
+    /// ```
     pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> Result<Self> {
         let cert = fs::read(ca_path).await?;
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
@@ -1890,8 +1942,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -1900,10 +1952,11 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.version().await?;
-    ///     assert!(result.chars().any(|x| x.is_numeric()));
+    ///     let version = c.version().await?;
+    ///     assert!(!version.is_empty());
+    ///     assert!(version.split('.').all(|part| part.parse::<u64>().is_ok()));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn version(&mut self) -> Result<String> {
@@ -1918,8 +1971,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -1928,9 +1981,9 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.quit().await?;
+    ///     assert!(c.quit().await.is_ok());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn quit(mut self) -> Result<()> {
@@ -1945,8 +1998,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -1955,9 +2008,9 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11215").await?,
     ///     Connection::tls_connect("localhost", 11217, "cert.pem").await?,
     /// ] {
-    ///     c.shutdown(true).await?;
+    ///     assert_eq!(c.shutdown(true).await?, ());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn shutdown(mut self, graceful: bool) -> Result<()> {
@@ -1972,8 +2025,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -1982,9 +2035,9 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.cache_memlimit(10, true).await?;
+    ///     assert_eq!(c.cache_memlimit(64, false).await?, ());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn cache_memlimit(&mut self, limit: usize, noreply: bool) -> Result<()> {
@@ -1999,8 +2052,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2009,9 +2062,17 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.flush_all(Some(999), true).await?;
+    /// assert_eq!(
+    ///     c.set(b"doc_conn_flush_all", 0, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     c.get(b"doc_conn_flush_all").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// assert_eq!(c.flush_all(Some(999), false).await?, ());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn flush_all(&mut self, exptime: Option<i64>, noreply: bool) -> Result<()> {
@@ -2026,8 +2087,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2036,10 +2097,21 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.set(b"key", 0, -1, true, b"value").await?;
-    ///     assert!(result);
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_set", 7, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get(b"doc_conn_set").await?,
+    ///         Some(Item {
+    ///             key: "doc_conn_set".to_string(),
+    ///             flags: 7,
+    ///             cas_unique: None,
+    ///             data_block: b"value".to_vec()
+    ///         })
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn set(
@@ -2110,8 +2182,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2120,10 +2192,18 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.add(b"key", 0, -1, true, b"value").await?;
-    ///     assert!(result);
+    ///     let _ = c.delete(b"doc_conn_add", false).await?;
+    ///     assert_eq!(
+    ///         c.add(b"doc_conn_add", 0, 0, false, b"first").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.add(b"doc_conn_add", 0, 0, false, b"second").await?,
+    ///         StorageResult::NotStored
+    ///     );
+    ///     assert_eq!(c.get(b"doc_conn_add").await?.unwrap().data_block, b"first");
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn add(
@@ -2194,8 +2274,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2204,10 +2284,27 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.replace(b"key", 0, -1, true, b"value").await?;
-    ///     assert!(result);
+    ///     let _ = c.delete(b"doc_conn_replace", false).await?;
+    ///     assert_eq!(
+    ///         c.replace(b"doc_conn_replace", 0, 0, false, b"value")
+    ///             .await?,
+    ///         StorageResult::NotStored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_replace", 0, 0, false, b"first").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.replace(b"doc_conn_replace", 0, 0, false, b"second")
+    ///             .await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get(b"doc_conn_replace").await?.unwrap().data_block,
+    ///         b"second"
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn replace(
@@ -2278,8 +2375,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2288,10 +2385,25 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.append(b"key", 0, -1, true, b"value").await?;
-    ///     assert!(result);
+    ///     let _ = c.delete(b"doc_conn_append", false).await?;
+    ///     assert_eq!(
+    ///         c.append(b"doc_conn_append", 0, 0, false, b"-tail").await?,
+    ///         StorageResult::NotStored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_append", 0, 0, false, b"base").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.append(b"doc_conn_append", 0, 0, false, b"-tail").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get(b"doc_conn_append").await?.unwrap().data_block,
+    ///         b"base-tail"
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn append(
@@ -2362,8 +2474,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2372,10 +2484,27 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.prepend(b"key", 0, -1, true, b"value").await?;
-    ///     assert!(result);
+    ///     let _ = c.delete(b"doc_conn_prepend", false).await?;
+    ///     assert_eq!(
+    ///         c.prepend(b"doc_conn_prepend", 0, 0, false, b"head-")
+    ///             .await?,
+    ///         StorageResult::NotStored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_prepend", 0, 0, false, b"base").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.prepend(b"doc_conn_prepend", 0, 0, false, b"head-")
+    ///             .await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get(b"doc_conn_prepend").await?.unwrap().data_block,
+    ///         b"head-base"
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn prepend(
@@ -2446,8 +2575,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2456,10 +2585,27 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.cas(b"key", 0, -1, 0, true, b"value").await?;
-    ///     assert!(result);
+    ///     let _ = c.delete(b"doc_conn_cas", false).await?;
+    ///     assert_eq!(
+    ///         c.cas(b"doc_conn_cas", 0, 0, 0, false, b"value").await?,
+    ///         StorageResult::NotFound
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_cas", 0, 0, false, b"base").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let cas = c.gets(b"doc_conn_cas").await?.unwrap().cas_unique.unwrap();
+    ///     assert_eq!(
+    ///         c.cas(b"doc_conn_cas", 0, 0, cas, false, b"new").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.cas(b"doc_conn_cas", 0, 0, cas, false, b"stale").await?,
+    ///         StorageResult::Exists
+    ///     );
+    ///     assert_eq!(c.get(b"doc_conn_cas").await?.unwrap().data_block, b"new");
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn cas(
@@ -2531,8 +2677,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2541,8 +2687,9 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11218, "cert.pem").await?,
     /// ] {
     ///     c.auth(b"a", b"a").await?;
+    ///     assert!(!c.version().await?.is_empty());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn auth(
@@ -2563,8 +2710,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, DeleteResult, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2573,10 +2720,20 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.delete(b"key", true).await?;
-    ///     assert!(result);
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_delete", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.delete(b"doc_conn_delete", false).await?,
+    ///         DeleteResult::Deleted
+    ///     );
+    ///     assert_eq!(
+    ///         c.delete(b"doc_conn_delete", false).await?,
+    ///         DeleteResult::NotFound
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
@@ -2591,8 +2748,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2601,10 +2758,15 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.incr(b"key", 1, true).await?;
-    ///     assert!(result.is_none());
+    ///     let _ = c.delete(b"doc_conn_incr", false).await?;
+    ///     assert_eq!(c.incr(b"doc_conn_incr", 1, false).await?, None);
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_incr", 0, 0, false, b"10").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(c.incr(b"doc_conn_incr", 5, false).await?, Some(15));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn incr(
@@ -2626,8 +2788,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2636,10 +2798,15 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.decr(b"key", 1, true).await?;
-    ///     assert!(result.is_none());
+    ///     let _ = c.delete(b"doc_conn_decr", false).await?;
+    ///     assert_eq!(c.decr(b"doc_conn_decr", 1, false).await?, None);
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_decr", 0, 0, false, b"10").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(c.decr(b"doc_conn_decr", 5, false).await?, Some(5));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn decr(
@@ -2661,8 +2828,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult, TouchResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2671,10 +2838,20 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.touch(b"key", -1, true).await?;
-    ///     assert!(result);
+    ///     assert_eq!(
+    ///         c.touch(b"doc_conn_touch_missing", 60, false).await?,
+    ///         TouchResult::NotFound
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_touch", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.touch(b"doc_conn_touch", 60, false).await?,
+    ///         TouchResult::Touched
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn touch(
@@ -2694,8 +2871,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2704,11 +2881,22 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k1", 0, 0, false, b"v1").await?);
-    ///     let result = c.get(b"k1").await?;
-    ///     assert_eq!(result.unwrap().key, "k1");
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_get", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get(b"doc_conn_get").await?,
+    ///         Some(Item {
+    ///             key: "doc_conn_get".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"value".to_vec()
+    ///         })
+    ///     );
+    ///     assert_eq!(c.get(b"doc_conn_get_missing").await?, None);
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -2725,8 +2913,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2735,11 +2923,16 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k2", 0, 0, false, b"v2").await?);
-    ///     let result = c.gets(b"k2").await?;
-    ///     assert_eq!(result.unwrap().key, "k2");
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_gets", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let item = c.gets(b"doc_conn_gets").await?.unwrap();
+    ///     assert_eq!(item.key, "doc_conn_gets");
+    ///     assert_eq!(item.data_block, b"value");
+    ///     assert!(item.cas_unique.is_some());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -2762,8 +2955,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2772,11 +2965,17 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k3", 0, 0, false, b"v3").await?);
-    ///     let result = c.gat(0, b"k3").await?;
-    ///     assert_eq!(result.unwrap().key, "k3");
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_gat", 7, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let item = c.gat(60, b"doc_conn_gat").await?.unwrap();
+    ///     assert_eq!(item.key, "doc_conn_gat");
+    ///     assert_eq!(item.flags, 7);
+    ///     assert_eq!(item.data_block, b"value");
+    ///     assert_eq!(item.cas_unique, None);
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -2803,8 +3002,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -2813,11 +3012,17 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k4", 0, 0, false, b"v4").await?);
-    ///     let result = c.gats(0, b"k4").await?;
-    ///     assert_eq!(result.unwrap().key, "k4");
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_gats", 7, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let item = c.gats(60, b"doc_conn_gats").await?.unwrap();
+    ///     assert_eq!(item.key, "doc_conn_gats");
+    ///     assert_eq!(item.flags, 7);
+    ///     assert_eq!(item.data_block, b"value");
+    ///     assert!(item.cas_unique.is_some());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -2844,21 +3049,43 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k8", 0, 0, false, b"v8").await?);
-    ///     let result = c.get_multi(&[b"k8"]).await?;
-    ///     assert_eq!(result[0].key, "k8");
+    ///     assert_eq!(
+    ///         c.set(b"doc_get_multi_a", 0, 0, false, b"a").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_get_multi_b", 0, 0, false, b"b").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get_multi(&[b"doc_get_multi_a", b"doc_get_multi_b"])
+    ///             .await?,
+    ///         vec![
+    ///             Item {
+    ///                 key: "doc_get_multi_a".to_string(),
+    ///                 flags: 0,
+    ///                 cas_unique: None,
+    ///                 data_block: b"a".to_vec()
+    ///             },
+    ///             Item {
+    ///                 key: "doc_get_multi_b".to_string(),
+    ///                 flags: 0,
+    ///                 cas_unique: None,
+    ///                 data_block: b"b".to_vec()
+    ///             }
+    ///         ]
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn get_multi(&mut self, keys: &[impl AsRef<[u8]>]) -> Result<Vec<Item>> {
@@ -2906,21 +3133,34 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k7", 0, 0, false, b"v7").await?);
-    ///     let result = c.gets_multi(&[b"k7"]).await?;
-    ///     assert_eq!(result[0].key, "k7");
+    ///     assert_eq!(
+    ///         c.set(b"doc_gets_multi_a", 0, 0, false, b"a").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_gets_multi_b", 0, 0, false, b"b").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let items = c
+    ///         .gets_multi(&[b"doc_gets_multi_a", b"doc_gets_multi_b"])
+    ///         .await?;
+    ///     assert_eq!(items.len(), 2);
+    ///     assert_eq!(items[0].key, "doc_gets_multi_a");
+    ///     assert_eq!(items[1].key, "doc_gets_multi_b");
+    ///     assert_eq!(items[0].data_block, b"a");
+    ///     assert_eq!(items[1].data_block, b"b");
+    ///     assert!(items.iter().all(|item| item.cas_unique.is_some()));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gets_multi(&mut self, keys: &[impl AsRef<[u8]>]) -> Result<Vec<Item>> {
@@ -2968,21 +3208,43 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k6", 0, 0, false, b"v6").await?);
-    ///     let result = c.gat_multi(0, &[b"k6"]).await?;
-    ///     assert_eq!(result[0].key, "k6");
+    ///     assert_eq!(
+    ///         c.set(b"doc_gat_multi_a", 0, 0, false, b"a").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_gat_multi_b", 0, 0, false, b"b").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.gat_multi(60, &[b"doc_gat_multi_a", b"doc_gat_multi_b"])
+    ///             .await?,
+    ///         vec![
+    ///             Item {
+    ///                 key: "doc_gat_multi_a".to_string(),
+    ///                 flags: 0,
+    ///                 cas_unique: None,
+    ///                 data_block: b"a".to_vec()
+    ///             },
+    ///             Item {
+    ///                 key: "doc_gat_multi_b".to_string(),
+    ///                 flags: 0,
+    ///                 cas_unique: None,
+    ///                 data_block: b"b".to_vec()
+    ///             }
+    ///         ]
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gat_multi(
@@ -3034,21 +3296,34 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.set(b"k5", 0, 0, false, b"v5").await?);
-    ///     let result = c.gats_multi(0, &[b"k5"]).await?;
-    ///     assert_eq!(result[0].key, "k5");
+    ///     assert_eq!(
+    ///         c.set(b"doc_gats_multi_a", 0, 0, false, b"a").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_gats_multi_b", 0, 0, false, b"b").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let items = c
+    ///         .gats_multi(60, &[b"doc_gats_multi_a", b"doc_gats_multi_b"])
+    ///         .await?;
+    ///     assert_eq!(items.len(), 2);
+    ///     assert_eq!(items[0].key, "doc_gats_multi_a");
+    ///     assert_eq!(items[1].key, "doc_gats_multi_b");
+    ///     assert_eq!(items[0].data_block, b"a");
+    ///     assert_eq!(items[1].data_block, b"b");
+    ///     assert!(items.iter().all(|item| item.cas_unique.is_some()));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gats_multi(
@@ -3100,8 +3375,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3111,9 +3386,14 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     let result = c.stats(None).await?;
-    ///     assert!(result.len() > 0);
+    ///     assert!(result.contains_key("pid"));
+    ///     assert!(result.contains_key("uptime"));
+    ///     assert!(result["pid"].parse::<u32>().is_ok());
+    ///     assert!(result["uptime"].parse::<u64>().is_ok());
+    ///     let version = c.version().await?;
+    ///     assert_eq!(result.get("version"), Some(&version));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn stats(&mut self, arg: Option<StatsArg>) -> Result<HashMap<String, String>> {
@@ -3128,8 +3408,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, SlabsAutomoveArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, SlabsAutomoveArg, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3138,9 +3418,11 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.slabs_automove(SlabsAutomoveArg::Zero).await?;
+    ///     assert!(c.slabs_automove(SlabsAutomoveArg::Zero).await.is_ok());
+    ///     let settings = c.stats(Some(StatsArg::Settings)).await?;
+    ///     assert_eq!(settings.get("slab_automove").map(String::as_str), Some("0"));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn slabs_automove(&mut self, arg: SlabsAutomoveArg) -> Result<()> {
@@ -3155,8 +3437,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3165,10 +3447,11 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.lru_crawler(LruCrawlerArg::Enable).await;
-    ///     assert!(result.is_err());
+    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
+    ///     let settings = c.stats(Some(StatsArg::Settings)).await?;
+    ///     assert_eq!(settings.get("lru_crawler").map(String::as_str), Some("yes"));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru_crawler(&mut self, arg: LruCrawlerArg) -> Result<()> {
@@ -3183,8 +3466,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3193,9 +3476,15 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.lru_crawler_sleep(1_000_000).await?;
+    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
+    ///     assert!(c.lru_crawler_sleep(1_000_000).await.is_ok());
+    ///     let settings = c.stats(Some(StatsArg::Settings)).await?;
+    ///     assert_eq!(
+    ///         settings.get("lru_crawler_sleep").map(String::as_str),
+    ///         Some("1000000")
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru_crawler_sleep(&mut self, microseconds: usize) -> Result<()> {
@@ -3210,8 +3499,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3220,9 +3509,15 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.lru_crawler_tocrawl(0).await?;
+    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
+    ///     assert!(c.lru_crawler_tocrawl(1).await.is_ok());
+    ///     let settings = c.stats(Some(StatsArg::Settings)).await?;
+    ///     assert_eq!(
+    ///         settings.get("lru_crawler_tocrawl").map(String::as_str),
+    ///         Some("1")
+    ///     );
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru_crawler_tocrawl(&mut self, arg: u32) -> Result<()> {
@@ -3237,8 +3532,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerCrawlArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerCrawlArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3247,9 +3542,9 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
+    ///     c.lru_crawler_crawl(LruCrawlerCrawlArg::All).await;
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru_crawler_crawl(&mut self, arg: LruCrawlerCrawlArg<'_>) -> Result<()> {
@@ -3264,8 +3559,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3275,9 +3570,8 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     let result = c.slabs_reassign(1, 2).await;
-    ///     assert!(result.is_err());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn slabs_reassign(&mut self, source_class: isize, dest_class: isize) -> Result<()> {
@@ -3292,8 +3586,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerMetadumpArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMetadumpArg, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3301,12 +3595,14 @@ impl Connection {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c
-    ///         .lru_crawler_metadump(LruCrawlerMetadumpArg::Classids(&[2]))
-    ///         .await?;
-    ///     assert!(result.is_empty());
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_metadump", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
+    ///     c.lru_crawler_metadump(LruCrawlerMetadumpArg::All).await;
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru_crawler_metadump(
@@ -3324,8 +3620,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerMgdumpArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMgdumpArg, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3333,12 +3629,14 @@ impl Connection {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c
-    ///         .lru_crawler_mgdump(LruCrawlerMgdumpArg::Classids(&[2]))
-    ///         .await?;
-    ///     assert!(result.is_empty());
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_mgdump", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
+    ///     c.lru_crawler_mgdump(LruCrawlerMgdumpArg::All).await;
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru_crawler_mgdump(
@@ -3356,8 +3654,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3366,9 +3664,9 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.mn().await?;
+    ///     assert!(c.mn().await.is_ok());
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn mn(&mut self) -> Result<()> {
@@ -3383,8 +3681,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerCrawlArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3393,10 +3691,16 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.set(b"k9", 0, 0, false, b"v9").await?;
-    ///     assert!(c.me(b"k9").await?.is_some());
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_me", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let info = c.me(b"doc_conn_me").await?.unwrap();
+    ///     assert!(info.starts_with("doc_conn_me "));
+    ///     assert!(info.contains("size="));
+    ///     assert_eq!(c.me(b"doc_conn_me_missing").await?, None);
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
@@ -3411,18 +3715,40 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, WatchArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult, WatchArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// for mut c in [
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    /// for (mut c1, mut c2) in [
+    ///     (Connection::default().await?, Connection::default().await?),
+    ///     (
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ),
+    ///     (
+    ///         Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    ///         Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    ///     ),
     /// ] {
-    ///     assert!(c.watch(&[WatchArg::Fetchers]).await.is_ok())
+    ///     let mut watcher = c1.watch(&[WatchArg::Mutations]).await?;
+    ///     assert_eq!(
+    ///         c2.set(b"doc_conn_watch", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let mut found = false;
+    ///     for _ in 0..100 {
+    ///         match watcher.message().await? {
+    ///             Some(message) if message.contains("key=doc_conn_watch") => {
+    ///                 found = true;
+    ///                 break;
+    ///             }
+    ///             Some(_) => continue,
+    ///             None => break,
+    ///         }
+    ///     }
+    ///     assert!(found);
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn watch(mut self, arg: &[WatchArg]) -> Result<WatchStream> {
@@ -3442,8 +3768,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MgFlag, MgItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MgFlag, MgStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3452,50 +3778,35 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_mg", 7, 0, false, b"hello").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let item = c
     ///         .mg(
-    ///             b"44OG44K544OI",
+    ///             b"doc_conn_mg",
     ///             &[
-    ///                 MgFlag::Base64Key,
-    ///                 MgFlag::ReturnCas,
-    ///                 MgFlag::CheckCas(99),
-    ///                 MgFlag::ReturnFlags,
-    ///                 MgFlag::ReturnHit,
     ///                 MgFlag::ReturnKey,
-    ///                 MgFlag::ReturnLastAccess,
-    ///                 MgFlag::Opaque("opaque".to_string()),
+    ///                 MgFlag::ReturnFlags,
     ///                 MgFlag::ReturnSize,
     ///                 MgFlag::ReturnTtl,
-    ///                 MgFlag::UnBump,
     ///                 MgFlag::ReturnValue,
-    ///                 MgFlag::NewCas(0),
-    ///                 MgFlag::Autovivify(-1),
-    ///                 MgFlag::RecacheTtl(-1),
-    ///                 MgFlag::UpdateTtl(-1),
+    ///                 MgFlag::ReturnCas,
     ///             ],
     ///         )
     ///         .await?;
-    ///     assert_eq!(
-    ///         result,
-    ///         MgItem {
-    ///             success: true,
-    ///             base64_key: false,
-    ///             cas: Some(0),
-    ///             flags: Some(0),
-    ///             hit: Some(0),
-    ///             key: Some("テスト".to_string()),
-    ///             last_access_ttl: Some(0),
-    ///             opaque: Some("opaque".to_string()),
-    ///             size: Some(0),
-    ///             ttl: Some(-1),
-    ///             data_block: Some(vec![]),
-    ///             already_win: false,
-    ///             won_recache: true,
-    ///             stale: false,
-    ///         }
-    ///     );
+    ///     assert_eq!(item.status, MgStatus::WithBody);
+    ///     assert_eq!(item.key.as_deref(), Some("doc_conn_mg"));
+    ///     assert_eq!(item.flags, Some(7));
+    ///     assert_eq!(item.size, Some(5));
+    ///     assert_eq!(item.ttl, Some(-1));
+    ///     assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
+    ///     assert!(item.cas.is_some());
+    ///     let item = c.mg(b"doc_conn_mg_missing", &[MgFlag::ReturnKey]).await?;
+    ///     assert_eq!(item.status, MgStatus::NotFound);
+    ///     assert_eq!(item.key.as_deref(), Some("doc_conn_mg_missing"));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
@@ -3510,8 +3821,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MsFlag, MsMode, MsItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MsFlag, MsMode, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3520,39 +3831,29 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c
+    ///     let _ = c.delete(b"doc_conn_ms", false).await?;
+    ///     let item = c
     ///         .ms(
-    ///             b"44OG44K544OI",
-    ///             &[
-    ///                 MsFlag::Base64Key,
-    ///                 MsFlag::ReturnCas,
-    ///                 MsFlag::CompareCas(0),
-    ///                 MsFlag::NewCas(0),
-    ///                 MsFlag::SetFlags(0),
-    ///                 MsFlag::Invalidate,
-    ///                 MsFlag::ReturnKey,
-    ///                 MsFlag::Opaque("opaque".to_string()),
-    ///                 MsFlag::ReturnSize,
-    ///                 MsFlag::Ttl(-1),
-    ///                 MsFlag::Mode(MsMode::Set),
-    ///                 MsFlag::Autovivify(0),
-    ///             ],
-    ///             b"hi",
+    ///             b"doc_conn_ms",
+    ///             &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
+    ///             b"hello",
     ///         )
     ///         .await?;
-    ///     assert_eq!(
-    ///         result,
-    ///         MsItem {
-    ///             success: false,
-    ///             cas: Some(0),
-    ///             key: Some("44OG44K544OI".to_string()),
-    ///             opaque: Some("opaque".to_string()),
-    ///             size: Some(2),
-    ///             base64_key: true
-    ///         }
-    ///     );
+    ///     assert_eq!(item.status, StorageResult::Stored);
+    ///     assert_eq!(item.key.as_deref(), Some("doc_conn_ms"));
+    ///     assert_eq!(item.size, Some(5));
+    ///     assert!(item.cas.is_some());
+    ///     let item = c
+    ///         .ms(
+    ///             b"doc_conn_ms",
+    ///             &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
+    ///             b"again",
+    ///         )
+    ///         .await?;
+    ///     assert_eq!(item.status, StorageResult::NotStored);
+    ///     assert_eq!(c.get(b"doc_conn_ms").await?.unwrap().data_block, b"hello");
     /// }
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ms(
@@ -3574,8 +3875,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MdFlag, MdItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MdFlag, MdStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3584,32 +3885,18 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c
-    ///         .md(
-    ///             b"44OG44K544OI",
-    ///             &[
-    ///                 MdFlag::Base64Key,
-    ///                 MdFlag::CompareCas(0),
-    ///                 MdFlag::NewCas(0),
-    ///                 MdFlag::Invalidate,
-    ///                 MdFlag::ReturnKey,
-    ///                 MdFlag::Opaque("opaque".to_string()),
-    ///                 MdFlag::UpdateTtl(-1),
-    ///                 MdFlag::LeaveKey,
-    ///             ],
-    ///         )
-    ///         .await?;
     ///     assert_eq!(
-    ///         result,
-    ///         MdItem {
-    ///             success: false,
-    ///             key: Some("44OG44K544OI".to_string()),
-    ///             opaque: Some("opaque".to_string()),
-    ///             base64_key: true
-    ///         }
+    ///         c.set(b"doc_conn_md", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
     ///     );
+    ///     let item = c.md(b"doc_conn_md", &[MdFlag::ReturnKey]).await?;
+    ///     assert_eq!(item.status, MdStatus::Deleted);
+    ///     assert_eq!(item.key.as_deref(), Some("doc_conn_md"));
+    ///     assert_eq!(c.get(b"doc_conn_md").await?, None);
+    ///     let item = c.md(b"doc_conn_md", &[MdFlag::ReturnKey]).await?;
+    ///     assert_eq!(item.status, MdStatus::NotFound);
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
@@ -3624,8 +3911,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MaFlag, MaMode, MaItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3634,40 +3921,37 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c
+    ///     let _ = c.delete(b"doc_conn_ma", false).await?;
+    ///     let item = c
     ///         .ma(
-    ///             b"aGk=",
+    ///             b"doc_conn_ma",
     ///             &[
-    ///                 MaFlag::Base64Key,
-    ///                 MaFlag::CompareCas(0),
-    ///                 MaFlag::NewCas(0),
     ///                 MaFlag::AutoCreate(0),
-    ///                 MaFlag::InitValue(0),
-    ///                 MaFlag::DeltaApply(0),
-    ///                 MaFlag::UpdateTtl(0),
+    ///                 MaFlag::InitValue(5),
     ///                 MaFlag::Mode(MaMode::Incr),
-    ///                 MaFlag::Opaque("opaque".to_string()),
-    ///                 MaFlag::ReturnTtl,
-    ///                 MaFlag::ReturnCas,
     ///                 MaFlag::ReturnValue,
     ///                 MaFlag::ReturnKey,
     ///             ],
     ///         )
     ///         .await?;
-    ///     assert_eq!(
-    ///         result,
-    ///         MaItem {
-    ///             success: true,
-    ///             opaque: Some("opaque".to_string()),
-    ///             ttl: Some(-1),
-    ///             cas: Some(0),
-    ///             number: Some(0),
-    ///             key: Some("aGk=".to_string()),
-    ///             base64_key: true
-    ///         }
-    ///     );
+    ///     assert_eq!(item.status, MaStatus::WithBody);
+    ///     assert_eq!(item.number, Some(5));
+    ///     assert_eq!(item.key.as_deref(), Some("doc_conn_ma"));
+    ///     let item = c
+    ///         .ma(
+    ///             b"doc_conn_ma",
+    ///             &[
+    ///                 MaFlag::DeltaApply(7),
+    ///                 MaFlag::Mode(MaMode::Incr),
+    ///                 MaFlag::ReturnValue,
+    ///                 MaFlag::ReturnKey,
+    ///             ],
+    ///         )
+    ///         .await?;
+    ///     assert_eq!(item.status, MaStatus::WithBody);
+    ///     assert_eq!(item.number, Some(12));
     /// }
-    /// #     Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
@@ -3682,8 +3966,8 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruArg, LruMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruArg, LruMode};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -3692,9 +3976,9 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.lru(LruArg::Mode(LruMode::Flat)).await.is_ok())
+    ///     let result = c.lru(LruArg::Mode(LruMode::Flat)).await;
     /// }
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn lru(&mut self, arg: LruArg) -> Result<()> {
@@ -3712,11 +3996,10 @@ impl WatchStream {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, WatchArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, StorageResult, WatchArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    ///
     /// for (mut c1, mut c2) in [
     ///     (Connection::default().await?, Connection::default().await?),
     ///     (
@@ -3728,12 +4011,25 @@ impl WatchStream {
     ///         Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     ///     ),
     /// ] {
-    ///     let mut w = c1.watch(&[WatchArg::Fetchers]).await?;
-    ///     c2.get(b"key").await?;
-    ///     let result = w.message().await?;
-    ///     assert!(result.is_some())
+    ///     let mut watcher = c1.watch(&[WatchArg::Mutations]).await?;
+    ///     assert_eq!(
+    ///         c2.set(b"doc_watch_message", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     let mut found = false;
+    ///     for _ in 0..100 {
+    ///         match watcher.message().await? {
+    ///             Some(message) if message.contains("key=doc_watch_message") => {
+    ///                 found = true;
+    ///                 break;
+    ///             }
+    ///             Some(_) => continue,
+    ///             None => break,
+    ///         }
+    ///     }
+    ///     assert!(found);
     /// }
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn message(&mut self) -> Result<Option<String>> {
@@ -3757,15 +4053,23 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_new", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_new").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
@@ -3775,18 +4079,29 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
-    /// assert_eq!(client.get(b"k7").await?.unwrap().key, "k7");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_get", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_get").await?,
+    ///     Some(Item {
+    ///         key: "doc_crc32_get".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     })
+    /// );
+    /// assert_eq!(client.get(b"doc_crc32_get_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -3799,18 +4114,23 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
-    /// assert_eq!(client.gets(b"k8").await?.unwrap().key, "k8");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_gets", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gets(b"doc_crc32_gets").await?.unwrap();
+    /// assert_eq!(item.key, "doc_crc32_gets");
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -3823,18 +4143,24 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, ClientCrc32};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k9", 0, 0, false, b"v9").await?);
-    /// let result = client.gat(0, b"k9").await?;
-    /// assert_eq!(result.unwrap().key, "k9");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_gat", 7, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gat(60, b"doc_crc32_gat").await?.unwrap();
+    /// assert_eq!(item.key, "doc_crc32_gat");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert_eq!(item.cas_unique, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -3847,18 +4173,24 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, ClientCrc32};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k10", 0, 0, false, b"v10").await?);
-    /// let result = client.gats(0, b"k10").await?;
-    /// assert_eq!(result.unwrap().key, "k10");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_gats", 7, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gats(60, b"doc_crc32_gats").await?.unwrap();
+    /// assert_eq!(item.key, "doc_crc32_gats");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -3871,17 +4203,28 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_set", 7, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_set").await?,
+    ///     Some(Item {
+    ///         key: "doc_crc32_set".to_string(),
+    ///         flags: 7,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     })
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn set(
@@ -3901,17 +4244,28 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_add", false).await?;
+    /// assert_eq!(
+    ///     client.add(b"doc_crc32_add", 0, 0, false, b"first").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.add(b"doc_crc32_add", 0, 0, false, b"second").await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_add").await?.unwrap().data_block,
+    ///     b"first"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn add(
@@ -3931,17 +4285,38 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_replace", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_replace", 0, 0, false, b"first")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"second")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_replace").await?.unwrap().data_block,
+    ///     b"second"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn replace(
@@ -3961,17 +4336,38 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_append", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_append", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_append").await?.unwrap().data_block,
+    ///     b"base-tail"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn append(
@@ -3991,17 +4387,38 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_prepend", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_prepend", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_prepend").await?.unwrap().data_block,
+    ///     b"head-base"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn prepend(
@@ -4021,17 +4438,48 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_cas", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_crc32_cas", 0, 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_cas", 0, 0, false, b"base").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let cas = client
+    ///     .gets(b"doc_crc32_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_crc32_cas", 0, 0, cas, false, b"new")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_crc32_cas", 0, 0, cas, false, b"stale")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Exists
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_cas").await?.unwrap().data_block,
+    ///     b"new"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn cas(
@@ -4059,17 +4507,29 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, DeleteResult, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.delete(b"key", true).await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_delete", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_crc32_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::Deleted
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_crc32_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::NotFound
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
@@ -4082,17 +4542,22 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.incr(b"key", 1, true).await?.is_none());
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_incr", false).await?;
+    /// assert_eq!(client.incr(b"doc_crc32_incr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_incr", 0, 0, false, b"10").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(client.incr(b"doc_crc32_incr", 5, false).await?, Some(15));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn incr(
@@ -4110,17 +4575,22 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.decr(b"key", 1, true).await?.is_none());
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_crc32_decr", false).await?;
+    /// assert_eq!(client.decr(b"doc_crc32_decr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_decr", 0, 0, false, b"10").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(client.decr(b"doc_crc32_decr", 5, false).await?, Some(5));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn decr(
@@ -4138,17 +4608,29 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, TouchResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.touch(b"key", -1, true).await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.touch(b"doc_crc32_touch_missing", 60, false).await?,
+    ///     mcmc_rs::TouchResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_touch", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_crc32_touch", 60, false).await?,
+    ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn touch(
@@ -4166,17 +4648,23 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
-    /// assert!(client.me(b"k11").await?.is_some());
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_me", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let info = client.me(b"doc_crc32_me").await?.unwrap();
+    /// assert!(info.starts_with("doc_crc32_me "));
+    /// assert!(info.contains("size="));
+    /// assert_eq!(client.me(b"doc_crc32_me_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
@@ -4189,56 +4677,44 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MgFlag, MgItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, MgFlag, MgStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_mg", 7, 0, false, b"hello").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client
     ///     .mg(
-    ///         b"44OG44K544OI",
+    ///         b"doc_crc32_mg",
     ///         &[
-    ///             MgFlag::Base64Key,
-    ///             MgFlag::ReturnCas,
-    ///             MgFlag::ReturnFlags,
-    ///             MgFlag::ReturnHit,
     ///             MgFlag::ReturnKey,
-    ///             MgFlag::ReturnLastAccess,
-    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnFlags,
     ///             MgFlag::ReturnSize,
     ///             MgFlag::ReturnTtl,
-    ///             MgFlag::UnBump,
     ///             MgFlag::ReturnValue,
-    ///             MgFlag::NewCas(0),
-    ///             MgFlag::Autovivify(-1),
-    ///             MgFlag::RecacheTtl(-1),
-    ///             MgFlag::UpdateTtl(-1),
+    ///             MgFlag::ReturnCas,
     ///         ],
     ///     )
     ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     MgItem {
-    ///         success: true,
-    ///         base64_key: false,
-    ///         cas: Some(0),
-    ///         flags: Some(0),
-    ///         hit: Some(0),
-    ///         key: Some("テスト".to_string()),
-    ///         last_access_ttl: Some(0),
-    ///         opaque: Some("opaque".to_string()),
-    ///         size: Some(0),
-    ///         ttl: Some(-1),
-    ///         data_block: Some(vec![]),
-    ///         already_win: false,
-    ///         won_recache: true,
-    ///         stale: false,
-    ///     }
-    /// );
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(item.status, mcmc_rs::MgStatus::WithBody);
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_mg"));
+    /// assert_eq!(item.flags, Some(7));
+    /// assert_eq!(item.size, Some(5));
+    /// assert_eq!(item.ttl, Some(-1));
+    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .mg(b"doc_crc32_mg_missing", &[MgFlag::ReturnKey])
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MgStatus::NotFound);
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_mg_missing"));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
@@ -4251,46 +4727,39 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MsFlag, MsItem, MsMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, MsFlag, MsMode, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// let _ = client.delete(b"doc_crc32_ms", false).await?;
+    /// let item = client
     ///     .ms(
-    ///         b"44OG44K544OI",
-    ///         &[
-    ///             MsFlag::Base64Key,
-    ///             MsFlag::ReturnCas,
-    ///             MsFlag::CompareCas(0),
-    ///             MsFlag::NewCas(0),
-    ///             MsFlag::SetFlags(0),
-    ///             MsFlag::Invalidate,
-    ///             MsFlag::ReturnKey,
-    ///             MsFlag::Opaque("opaque".to_string()),
-    ///             MsFlag::ReturnSize,
-    ///             MsFlag::Ttl(-1),
-    ///             MsFlag::Mode(MsMode::Set),
-    ///             MsFlag::Autovivify(0),
-    ///         ],
-    ///         b"hi",
+    ///         b"doc_crc32_ms",
+    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
+    ///         b"hello",
     ///     )
     ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ms"));
+    /// assert_eq!(item.size, Some(5));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .ms(
+    ///         b"doc_crc32_ms",
+    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
+    ///         b"again",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
     /// assert_eq!(
-    ///     result,
-    ///     MsItem {
-    ///         success: false,
-    ///         cas: Some(0),
-    ///         key: Some("44OG44K544OI".to_string()),
-    ///         opaque: Some("opaque".to_string()),
-    ///         size: Some(2),
-    ///         base64_key: true
-    ///     }
+    ///     client.get(b"doc_crc32_ms").await?.unwrap().data_block,
+    ///     b"hello"
     /// );
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ms(
@@ -4308,39 +4777,25 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MdFlag, MdItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, MdFlag, MdStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
-    ///     .md(
-    ///         b"44OG44K544OI",
-    ///         &[
-    ///             MdFlag::Base64Key,
-    ///             MdFlag::CompareCas(0),
-    ///             MdFlag::NewCas(0),
-    ///             MdFlag::Invalidate,
-    ///             MdFlag::ReturnKey,
-    ///             MdFlag::Opaque("opaque".to_string()),
-    ///             MdFlag::UpdateTtl(-1),
-    ///             MdFlag::LeaveKey,
-    ///         ],
-    ///     )
-    ///     .await?;
     /// assert_eq!(
-    ///     result,
-    ///     MdItem {
-    ///         success: false,
-    ///         key: Some("44OG44K544OI".to_string()),
-    ///         opaque: Some("opaque".to_string()),
-    ///         base64_key: true
-    ///     }
+    ///     client.set(b"doc_crc32_md", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// # Ok::<(), io::Error>(())
+    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_md"));
+    /// assert_eq!(client.get(b"doc_crc32_md").await?, None);
+    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
@@ -4353,47 +4808,44 @@ impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientCrc32, Connection, MaFlag, MaItem, MaMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientCrc32, Connection, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientCrc32::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// let _ = client.delete(b"doc_crc32_ma", false).await?;
+    /// let item = client
     ///     .ma(
-    ///         b"aGk=",
+    ///         b"doc_crc32_ma",
     ///         &[
-    ///             MaFlag::Base64Key,
-    ///             MaFlag::CompareCas(0),
-    ///             MaFlag::NewCas(0),
     ///             MaFlag::AutoCreate(0),
-    ///             MaFlag::InitValue(0),
-    ///             MaFlag::DeltaApply(0),
-    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::InitValue(5),
     ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::Opaque("opaque".to_string()),
-    ///             MaFlag::ReturnTtl,
-    ///             MaFlag::ReturnCas,
     ///             MaFlag::ReturnValue,
     ///             MaFlag::ReturnKey,
     ///         ],
     ///     )
     ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     MaItem {
-    ///         success: true,
-    ///         opaque: Some("opaque".to_string()),
-    ///         ttl: Some(-1),
-    ///         cas: Some(0),
-    ///         number: Some(0),
-    ///         key: Some("aGk=".to_string()),
-    ///         base64_key: true
-    ///     }
-    /// );
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(5));
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ma"));
+    /// let item = client
+    ///     .ma(
+    ///         b"doc_crc32_ma",
+    ///         &[
+    ///             MaFlag::DeltaApply(7),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(12));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
@@ -4409,16 +4861,27 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_new", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_hash_ring_new").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
+    /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
         let mut ring = HashRing::new();
         ring.batch_add((0..conns.len()).collect());
@@ -4428,18 +4891,31 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
-    /// assert_eq!(client.get(b"k7").await?.unwrap().key, "k7");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_get", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_hash_ring_get").await?,
+    ///     Some(Item {
+    ///         key: "doc_hash_ring_get".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     })
+    /// );
+    /// assert_eq!(client.get(b"doc_hash_ring_get_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -4450,18 +4926,25 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
-    /// assert_eq!(client.gets(b"k8").await?.unwrap().key, "k8");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_gets", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gets(b"doc_hash_ring_gets").await?.unwrap();
+    /// assert_eq!(item.key, "doc_hash_ring_gets");
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -4472,18 +4955,26 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, ClientHashRing};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k9", 0, 0, false, b"v9").await?);
-    /// let result = client.gat(0, b"k9").await?;
-    /// assert_eq!(result.unwrap().key, "k9");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_gat", 7, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gat(60, b"doc_hash_ring_gat").await?.unwrap();
+    /// assert_eq!(item.key, "doc_hash_ring_gat");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert_eq!(item.cas_unique, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -4494,18 +4985,26 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, ClientHashRing};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k10", 0, 0, false, b"v10").await?);
-    /// let result = client.gats(0, b"k10").await?;
-    /// assert_eq!(result.unwrap().key, "k10");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_gats", 7, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gats(60, b"doc_hash_ring_gats").await?.unwrap();
+    /// assert_eq!(item.key, "doc_hash_ring_gats");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -4516,17 +5015,30 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_set", 7, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_hash_ring_set").await?,
+    ///     Some(Item {
+    ///         key: "doc_hash_ring_set".to_string(),
+    ///         flags: 7,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     })
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn set(
@@ -4546,17 +5058,32 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_add", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .add(b"doc_hash_ring_add", 0, 0, false, b"first")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .add(b"doc_hash_ring_add", 0, 0, false, b"second")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_hash_ring_add").await?.unwrap().data_block,
+    ///     b"first"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn add(
@@ -4576,17 +5103,42 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_replace", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_hash_ring_replace", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_replace", 0, 0, false, b"first")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_hash_ring_replace", 0, 0, false, b"second")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_replace")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"second"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn replace(
@@ -4606,17 +5158,42 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_append", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_hash_ring_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_append", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_hash_ring_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_append")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"base-tail"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn append(
@@ -4636,17 +5213,42 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_prepend", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_hash_ring_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_prepend", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_hash_ring_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_prepend")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"head-base"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn prepend(
@@ -4666,17 +5268,50 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_cas", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_hash_ring_cas", 0, 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_cas", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let cas = client
+    ///     .gets(b"doc_hash_ring_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_hash_ring_cas", 0, 0, cas, false, b"new")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_hash_ring_cas", 0, 0, cas, false, b"stale")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Exists
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_hash_ring_cas").await?.unwrap().data_block,
+    ///     b"new"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn cas(
@@ -4704,17 +5339,29 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, DeleteResult, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.delete(b"key", true).await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_delete", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_hash_ring_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::Deleted
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_hash_ring_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::NotFound
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
@@ -4725,17 +5372,27 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.incr(b"key", 1, true).await?.is_none());
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_incr", false).await?;
+    /// assert_eq!(client.incr(b"doc_hash_ring_incr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_incr", 0, 0, false, b"10")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_hash_ring_incr", 5, false).await?,
+    ///     Some(15)
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn incr(
@@ -4751,17 +5408,24 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.decr(b"key", 1, true).await?.is_none());
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_hash_ring_decr", false).await?;
+    /// assert_eq!(client.decr(b"doc_hash_ring_decr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_decr", 0, 0, false, b"10")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(client.decr(b"doc_hash_ring_decr", 5, false).await?, Some(5));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn decr(
@@ -4777,17 +5441,31 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, TouchResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.touch(b"key", -1, true).await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .touch(b"doc_hash_ring_touch_missing", 60, false)
+    ///         .await?,
+    ///     mcmc_rs::TouchResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_touch", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_hash_ring_touch", 60, false).await?,
+    ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn touch(
@@ -4803,17 +5481,25 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
-    /// assert!(client.me(b"k11").await?.is_some());
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_me", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let info = client.me(b"doc_hash_ring_me").await?.unwrap();
+    /// assert!(info.starts_with("doc_hash_ring_me "));
+    /// assert!(info.contains("size="));
+    /// assert_eq!(client.me(b"doc_hash_ring_me_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
@@ -4824,56 +5510,46 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection, MgFlag, MgItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, MgFlag, MgStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_mg", 7, 0, false, b"hello")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client
     ///     .mg(
-    ///         b"44OG44K544OI",
+    ///         b"doc_hash_ring_mg",
     ///         &[
-    ///             MgFlag::Base64Key,
-    ///             MgFlag::ReturnCas,
-    ///             MgFlag::ReturnFlags,
-    ///             MgFlag::ReturnHit,
     ///             MgFlag::ReturnKey,
-    ///             MgFlag::ReturnLastAccess,
-    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnFlags,
     ///             MgFlag::ReturnSize,
     ///             MgFlag::ReturnTtl,
-    ///             MgFlag::UnBump,
     ///             MgFlag::ReturnValue,
-    ///             MgFlag::NewCas(0),
-    ///             MgFlag::Autovivify(-1),
-    ///             MgFlag::RecacheTtl(-1),
-    ///             MgFlag::UpdateTtl(-1),
+    ///             MgFlag::ReturnCas,
     ///         ],
     ///     )
     ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     MgItem {
-    ///         success: true,
-    ///         base64_key: false,
-    ///         cas: Some(0),
-    ///         flags: Some(0),
-    ///         hit: Some(0),
-    ///         key: Some("テスト".to_string()),
-    ///         last_access_ttl: Some(0),
-    ///         opaque: Some("opaque".to_string()),
-    ///         size: Some(0),
-    ///         ttl: Some(-1),
-    ///         data_block: Some(vec![]),
-    ///         already_win: false,
-    ///         won_recache: true,
-    ///         stale: false,
-    ///     }
-    /// );
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(item.status, mcmc_rs::MgStatus::WithBody);
+    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_mg"));
+    /// assert_eq!(item.flags, Some(7));
+    /// assert_eq!(item.size, Some(5));
+    /// assert_eq!(item.ttl, Some(-1));
+    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .mg(b"doc_hash_ring_mg_missing", &[MgFlag::ReturnKey])
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MgStatus::NotFound);
+    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_mg_missing"));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
@@ -4884,46 +5560,39 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection, MsFlag, MsItem, MsMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, MsFlag, MsMode, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// let _ = client.delete(b"doc_hash_ring_ms", false).await?;
+    /// let item = client
     ///     .ms(
-    ///         b"44OG44K544OI",
-    ///         &[
-    ///             MsFlag::Base64Key,
-    ///             MsFlag::ReturnCas,
-    ///             MsFlag::CompareCas(0),
-    ///             MsFlag::NewCas(0),
-    ///             MsFlag::SetFlags(0),
-    ///             MsFlag::Invalidate,
-    ///             MsFlag::ReturnKey,
-    ///             MsFlag::Opaque("opaque".to_string()),
-    ///             MsFlag::ReturnSize,
-    ///             MsFlag::Ttl(-1),
-    ///             MsFlag::Mode(MsMode::Set),
-    ///             MsFlag::Autovivify(0),
-    ///         ],
-    ///         b"hi",
+    ///         b"doc_hash_ring_ms",
+    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
+    ///         b"hello",
     ///     )
     ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
+    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_ms"));
+    /// assert_eq!(item.size, Some(5));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .ms(
+    ///         b"doc_hash_ring_ms",
+    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
+    ///         b"again",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
     /// assert_eq!(
-    ///     result,
-    ///     MsItem {
-    ///         success: false,
-    ///         cas: Some(0),
-    ///         key: Some("44OG44K544OI".to_string()),
-    ///         opaque: Some("opaque".to_string()),
-    ///         size: Some(2),
-    ///         base64_key: true
-    ///     }
+    ///     client.get(b"doc_hash_ring_ms").await?.unwrap().data_block,
+    ///     b"hello"
     /// );
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ms(
@@ -4939,39 +5608,27 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection, MdFlag, MdItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, MdFlag, MdStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
-    ///     .md(
-    ///         b"44OG44K544OI",
-    ///         &[
-    ///             MdFlag::Base64Key,
-    ///             MdFlag::CompareCas(0),
-    ///             MdFlag::NewCas(0),
-    ///             MdFlag::Invalidate,
-    ///             MdFlag::ReturnKey,
-    ///             MdFlag::Opaque("opaque".to_string()),
-    ///             MdFlag::UpdateTtl(-1),
-    ///             MdFlag::LeaveKey,
-    ///         ],
-    ///     )
-    ///     .await?;
     /// assert_eq!(
-    ///     result,
-    ///     MdItem {
-    ///         success: false,
-    ///         key: Some("44OG44K544OI".to_string()),
-    ///         opaque: Some("opaque".to_string()),
-    ///         base64_key: true
-    ///     }
+    ///     client
+    ///         .set(b"doc_hash_ring_md", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// # Ok::<(), io::Error>(())
+    /// let item = client.md(b"doc_hash_ring_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
+    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_md"));
+    /// assert_eq!(client.get(b"doc_hash_ring_md").await?, None);
+    /// let item = client.md(b"doc_hash_ring_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
@@ -4982,47 +5639,44 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientHashRing, Connection, MaFlag, MaItem, MaMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientHashRing, Connection, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// let _ = client.delete(b"doc_hash_ring_ma", false).await?;
+    /// let item = client
     ///     .ma(
-    ///         b"aGk=",
+    ///         b"doc_hash_ring_ma",
     ///         &[
-    ///             MaFlag::Base64Key,
-    ///             MaFlag::CompareCas(0),
-    ///             MaFlag::NewCas(0),
     ///             MaFlag::AutoCreate(0),
-    ///             MaFlag::InitValue(0),
-    ///             MaFlag::DeltaApply(0),
-    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::InitValue(5),
     ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::Opaque("opaque".to_string()),
-    ///             MaFlag::ReturnTtl,
-    ///             MaFlag::ReturnCas,
     ///             MaFlag::ReturnValue,
     ///             MaFlag::ReturnKey,
     ///         ],
     ///     )
     ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     MaItem {
-    ///         success: true,
-    ///         opaque: Some("opaque".to_string()),
-    ///         ttl: Some(-1),
-    ///         cas: Some(0),
-    ///         number: Some(0),
-    ///         key: Some("aGk=".to_string()),
-    ///         base64_key: true
-    ///     }
-    /// );
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(5));
+    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_ma"));
+    /// let item = client
+    ///     .ma(
+    ///         b"doc_hash_ring_ma",
+    ///         &[
+    ///             MaFlag::DeltaApply(7),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(12));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
@@ -5036,16 +5690,27 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_new", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_rendezvous_new").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
+    /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
         let hrw = HrwNodes::new(0..conns.len());
         Self(conns, hrw)
@@ -5054,18 +5719,31 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"k7", 0, 0, false, b"v7").await?);
-    /// assert_eq!(client.get(b"k7").await?.unwrap().key, "k7");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_get", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_rendezvous_get").await?,
+    ///     Some(Item {
+    ///         key: "doc_rendezvous_get".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     })
+    /// );
+    /// assert_eq!(client.get(b"doc_rendezvous_get_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -5076,18 +5754,25 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"k8", 0, 0, false, b"v8").await?);
-    /// assert_eq!(client.gets(b"k8").await?.unwrap().key, "k8");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_gets", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gets(b"doc_rendezvous_gets").await?.unwrap();
+    /// assert_eq!(item.key, "doc_rendezvous_gets");
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -5098,18 +5783,26 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, ClientRendezvous};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k9", 0, 0, false, b"v9").await?);
-    /// let result = client.gat(0, b"k9").await?;
-    /// assert_eq!(result.unwrap().key, "k9");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_gat", 7, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gat(60, b"doc_rendezvous_gat").await?.unwrap();
+    /// assert_eq!(item.key, "doc_rendezvous_gat");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert_eq!(item.cas_unique, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -5120,18 +5813,26 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, ClientRendezvous};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k10", 0, 0, false, b"v10").await?);
-    /// let result = client.gats(0, b"k10").await?;
-    /// assert_eq!(result.unwrap().key, "k10");
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_gats", 7, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gats(60, b"doc_rendezvous_gats").await?.unwrap();
+    /// assert_eq!(item.key, "doc_rendezvous_gats");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
@@ -5142,17 +5843,30 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, Item, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.set(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_set", 7, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_rendezvous_set").await?,
+    ///     Some(Item {
+    ///         key: "doc_rendezvous_set".to_string(),
+    ///         flags: 7,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     })
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn set(
@@ -5172,17 +5886,32 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.add(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_add", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .add(b"doc_rendezvous_add", 0, 0, false, b"first")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .add(b"doc_rendezvous_add", 0, 0, false, b"second")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_rendezvous_add").await?.unwrap().data_block,
+    ///     b"first"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn add(
@@ -5202,17 +5931,42 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.replace(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_replace", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_rendezvous_replace", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_replace", 0, 0, false, b"first")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_rendezvous_replace", 0, 0, false, b"second")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_replace")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"second"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn replace(
@@ -5232,17 +5986,42 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.append(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_append", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_rendezvous_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_append", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_rendezvous_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_append")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"base-tail"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn append(
@@ -5262,17 +6041,42 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.prepend(b"key", 0, -1, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_prepend", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_rendezvous_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_prepend", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_rendezvous_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_prepend")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"head-base"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn prepend(
@@ -5292,17 +6096,50 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.cas(b"key", 0, -1, 0, true, b"value").await?);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_cas", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_rendezvous_cas", 0, 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_cas", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let cas = client
+    ///     .gets(b"doc_rendezvous_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_rendezvous_cas", 0, 0, cas, false, b"new")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_rendezvous_cas", 0, 0, cas, false, b"stale")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Exists
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_rendezvous_cas").await?.unwrap().data_block,
+    ///     b"new"
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn cas(
@@ -5330,17 +6167,29 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, DeleteResult, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.delete(b"key", true).await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_delete", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_rendezvous_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::Deleted
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_rendezvous_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::NotFound
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
@@ -5351,17 +6200,27 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.incr(b"key", 1, true).await?.is_none());
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_incr", false).await?;
+    /// assert_eq!(client.incr(b"doc_rendezvous_incr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_incr", 0, 0, false, b"10")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_rendezvous_incr", 5, false).await?,
+    ///     Some(15)
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn incr(
@@ -5377,17 +6236,27 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.decr(b"key", 1, true).await?.is_none());
-    /// # Ok::<(), io::Error>(())
+    /// let _ = client.delete(b"doc_rendezvous_decr", false).await?;
+    /// assert_eq!(client.decr(b"doc_rendezvous_decr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_decr", 0, 0, false, b"10")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.decr(b"doc_rendezvous_decr", 5, false).await?,
+    ///     Some(5)
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn decr(
@@ -5403,17 +6272,31 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, TouchResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    ///
-    /// assert!(client.touch(b"key", -1, true).await?);
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .touch(b"doc_rendezvous_touch_missing", 60, false)
+    ///         .await?,
+    ///     mcmc_rs::TouchResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_touch", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_rendezvous_touch", 60, false).await?,
+    ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn touch(
@@ -5429,17 +6312,25 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// assert!(client.set(b"k11", 0, 0, false, b"v11").await?);
-    /// assert!(client.me(b"k11").await?.is_some());
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_me", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let info = client.me(b"doc_rendezvous_me").await?.unwrap();
+    /// assert!(info.starts_with("doc_rendezvous_me "));
+    /// assert!(info.contains("size="));
+    /// assert_eq!(client.me(b"doc_rendezvous_me_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
@@ -5450,56 +6341,46 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection, MgFlag, MgItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, MgFlag, MgStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_mg", 7, 0, false, b"hello")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client
     ///     .mg(
-    ///         b"44OG44K544OI",
+    ///         b"doc_rendezvous_mg",
     ///         &[
-    ///             MgFlag::Base64Key,
-    ///             MgFlag::ReturnCas,
-    ///             MgFlag::ReturnFlags,
-    ///             MgFlag::ReturnHit,
     ///             MgFlag::ReturnKey,
-    ///             MgFlag::ReturnLastAccess,
-    ///             MgFlag::Opaque("opaque".to_string()),
+    ///             MgFlag::ReturnFlags,
     ///             MgFlag::ReturnSize,
     ///             MgFlag::ReturnTtl,
-    ///             MgFlag::UnBump,
     ///             MgFlag::ReturnValue,
-    ///             MgFlag::NewCas(0),
-    ///             MgFlag::Autovivify(-1),
-    ///             MgFlag::RecacheTtl(-1),
-    ///             MgFlag::UpdateTtl(-1),
+    ///             MgFlag::ReturnCas,
     ///         ],
     ///     )
     ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     MgItem {
-    ///         success: true,
-    ///         base64_key: false,
-    ///         cas: Some(0),
-    ///         flags: Some(0),
-    ///         hit: Some(0),
-    ///         key: Some("テスト".to_string()),
-    ///         last_access_ttl: Some(0),
-    ///         opaque: Some("opaque".to_string()),
-    ///         size: Some(0),
-    ///         ttl: Some(-1),
-    ///         data_block: Some(vec![]),
-    ///         already_win: false,
-    ///         won_recache: true,
-    ///         stale: false,
-    ///     }
-    /// );
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(item.status, mcmc_rs::MgStatus::WithBody);
+    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_mg"));
+    /// assert_eq!(item.flags, Some(7));
+    /// assert_eq!(item.size, Some(5));
+    /// assert_eq!(item.ttl, Some(-1));
+    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .mg(b"doc_rendezvous_mg_missing", &[MgFlag::ReturnKey])
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MgStatus::NotFound);
+    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_mg_missing"));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
@@ -5510,46 +6391,39 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection, MsFlag, MsItem, MsMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, MsFlag, MsMode, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// let _ = client.delete(b"doc_rendezvous_ms", false).await?;
+    /// let item = client
     ///     .ms(
-    ///         b"44OG44K544OI",
-    ///         &[
-    ///             MsFlag::Base64Key,
-    ///             MsFlag::ReturnCas,
-    ///             MsFlag::CompareCas(0),
-    ///             MsFlag::NewCas(0),
-    ///             MsFlag::SetFlags(0),
-    ///             MsFlag::Invalidate,
-    ///             MsFlag::ReturnKey,
-    ///             MsFlag::Opaque("opaque".to_string()),
-    ///             MsFlag::ReturnSize,
-    ///             MsFlag::Ttl(-1),
-    ///             MsFlag::Mode(MsMode::Set),
-    ///             MsFlag::Autovivify(0),
-    ///         ],
-    ///         b"hi",
+    ///         b"doc_rendezvous_ms",
+    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
+    ///         b"hello",
     ///     )
     ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
+    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_ms"));
+    /// assert_eq!(item.size, Some(5));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .ms(
+    ///         b"doc_rendezvous_ms",
+    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
+    ///         b"again",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
     /// assert_eq!(
-    ///     result,
-    ///     MsItem {
-    ///         success: false,
-    ///         cas: Some(0),
-    ///         key: Some("44OG44K544OI".to_string()),
-    ///         opaque: Some("opaque".to_string()),
-    ///         size: Some(2),
-    ///         base64_key: true
-    ///     }
+    ///     client.get(b"doc_rendezvous_ms").await?.unwrap().data_block,
+    ///     b"hello"
     /// );
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ms(
@@ -5565,39 +6439,31 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection, MdFlag, MdItem};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, MdFlag, MdStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
-    ///     .md(
-    ///         b"44OG44K544OI",
-    ///         &[
-    ///             MdFlag::Base64Key,
-    ///             MdFlag::CompareCas(0),
-    ///             MdFlag::NewCas(0),
-    ///             MdFlag::Invalidate,
-    ///             MdFlag::ReturnKey,
-    ///             MdFlag::Opaque("opaque".to_string()),
-    ///             MdFlag::UpdateTtl(-1),
-    ///             MdFlag::LeaveKey,
-    ///         ],
-    ///     )
-    ///     .await?;
     /// assert_eq!(
-    ///     result,
-    ///     MdItem {
-    ///         success: false,
-    ///         key: Some("44OG44K544OI".to_string()),
-    ///         opaque: Some("opaque".to_string()),
-    ///         base64_key: true
-    ///     }
+    ///     client
+    ///         .set(b"doc_rendezvous_md", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// # Ok::<(), io::Error>(())
+    /// let item = client
+    ///     .md(b"doc_rendezvous_md", &[MdFlag::ReturnKey])
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
+    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_md"));
+    /// assert_eq!(client.get(b"doc_rendezvous_md").await?, None);
+    /// let item = client
+    ///     .md(b"doc_rendezvous_md", &[MdFlag::ReturnKey])
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
@@ -5608,47 +6474,44 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{ClientRendezvous, Connection, MaFlag, MaItem, MaMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let result = client
+    /// let _ = client.delete(b"doc_rendezvous_ma", false).await?;
+    /// let item = client
     ///     .ma(
-    ///         b"aGk=",
+    ///         b"doc_rendezvous_ma",
     ///         &[
-    ///             MaFlag::Base64Key,
-    ///             MaFlag::CompareCas(0),
-    ///             MaFlag::NewCas(0),
     ///             MaFlag::AutoCreate(0),
-    ///             MaFlag::InitValue(0),
-    ///             MaFlag::DeltaApply(0),
-    ///             MaFlag::UpdateTtl(0),
+    ///             MaFlag::InitValue(5),
     ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::Opaque("opaque".to_string()),
-    ///             MaFlag::ReturnTtl,
-    ///             MaFlag::ReturnCas,
     ///             MaFlag::ReturnValue,
     ///             MaFlag::ReturnKey,
     ///         ],
     ///     )
     ///     .await?;
-    /// assert_eq!(
-    ///     result,
-    ///     MaItem {
-    ///         success: true,
-    ///         opaque: Some("opaque".to_string()),
-    ///         ttl: Some(-1),
-    ///         cas: Some(0),
-    ///         number: Some(0),
-    ///         key: Some("aGk=".to_string()),
-    ///         base64_key: true
-    ///     }
-    /// );
-    /// # Ok::<(), io::Error>(())
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(5));
+    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_ma"));
+    /// let item = client
+    ///     .ma(
+    ///         b"doc_rendezvous_ma",
+    ///         &[
+    ///             MaFlag::DeltaApply(7),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(12));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
@@ -5662,13 +6525,15 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline();
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().version().execute().await?;
+    /// assert_eq!(result.len(), 1);
+    /// assert!(matches!(result[0], PipelineResponse::String(_)));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     fn new(conn: &'a mut Connection) -> Self {
@@ -5678,8 +6543,8 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, PipelineResponse};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
@@ -5689,19 +6554,26 @@ impl<'a> Pipeline<'a> {
     /// ] {
     ///     let result = c
     ///         .pipeline()
-    ///         .set(b"key", 0, -1, false, b"value")
-    ///         .get("key")
+    ///         .set(b"doc_pipeline_execute", 0, 0, false, b"value")
+    ///         .get(b"doc_pipeline_execute")
     ///         .execute()
     ///         .await?;
+    ///     assert_eq!(result.len(), 2);
     ///     assert_eq!(
-    ///         result,
-    ///         [
-    ///             PipelineResponse::Bool(true),
-    ///             PipelineResponse::OptionItem(None),
-    ///         ]
+    ///         result[0],
+    ///         PipelineResponse::StorageResult(StorageResult::Stored)
+    ///     );
+    ///     assert_eq!(
+    ///         result[1],
+    ///         PipelineResponse::OptionItem(Some(Item {
+    ///             key: "doc_pipeline_execute".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"value".to_vec()
+    ///         }))
     ///     );
     /// }
-    /// # Ok::<(), io::Error>(())
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub async fn execute(self) -> Result<Vec<PipelineResponse>> {
@@ -5719,13 +6591,17 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().version();
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().version().execute().await?;
+    /// match &result[0] {
+    ///     PipelineResponse::String(version) => assert!(!version.is_empty()),
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn version(mut self) -> Self {
@@ -5736,13 +6612,14 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().quit();
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().quit().execute().await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn quit(mut self) -> Self {
@@ -5753,13 +6630,13 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().shutdown(false);
-    /// # Ok::<(), io::Error>(())
+    /// let _pipeline = conn.pipeline().shutdown(false);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn shutdown(mut self, graceful: bool) -> Self {
@@ -5770,13 +6647,14 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().cache_memlimit(1, false);
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().cache_memlimit(64, false).execute().await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn cache_memlimit(mut self, limit: usize, noreply: bool) -> Self {
@@ -5788,13 +6666,20 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().flush_all(None, false);
-    /// # Ok::<(), io::Error>(())
+    /// let mut conn = Connection::tls_connect("localhost", 11216, "cert.pem").await?;
+    /// assert_eq!(
+    ///     conn.set(b"doc_pipeline_flush_all", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// let result = conn.pipeline().flush_all(None, false).execute().await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// assert_eq!(conn.get(b"doc_pipeline_flush_all").await?, None);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn flush_all(mut self, exptime: Option<i64>, noreply: bool) -> Self {
@@ -5805,13 +6690,21 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().set(b"key", 0, 0, false, b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn
+    ///     .pipeline()
+    ///     .set(b"doc_pipeline_set", 0, 0, false, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn set(
@@ -5837,13 +6730,26 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().add(b"key", 0, 0, false, b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_add", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .add(b"doc_pipeline_add", 0, 0, false, b"first")
+    ///     .add(b"doc_pipeline_add", 0, 0, false, b"second")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::StorageResult(StorageResult::NotStored),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn add(
@@ -5869,13 +6775,33 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().replace(b"key", 0, 0, false, b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_replace", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .replace(b"doc_pipeline_replace", 0, 0, false, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NotStored)]
+    /// );
+    /// conn.set(b"doc_pipeline_replace", 0, 0, false, b"first")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .replace(b"doc_pipeline_replace", 0, 0, false, b"second")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn replace(
@@ -5901,13 +6827,43 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().append(b"key", 0, 0, false, b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_append", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .append(b"doc_pipeline_append", 0, 0, false, b"-tail")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NotStored)]
+    /// );
+    /// conn.set(b"doc_pipeline_append", 0, 0, false, b"base")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .append(b"doc_pipeline_append", 0, 0, false, b"-tail")
+    ///     .get(b"doc_pipeline_append")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result[0],
+    ///     PipelineResponse::StorageResult(StorageResult::Stored)
+    /// );
+    /// assert_eq!(
+    ///     result[1],
+    ///     PipelineResponse::OptionItem(Some(Item {
+    ///         key: "doc_pipeline_append".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"base-tail".to_vec()
+    ///     }))
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn append(
@@ -5933,13 +6889,43 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().prepend(b"key", 0, 0, false, b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_prepend", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .prepend(b"doc_pipeline_prepend", 0, 0, false, b"head-")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NotStored)]
+    /// );
+    /// conn.set(b"doc_pipeline_prepend", 0, 0, false, b"base")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .prepend(b"doc_pipeline_prepend", 0, 0, false, b"head-")
+    ///     .get(b"doc_pipeline_prepend")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result[0],
+    ///     PipelineResponse::StorageResult(StorageResult::Stored)
+    /// );
+    /// assert_eq!(
+    ///     result[1],
+    ///     PipelineResponse::OptionItem(Some(Item {
+    ///         key: "doc_pipeline_prepend".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"head-base".to_vec()
+    ///     }))
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn prepend(
@@ -5965,13 +6951,38 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().cas(b"key", 0, 0, 0, false, b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_cas", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .cas(b"doc_pipeline_cas", 0, 0, 0, false, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NotFound)]
+    /// );
+    /// conn.set(b"doc_pipeline_cas", 0, 0, false, b"base").await?;
+    /// let cas = conn
+    ///     .gets(b"doc_pipeline_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// let result = conn
+    ///     .pipeline()
+    ///     .cas(b"doc_pipeline_cas", 0, 0, cas, false, b"new")
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn cas(
@@ -5998,13 +7009,15 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().auth(b"username", b"password");
-    /// # Ok::<(), io::Error>(())
+    /// let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
+    /// let result = conn.pipeline().auth(b"a", b"a").version().execute().await?;
+    /// assert_eq!(result[0], PipelineResponse::Unit(()));
+    /// assert!(matches!(&result[1], PipelineResponse::String(version) if !version.is_empty()));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn auth(mut self, username: impl AsRef<[u8]>, password: impl AsRef<[u8]>) -> Self {
@@ -6016,13 +7029,27 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, DeleteResult, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().delete(b"key", false);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_delete", 0, 0, false, b"value")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .delete(b"doc_pipeline_delete", false)
+    ///     .delete(b"doc_pipeline_delete", false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::DeleteResult(DeleteResult::Deleted),
+    ///         PipelineResponse::DeleteResult(DeleteResult::NotFound),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn delete(mut self, key: impl AsRef<[u8]>, noreply: bool) -> Self {
@@ -6033,13 +7060,26 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().incr(b"key", 1, false);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_incr", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .incr(b"doc_pipeline_incr", 1, false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Value(None)]);
+    /// conn.set(b"doc_pipeline_incr", 0, 0, false, b"10").await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .incr(b"doc_pipeline_incr", 5, false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Value(Some(15))]);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn incr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
@@ -6051,13 +7091,26 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().decr(b"key", 1, false);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_decr", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .decr(b"doc_pipeline_decr", 1, false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Value(None)]);
+    /// conn.set(b"doc_pipeline_decr", 0, 0, false, b"10").await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .decr(b"doc_pipeline_decr", 5, false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Value(Some(5))]);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn decr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
@@ -6069,13 +7122,33 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult, TouchResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().touch(b"key", 1, false);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_touch", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .touch(b"doc_pipeline_touch", 60, false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::TouchResult(TouchResult::NotFound)]
+    /// );
+    /// conn.set(b"doc_pipeline_touch", 0, 0, false, b"value")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .touch(b"doc_pipeline_touch", 60, false)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::TouchResult(TouchResult::Touched)]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn touch(mut self, key: impl AsRef<[u8]>, exptime: i64, noreply: bool) -> Self {
@@ -6086,13 +7159,26 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().get(b"key");
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_get", false).await?;
+    /// let result = conn.pipeline().get(b"doc_pipeline_get").execute().await?;
+    /// assert_eq!(result, [PipelineResponse::OptionItem(None)]);
+    /// conn.set(b"doc_pipeline_get", 0, 0, false, b"value").await?;
+    /// let result = conn.pipeline().get(b"doc_pipeline_get").execute().await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::OptionItem(Some(Item {
+    ///         key: "doc_pipeline_get".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"value".to_vec()
+    ///     }))]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn get(mut self, key: impl AsRef<[u8]>) -> Self {
@@ -6104,13 +7190,23 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().gets(b"key");
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_gets", 0, 0, false, b"value")
+    ///     .await?;
+    /// let result = conn.pipeline().gets(b"doc_pipeline_gets").execute().await?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionItem(Some(item)) => {
+    ///         assert_eq!(item.key, "doc_pipeline_gets");
+    ///         assert_eq!(item.data_block, b"value");
+    ///         assert!(item.cas_unique.is_some());
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn gets(mut self, key: impl AsRef<[u8]>) -> Self {
@@ -6122,13 +7218,27 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().gat(0, b"key");
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_gat", 7, 0, false, b"value").await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .gat(60, b"doc_pipeline_gat")
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionItem(Some(item)) => {
+    ///         assert_eq!(item.key, "doc_pipeline_gat");
+    ///         assert_eq!(item.flags, 7);
+    ///         assert_eq!(item.data_block, b"value");
+    ///         assert_eq!(item.cas_unique, None);
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn gat(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
@@ -6140,13 +7250,28 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().gats(0, b"key");
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_gats", 7, 0, false, b"value")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .gats(60, b"doc_pipeline_gats")
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionItem(Some(item)) => {
+    ///         assert_eq!(item.key, "doc_pipeline_gats");
+    ///         assert_eq!(item.flags, 7);
+    ///         assert_eq!(item.data_block, b"value");
+    ///         assert!(item.cas_unique.is_some());
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn gats(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
@@ -6158,14 +7283,46 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline()
-    ///     .get_multi(&[b"key".as_slice(), b"key2".as_slice()]);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_get_multi_a", false).await?;
+    /// let _ = conn.delete(b"doc_pipeline_get_multi_b", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .get_multi(&[b"doc_pipeline_get_multi_a", b"doc_pipeline_get_multi_b"])
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::VecItem(Vec::new())]);
+    /// conn.set(b"doc_pipeline_get_multi_a", 0, 0, false, b"a")
+    ///     .await?;
+    /// conn.set(b"doc_pipeline_get_multi_b", 0, 0, false, b"b")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .get_multi(&[b"doc_pipeline_get_multi_a", b"doc_pipeline_get_multi_b"])
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::VecItem(vec![
+    ///         Item {
+    ///             key: "doc_pipeline_get_multi_a".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"a".to_vec()
+    ///         },
+    ///         Item {
+    ///             key: "doc_pipeline_get_multi_b".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"b".to_vec()
+    ///         }
+    ///     ])]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn get_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
@@ -6180,14 +7337,30 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline()
-    ///     .gets_multi(&[b"key".as_slice(), b"key2".as_slice()]);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_gets_multi_a", 0, 0, false, b"a")
+    ///     .await?;
+    /// conn.set(b"doc_pipeline_gets_multi_b", 0, 0, false, b"b")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .gets_multi(&[b"doc_pipeline_gets_multi_a", b"doc_pipeline_gets_multi_b"])
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::VecItem(items) => {
+    ///         assert_eq!(items.len(), 2);
+    ///         assert_eq!(items[0].key, "doc_pipeline_gets_multi_a");
+    ///         assert_eq!(items[1].key, "doc_pipeline_gets_multi_b");
+    ///         assert!(items.iter().all(|item| item.cas_unique.is_some()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn gets_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
@@ -6202,14 +7375,41 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline()
-    ///     .gat_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_gat_multi_a", 0, 0, false, b"a")
+    ///     .await?;
+    /// conn.set(b"doc_pipeline_gat_multi_b", 0, 0, false, b"b")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .gat_multi(
+    ///         60,
+    ///         &[b"doc_pipeline_gat_multi_a", b"doc_pipeline_gat_multi_b"],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::VecItem(vec![
+    ///         Item {
+    ///             key: "doc_pipeline_gat_multi_a".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"a".to_vec()
+    ///         },
+    ///         Item {
+    ///             key: "doc_pipeline_gat_multi_b".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"b".to_vec()
+    ///         }
+    ///     ])]
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn gat_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
@@ -6224,14 +7424,33 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline()
-    ///     .gats_multi(0, &[b"key".as_slice(), b"key2".as_slice()]);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_gats_multi_a", 0, 0, false, b"a")
+    ///     .await?;
+    /// conn.set(b"doc_pipeline_gats_multi_b", 0, 0, false, b"b")
+    ///     .await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .gats_multi(
+    ///         60,
+    ///         &[b"doc_pipeline_gats_multi_a", b"doc_pipeline_gats_multi_b"],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::VecItem(items) => {
+    ///         assert_eq!(items.len(), 2);
+    ///         assert_eq!(items[0].key, "doc_pipeline_gats_multi_a");
+    ///         assert_eq!(items[1].key, "doc_pipeline_gats_multi_b");
+    ///         assert!(items.iter().all(|item| item.cas_unique.is_some()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn gats_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
@@ -6246,13 +7465,21 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().stats(None);
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().stats(None).execute().await?;
+    /// match &result[0] {
+    ///     PipelineResponse::HashMap(stats) => {
+    ///         assert!(stats.contains_key("pid"));
+    ///         assert!(stats.contains_key("uptime"));
+    ///         assert!(stats["uptime"].parse::<u64>().is_ok());
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn stats(mut self, arg: Option<StatsArg>) -> Self {
@@ -6263,13 +7490,20 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, SlabsAutomoveArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, SlabsAutomoveArg, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().slabs_automove(SlabsAutomoveArg::Zero);
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn
+    ///     .pipeline()
+    ///     .slabs_automove(SlabsAutomoveArg::Zero)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
+    /// assert_eq!(settings.get("slab_automove").map(String::as_str), Some("0"));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn slabs_automove(mut self, arg: SlabsAutomoveArg) -> Self {
@@ -6280,13 +7514,19 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruCrawlerArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, PipelineResponse, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru_crawler(LruCrawlerArg::Enable);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn
+    ///     .pipeline()
+    ///     .lru_crawler(LruCrawlerArg::Enable)
+    ///     .execute()
+    ///     .await;
+    /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
+    /// assert_eq!(settings.get("lru_crawler").map(String::as_str), Some("yes"));
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler(mut self, arg: LruCrawlerArg) -> Self {
@@ -6297,13 +7537,28 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, PipelineResponse, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru_crawler_sleep(0);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn
+    ///     .pipeline()
+    ///     .lru_crawler(LruCrawlerArg::Enable)
+    ///     .execute()
+    ///     .await;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .lru_crawler_sleep(1_000_000)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
+    /// assert_eq!(
+    ///     settings.get("lru_crawler_sleep").map(String::as_str),
+    ///     Some("1000000")
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_sleep(mut self, microseconds: usize) -> Self {
@@ -6314,13 +7569,24 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, PipelineResponse, StatsArg};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru_crawler_tocrawl(0);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn
+    ///     .pipeline()
+    ///     .lru_crawler(LruCrawlerArg::Enable)
+    ///     .execute()
+    ///     .await;
+    /// let result = conn.pipeline().lru_crawler_tocrawl(1).execute().await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
+    /// assert_eq!(
+    ///     settings.get("lru_crawler_tocrawl").map(String::as_str),
+    ///     Some("1")
+    /// );
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_tocrawl(mut self, arg: u32) -> Self {
@@ -6331,13 +7597,17 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruCrawlerCrawlArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerCrawlArg, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru_crawler_crawl(LruCrawlerCrawlArg::All);
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn
+    ///     .pipeline()
+    ///     .lru_crawler_crawl(LruCrawlerCrawlArg::All)
+    ///     .execute()
+    ///     .await;
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_crawl(mut self, arg: LruCrawlerCrawlArg<'_>) -> Self {
@@ -6348,13 +7618,14 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().slabs_reassign(1, 2);
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().slabs_reassign(1, 2).execute().await;
+    /// assert!(result.is_err());
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn slabs_reassign(mut self, source_class: isize, dest_class: isize) -> Self {
@@ -6366,14 +7637,15 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruCrawlerMetadumpArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMetadumpArg, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline()
-    ///     .lru_crawler_metadump(LruCrawlerMetadumpArg::All);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_metadump", 0, 0, false, b"value").await?;
+    /// let _ = conn.pipeline().lru_crawler(LruCrawlerArg::Enable).execute().await;
+    /// conn.pipeline().lru_crawler_metadump(LruCrawlerMetadumpArg::All).execute().await;
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_metadump(mut self, arg: LruCrawlerMetadumpArg<'_>) -> Self {
@@ -6384,13 +7656,15 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruCrawlerMgdumpArg};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMgdumpArg, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru_crawler_mgdump(LruCrawlerMgdumpArg::All);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_mgdump", 0, 0, false, b"value").await?;
+    /// let _ = conn.pipeline().lru_crawler(LruCrawlerArg::Enable).execute().await;
+    /// conn.pipeline().lru_crawler_mgdump(LruCrawlerMgdumpArg::All).execute().await;
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_mgdump(mut self, arg: LruCrawlerMgdumpArg<'_>) -> Self {
@@ -6401,13 +7675,14 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().mn();
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn.pipeline().mn().execute().await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn mn(mut self) -> Self {
@@ -6418,13 +7693,18 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::Connection;
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().me(b"key");
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_me", 0, 0, false, b"value").await?;
+    /// let result = conn.pipeline().me(b"doc_pipeline_me").execute().await?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionString(Some(info)) => assert!(info.starts_with("doc_pipeline_me ")),
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn me(mut self, key: impl AsRef<[u8]>) -> Self {
@@ -6435,13 +7715,36 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MgFlag};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MgFlag, MgStatus, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().mg(b"key", &[MgFlag::Base64Key]);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_mg", 7, 0, false, b"hello").await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .mg(
+    ///         b"doc_pipeline_mg",
+    ///         &[
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnValue,
+    ///         ],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaGet(item) => {
+    ///         assert_eq!(item.status, MgStatus::WithBody);
+    ///         assert_eq!(item.key, Some("doc_pipeline_mg".to_string()));
+    ///         assert_eq!(item.flags, Some(7));
+    ///         assert_eq!(item.size, Some(5));
+    ///         assert_eq!(item.data_block, Some(b"hello".to_vec()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn mg(mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Self {
@@ -6457,13 +7760,29 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MsFlag};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MsFlag, MsMode, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().ms(b"key", &[MsFlag::Base64Key], b"value");
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn
+    ///     .pipeline()
+    ///     .ms(
+    ///         b"doc_pipeline_ms",
+    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize],
+    ///         b"hello",
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaSet(item) => {
+    ///         assert_eq!(item.status, StorageResult::Stored);
+    ///         assert_eq!(item.key, Some("doc_pipeline_ms".to_string()));
+    ///         assert_eq!(item.size, Some(5));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn ms(
@@ -6484,13 +7803,25 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MdFlag};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MdFlag, MdStatus, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().md(b"key", &[MdFlag::ReturnKey]);
-    /// # Ok::<(), io::Error>(())
+    /// conn.set(b"doc_pipeline_md", 0, 0, false, b"value").await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .md(b"doc_pipeline_md", &[MdFlag::ReturnKey])
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaDelete(item) => {
+    ///         assert_eq!(item.status, MdStatus::Deleted);
+    ///         assert_eq!(item.key, Some("doc_pipeline_md".to_string()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn md(mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Self {
@@ -6506,13 +7837,35 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, MaFlag};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, MaFlag, MaMode, MaStatus, PipelineResponse, StorageResult};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().ma(b"key", &[MaFlag::Base64Key]);
-    /// # Ok::<(), io::Error>(())
+    /// let _ = conn.delete(b"doc_pipeline_ma", false).await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .ma(
+    ///         b"doc_pipeline_ma",
+    ///         &[
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(5),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaArithmetic(item) => {
+    ///         assert_eq!(item.status, MaStatus::WithBody);
+    ///         assert_eq!(item.number, Some(5));
+    ///         assert_eq!(item.key, Some("doc_pipeline_ma".to_string()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn ma(mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Self {
@@ -6528,13 +7881,17 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// use mcmc_rs::{Connection, LruArg, LruMode};
-    /// # use smol::{io, block_on};
+    /// # use mcmc_rs::{Connection, LruArg, LruMode, PipelineResponse};
+    /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.pipeline().lru(LruArg::Mode(LruMode::Flat));
-    /// # Ok::<(), io::Error>(())
+    /// let result = conn
+    ///     .pipeline()
+    ///     .lru(LruArg::Mode(LruMode::Flat))
+    ///     .execute()
+    ///     .await;
+    /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
     pub fn lru(mut self, arg: LruArg) -> Self {
