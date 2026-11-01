@@ -110,6 +110,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
+      - name: Run servers
+        run: |
+          docker compose up -d
       - run: |
           cargo codspeed build
           cargo codspeed run
