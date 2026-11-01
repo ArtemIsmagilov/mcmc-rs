@@ -111,5 +111,6 @@ jobs:
       - name: Run servers
         run: |
           docker compose up -d
-      - run: |
+      - name: Run bench
+        run: |
           cargo bench --bench bench_perf

@@ -24,13 +24,13 @@ Available TCP/Unix/UDP/TLS connections.
 ### smol-runtime feature by default
 
 ```toml
-mcmc-rs = "0.9.0"
+mcmc-rs = "0.9.1"
 ```
 
 ### tokio-runtime feature by flag
 
 ```toml
-mcmc-rs = { version = "0.9.0", default-features = false, features = ["tokio-runtime"] }
+mcmc-rs = { version = "0.9.1", default-features = false, features = ["tokio-runtime"] }
 ```
 
 ## Examples
