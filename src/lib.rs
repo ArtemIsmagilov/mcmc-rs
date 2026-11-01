@@ -73,13 +73,13 @@ pub enum Error {
     #[error("I/O error: {0}")]
     IoError(#[from] io::Error),
 
-    #[error("Error: {0}")]
-    Error(String),
+    #[error("Client sent a nonexistent command name. Error.")]
+    Error,
 
-    #[error("Client error: {0}")]
+    #[error("The input doesn't conform to the protocol. Client error: {0}")]
     ClientError(String),
 
-    #[error("Server error: {0}")]
+    #[error("Internal server error: {0}")]
     ServerError(String),
 
     #[error("Unexpected error: {0}")]
@@ -89,14 +89,24 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 fn check_error(line: String) -> Error {
-    if line.starts_with("ERROR") {
-        return Error::Error(line);
+    if line == "ERROR\r\n" {
+        return Error::Error;
     };
     if line.starts_with("CLIENT_ERROR") {
-        return Error::ClientError(line);
+        return Error::ClientError(
+            line.trim()
+                .strip_prefix("CLIENT_ERROR ")
+                .unwrap()
+                .to_string(),
+        );
     }
     if line.starts_with("SERVER_ERROR") {
-        return Error::ServerError(line);
+        return Error::ServerError(
+            line.trim()
+                .strip_prefix("SERVER_ERROR ")
+                .unwrap()
+                .to_string(),
+        );
     };
     Error::UnexpectedError(line)
 }
@@ -7912,24 +7922,24 @@ mod tests {
             assert_eq!("1.2.3", version_cmd(&mut c).await.unwrap());
 
             let mut c = Cursor::new(b"version\r\nERROR\r\n".to_vec());
-            assert!(matches!(version_cmd(&mut c).await, Err(Error::Error(_))));
+            assert!(matches!(version_cmd(&mut c).await, Err(Error::Error)));
 
-            let mut c = Cursor::new(b"version\r\nCLIENT_ERROR\r\n".to_vec());
+            let mut c = Cursor::new(b"version\r\nCLIENT_ERROR client msg error\r\n".to_vec());
             assert!(matches!(
                 version_cmd(&mut c).await,
-                Err(Error::ClientError(_))
+                Err(Error::ClientError(e)) if e == "client msg error"
             ));
 
-            let mut c = Cursor::new(b"version\r\nSERVER_ERROR\r\n".to_vec());
+            let mut c = Cursor::new(b"version\r\nSERVER_ERROR server msg error\r\n".to_vec());
             assert!(matches!(
                 version_cmd(&mut c).await,
-                Err(Error::ServerError(_))
+                Err(Error::ServerError(e)) if e == "server msg error"
             ));
 
-            let mut c = Cursor::new(b"version\r\nUNEXPECTED_ERROR\r\n".to_vec());
+            let mut c = Cursor::new(b"version\r\nUNEXPECTED_ERROR msg error\r\n".to_vec());
             assert!(matches!(
                 version_cmd(&mut c).await,
-                Err(Error::UnexpectedError(_))
+                Err(Error::UnexpectedError(e)) if e == "UNEXPECTED_ERROR msg error\r\n"
             ));
         })
     }
@@ -7965,7 +7975,7 @@ mod tests {
             let mut c = Cursor::new(b"cache_memlimit 1\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 cache_memlimit_cmd(&mut c, 1, false).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -7982,7 +7992,7 @@ mod tests {
             let mut c = Cursor::new(b"flush_all\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 flush_all_cmd(&mut c, None, false).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8033,7 +8043,7 @@ mod tests {
             let mut c = Cursor::new(b"add key 0 0 0\r\nvalue\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 storage_cmd(&mut c, b"add", b"key", 0, 0, None, false, b"value").await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8062,7 +8072,7 @@ mod tests {
             let mut c = Cursor::new(b"delete key\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 delete_cmd(&mut c, b"key", false).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8076,7 +8086,7 @@ mod tests {
             let mut c = Cursor::new(b"set _ _ _ 3\r\na b\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 auth_cmd(&mut c, b"a", b"b").await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8111,7 +8121,7 @@ mod tests {
             let mut c = Cursor::new(b"incr key 1\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, false).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8140,7 +8150,7 @@ mod tests {
             let mut c = Cursor::new(b"touch key 0\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 touch_cmd(&mut c, b"key", 0, false).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8196,7 +8206,7 @@ mod tests {
             let mut c = Cursor::new(b"get key\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 retrieval_cmd(&mut c, b"get", None, &[b"key"]).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8217,31 +8227,31 @@ mod tests {
             let mut c = Cursor::new(b"stats settings\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 stats_cmd(&mut c, Some(StatsArg::Settings)).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"stats items\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 stats_cmd(&mut c, Some(StatsArg::Items)).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"stats sizes\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 stats_cmd(&mut c, Some(StatsArg::Sizes)).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"stats slabs\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 stats_cmd(&mut c, Some(StatsArg::Slabs)).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 stats_cmd(&mut c, Some(StatsArg::Conns)).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8259,13 +8269,13 @@ mod tests {
             let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::One).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"slabs automove 2\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::Two).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8279,7 +8289,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler disable\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_cmd(&mut c, LruCrawlerArg::Disable).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8293,7 +8303,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler sleep 0\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_sleep_cmd(&mut c, 0).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8307,7 +8317,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_tocrawl_cmd(&mut c, 0).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8325,7 +8335,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler crawl all\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::All).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8339,7 +8349,7 @@ mod tests {
             let mut c = Cursor::new(b"slabs reassign 1 10\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 slabs_reassign_cmd(&mut c, 1, 10).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8361,13 +8371,13 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler metadump 1,2,3\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3])).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"lru_crawler metadump hash\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Hash).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8387,13 +8397,13 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler mgdump all\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"lru_crawler mgdump hash\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Hash).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -8405,7 +8415,7 @@ mod tests {
             assert!(mn_cmd(&mut c).await.is_ok());
 
             let mut c = Cursor::new(b"mn\r\nERROR\r\n".to_vec());
-            assert!(matches!(mn_cmd(&mut c).await, Err(Error::Error(_))))
+            assert!(matches!(mn_cmd(&mut c).await, Err(Error::Error)))
         })
     }
 
@@ -8424,7 +8434,7 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"me key\r\nERROR\r\n".to_vec());
-            assert!(matches!(me_cmd(&mut c, b"key").await, Err(Error::Error(_))));
+            assert!(matches!(me_cmd(&mut c, b"key").await, Err(Error::Error)));
         })
     }
 
@@ -8621,7 +8631,7 @@ mod tests {
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
             assert!(matches!(
                 execute_cmd(&mut c, &cmds).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8651,7 +8661,7 @@ mod tests {
             let mut c = Cursor::new(b"watch fetchers mutations\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 watch_cmd(&mut c, &[WatchArg::Fetchers, WatchArg::Mutations]).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8793,7 +8803,7 @@ mod tests {
                     ]
                 )
                 .await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
         })
     }
@@ -8916,7 +8926,7 @@ mod tests {
                     b"hi"
                 )
                 .await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(
@@ -9043,7 +9053,7 @@ mod tests {
                     ]
                 )
                 .await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -9212,7 +9222,7 @@ mod tests {
                     ],
                 )
                 .await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ))
         })
     }
@@ -9223,7 +9233,7 @@ mod tests {
             let mut c = Cursor::new(b"lru mode flat\r\nERROR\r\n".to_vec());
             assert!(matches!(
                 lru_cmd(&mut c, LruArg::Mode(LruMode::Flat)).await,
-                Err(Error::Error(_))
+                Err(Error::Error)
             ));
 
             let mut c = Cursor::new(b"lru mode segmented\r\nOK\r\n".to_vec());
