@@ -217,6 +217,13 @@ pub enum LruArg {
     TempTtl(i64),
 }
 
+pub enum VerbosityArg {
+    Off,
+    Error,
+    Info,
+    Debug,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -227,7 +234,6 @@ pub struct Item {
 
 #[derive(Debug, PartialEq)]
 pub enum PipelineResponse {
-    Bool(bool),
     OptionItem(Option<Item>),
     VecItem(Vec<Item>),
     String(String),
@@ -1172,6 +1178,15 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
     w
 }
 
+fn build_verbosity_cmd(arg: VerbosityArg) -> &'static [u8] {
+    match arg {
+        VerbosityArg::Off => b"verbosity 0\r\n",
+        VerbosityArg::Error => b"verbosity 1\r\n",
+        VerbosityArg::Info => b"verbosity 2\r\n",
+        VerbosityArg::Debug => b"verbosity 3\r\n",
+    }
+}
+
 async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> {
     *r = r.wrapping_add(1);
     let mut msg = Vec::with_capacity(8 + cmd.len());
@@ -1819,6 +1834,19 @@ async fn lru_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: LruArg) -> Result<()> 
 
 async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> Result<()> {
     s.write_all(&build_lru_cmd(arg)).await?;
+    parse_ok_rp(s, false).await
+}
+
+async fn verbosity_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: VerbosityArg) -> Result<()> {
+    udp_send_cmd(s, r, build_verbosity_cmd(arg)).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
+async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+    arg: VerbosityArg,
+) -> Result<()> {
+    s.write_all(build_verbosity_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
 
@@ -4013,6 +4041,33 @@ impl Connection {
             Connection::Unix(s) => lru_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => lru_cmd(s, arg).await,
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{Connection, VerbosityArg};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// for mut c in [
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
+    ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
+    /// ] {
+    ///     assert!(c.verbosity(VerbosityArg::Off).await.is_ok());
+    /// }
+    /// #     Ok::<(), mcmc_rs::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn verbosity(&mut self, arg: VerbosityArg) -> Result<()> {
+        match self {
+            Connection::Tcp(s) => verbosity_cmd(s, arg).await,
+            Connection::Unix(s) => verbosity_cmd(s, arg).await,
+            Connection::Udp(s, r) => verbosity_cmd_udp(s, r, arg).await,
+            Connection::Tls(s) => verbosity_cmd(s, arg).await,
         }
     }
 }
@@ -9295,6 +9350,35 @@ mod tests {
 
             let mut c = Cursor::new(b"lru temp_ttl 0\r\nOK\r\n".to_vec());
             assert!(lru_cmd(&mut c, LruArg::TempTtl(0)).await.is_ok())
+        })
+    }
+
+    #[test]
+    fn test_verbosity() {
+        block_on(async {
+            let mut c = Cursor::new(b"verbosity 0\r\nERROR\r\n".to_vec());
+            assert!(matches!(
+                verbosity_cmd(&mut c, VerbosityArg::Off).await,
+                Err(Error::Error)
+            ));
+
+            let mut c = Cursor::new(b"verbosity 0\r\nOK\r\n".to_vec());
+            assert_eq!(verbosity_cmd(&mut c, VerbosityArg::Off).await.unwrap(), ());
+
+            let mut c = Cursor::new(b"verbosity 1\r\nOK\r\n".to_vec());
+            assert_eq!(
+                verbosity_cmd(&mut c, VerbosityArg::Error).await.unwrap(),
+                ()
+            );
+
+            let mut c = Cursor::new(b"verbosity 2\r\nOK\r\n".to_vec());
+            assert_eq!(verbosity_cmd(&mut c, VerbosityArg::Info).await.unwrap(), ());
+
+            let mut c = Cursor::new(b"verbosity 3\r\nOK\r\n".to_vec());
+            assert_eq!(
+                verbosity_cmd(&mut c, VerbosityArg::Debug).await.unwrap(),
+                ()
+            );
         })
     }
 }
