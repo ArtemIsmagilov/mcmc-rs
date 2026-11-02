@@ -67,8 +67,8 @@ mod rt {
         self, AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
     };
     #[cfg(unix)]
-    pub use tokio::net::UnixSocket;
-    pub use tokio::net::{TcpStream, UdpStream};
+    pub use tokio::net::UnixStream;
+    pub use tokio::net::{TcpStream, UdpSocket};
 }
 use rt::*;
 
