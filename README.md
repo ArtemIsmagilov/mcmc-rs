@@ -4,33 +4,36 @@
 [![crates.io](https://img.shields.io/crates/v/mcmc-rs.svg)](https://crates.io/crates/mcmc-rs)
 [![docs.rs](https://img.shields.io/docsrs/mcmc-rs)](https://docs.rs/mcmc-rs)
 
-This crate provides working with memcached server.
-All methods implemented.
-Available TCP/Unix/UDP/TLS connections.
+* This crate provides a comprehensive interface for interacting with Memcached servers.
+* Implements the complete Memcached protocol.
+* Available `TCP/Unix/UDP/TLS` connections.
+* Cross-platform support for `Linux/macOS/Windows` .
 
-- [Connection] is a Enum that represents a
+---
+
+* [Connection] is a Enum that represents a
   connection to memcached server.
-- [Pipeline] is a structure that represents a
+* [Pipeline] is a structure that represents a
   pipeline of memcached commands.
-- [WatchStream] is a structure that represents a
+* [WatchStream] is a structure that represents a
   stream of watch events.
-- [ClientCrc32] is a structure that represents a
+* [ClientCrc32] is a structure that represents a
   Cluster connections with ModN hashing.
-- [ClientHashRing] is a structure that represents a
+* [ClientHashRing] is a structure that represents a
   Cluster connections with Ring hashing.
-- [ClientRendezvous] is a structure that represents a
+* [ClientRendezvous] is a structure that represents a
   Cluster connections with Rendezvous hashing.
 
 ### smol-runtime feature by default
 
 ```toml
-mcmc-rs = "0.9.1"
+mcmc-rs = "0.9.4"
 ```
 
 ### tokio-runtime feature by flag
 
 ```toml
-mcmc-rs = { version = "0.9.1", default-features = false, features = ["tokio-runtime"] }
+mcmc-rs = { version = "0.9.4", default-features = false, features = ["tokio-runtime"] }
 ```
 
 ## Examples
@@ -51,7 +54,8 @@ fn main() -> mcmc_rs::Result<()> {
 }
 ```
 
-- There's a lot more in the [examples] directory.
+* There's a lot more in the [examples] directory.
+[examples]: <https://github.com/ArtemIsmagilov/mcmc-rs/tree/main/examples>
 
 ## Tests
 
@@ -106,14 +110,14 @@ opengrep scan --config auto
 
 ## Links
 
-- [Minimal C client](https://github.com/dormando/mcmc)
-- [Golang Client](https://github.com/bradfitz/gomemcache/tree/master)
-- [Protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt)
-- Rust Clients
-  - [https://github.com/vavrusa/memcache-async]
-  - [https://github.com/aisk/rust-memcache]
-  - [https://github.com/Shopify/async-memcached]
-- [Memcached doc](https://docs.memcached.org)
-- [Managed pool](https://docs.rs/deadpool/0.12.2/deadpool/)
-- [Distributed hashing with ModN, HashRing, Rendezvous](https://www.francofernando.com/blog/distributed-systems/2021-12-24-distributed-hashing/)
-- [Sharding algorithms](https://chaotic.land/ru/posts/2024/09/data-sharding-algorithms/)
+* [Minimal C client](https://github.com/dormando/mcmc)
+* [Golang Client](https://github.com/bradfitz/gomemcache/tree/master)
+* [Protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt)
+* Rust Clients
+  * [https://github.com/vavrusa/memcache-async]
+  * [https://github.com/aisk/rust-memcache]
+  * [https://github.com/Shopify/async-memcached]
+* [Memcached doc](https://docs.memcached.org)
+* [Managed pool](https://docs.rs/deadpool/0.12.2/deadpool/)
+* [Distributed hashing with ModN, HashRing, Rendezvous](https://www.francofernando.com/blog/distributed-systems/2021-12-24-distributed-hashing/)
+* [Sharding algorithms](https://chaotic.land/ru/posts/2024/09/data-sharding-algorithms/)
