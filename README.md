@@ -56,9 +56,9 @@ fn main() -> mcmc_rs::Result<()> {
 ## Tests
 
 ```bash
-docker compose up
+podman-compose up
 cargo test
-docker compose down
+podman-compose down
 ```
 
 ## Benchmarks
