@@ -271,6 +271,8 @@ pub enum MsFlag {
     Ttl(i64),
     Mode(MsMode),
     Autovivify(i64),
+    ProxyHint(String),
+    LocationHint(String),
 }
 
 pub enum MgFlag {
@@ -290,6 +292,8 @@ pub enum MgFlag {
     Autovivify(i64),
     RecacheTtl(i64),
     UpdateTtl(i64),
+    ProxyHint(String),
+    LocationHint(String),
 }
 
 pub enum MdFlag {
@@ -301,6 +305,8 @@ pub enum MdFlag {
     Opaque(String),
     UpdateTtl(i64),
     LeaveKey,
+    ProxyHint(String),
+    LocationHint(String),
 }
 
 pub enum MaFlag {
@@ -317,6 +323,8 @@ pub enum MaFlag {
     ReturnCas,
     ReturnValue,
     ReturnKey,
+    ProxyHint(String),
+    LocationHint(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1069,6 +1077,8 @@ fn build_ms_flags(flags: &[MsFlag]) -> Vec<u8> {
             MsMode::Set => w.extend(b" MS"),
         },
         MsFlag::Autovivify(token) => write!(&mut w, " N{token}").unwrap(),
+        MsFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
+        MsFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
     });
     w
 }
@@ -1092,6 +1102,8 @@ fn build_mg_flags(flags: &[MgFlag]) -> Vec<u8> {
         MgFlag::Autovivify(token) => write!(&mut w, " N{token}").unwrap(),
         MgFlag::RecacheTtl(token) => write!(&mut w, " R{token}").unwrap(),
         MgFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+        MgFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
+        MgFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
     });
     w
 }
@@ -1107,6 +1119,8 @@ fn build_md_flags(flags: &[MdFlag]) -> Vec<u8> {
         MdFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
         MdFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
         MdFlag::LeaveKey => w.extend(b" x"),
+        MdFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
+        MdFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
     });
     w
 }
@@ -1130,6 +1144,8 @@ fn build_ma_flags(flags: &[MaFlag]) -> Vec<u8> {
         MaFlag::ReturnCas => w.extend(b" c"),
         MaFlag::ReturnValue => w.extend(b" v"),
         MaFlag::ReturnKey => w.extend(b" k"),
+        MaFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
+        MaFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
     });
     w
 }
@@ -8669,9 +8685,19 @@ mod tests {
     #[test]
     fn test_mg() {
         block_on(async {
-            let mut c = Cursor::new(b"mg key b\r\nEN b\r\n".to_vec());
+            let mut c = Cursor::new(b"mg key b Pauth-pool Leu-central\r\nEN b\r\n".to_vec());
             assert_eq!(
-                mg_cmd(&mut c, b"key", &[MgFlag::Base64Key]).await.unwrap(),
+                mg_cmd(
+                    &mut c,
+                    b"key",
+                    &[
+                        MgFlag::Base64Key,
+                        MgFlag::ProxyHint("auth-pool".to_string()),
+                        MgFlag::LocationHint("eu-central".to_string())
+                    ]
+                )
+                .await
+                .unwrap(),
                 MgItem {
                     status: MgStatus::NotFound,
                     base64_key: true,
@@ -8812,7 +8838,7 @@ mod tests {
     fn test_ms() {
         block_on(async {
             let mut c = Cursor::new(
-                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MP N0\r\nhi\r\nNF\r\n".to_vec(),
+                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MP N0 Pauth-pool Leu-central\r\nhi\r\nNF\r\n".to_vec(),
             );
             assert_eq!(
                 ms_cmd(
@@ -8830,7 +8856,9 @@ mod tests {
                         MsFlag::ReturnSize,
                         MsFlag::Ttl(0),
                         MsFlag::Mode(MsMode::Prepend),
-                        MsFlag::Autovivify(0)
+                        MsFlag::Autovivify(0),
+                        MsFlag::ProxyHint("auth-pool".to_string()),
+                        MsFlag::LocationHint("eu-central".to_string())
                     ],
                     b"hi"
                 )
@@ -8969,7 +8997,10 @@ mod tests {
     #[test]
     fn test_md() {
         block_on(async {
-            let mut c = Cursor::new(b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\nNF\r\n".to_vec());
+            let mut c = Cursor::new(
+                b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x Pauth-pool Leu-central\r\nNF\r\n"
+                    .to_vec(),
+            );
             assert_eq!(
                 md_cmd(
                     &mut c,
@@ -8983,6 +9014,8 @@ mod tests {
                         MdFlag::Opaque("opaque".to_string()),
                         MdFlag::UpdateTtl(0),
                         MdFlag::LeaveKey,
+                        MdFlag::ProxyHint("auth-pool".to_string()),
+                        MdFlag::LocationHint("eu-central".to_string())
                     ]
                 )
                 .await
@@ -9062,7 +9095,7 @@ mod tests {
     fn test_ma() {
         block_on(async {
             let mut c = Cursor::new(
-                b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nNF\r\n".to_vec(),
+                b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k Pauth-pool Leu-central\r\nNF\r\n".to_vec(),
             );
             assert_eq!(
                 ma_cmd(
@@ -9082,6 +9115,8 @@ mod tests {
                         MaFlag::ReturnCas,
                         MaFlag::ReturnValue,
                         MaFlag::ReturnKey,
+                        MaFlag::ProxyHint("auth-pool".to_string()),
+                        MaFlag::LocationHint("eu-central".to_string())
                     ],
                 )
                 .await

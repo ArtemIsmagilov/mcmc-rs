@@ -1,12 +1,12 @@
 [package]
 name = "mcmc-rs"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
 repository = "https://github.com/ArtemIsmagilov/mcmc-rs"
 license = "MIT"
-keywords = ["memcached"]
+keywords = ["memcached", "async", "client"]
 categories = ["asynchronous", "caching", "database"]
 
 [[example]]
@@ -28,7 +28,7 @@ name = "bench_perf"
 
 [dependencies]
 async-native-tls = { version = "0.6.0", default-features = false }
-crc32fast = "1.5.3"
+crc32fast = "1.5.4"
 hashring = "0.3.6"
 hrw-hash = "2.0.3"
 smol = { version = "2.0.2", optional = true }
