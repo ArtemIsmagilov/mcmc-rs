@@ -125,7 +125,7 @@ jobs:
         run: |
           cargo bench --bench bench_perf
 
-  crossplatform:
+  check-cross:
     name: Check crossplatform.
     runs-on: ${{ matrix.os }}
     strategy:
