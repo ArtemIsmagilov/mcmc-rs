@@ -1704,9 +1704,11 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
             result.push(PipelineResponse::MetaArithmetic(parse_ma_rp(s).await?))
         } else if cmd.starts_with(b"lru ") {
             result.push(PipelineResponse::Unit(parse_ok_rp(s, false).await?))
-        } else {
-            assert!(cmd.starts_with(b"me "));
+        } else if cmd.starts_with(b"me ") {
             result.push(PipelineResponse::OptionString(parse_me_rp(s).await?))
+        } else {
+            assert!(cmd.starts_with(b"verbosity "));
+            result.push(PipelineResponse::Unit(parse_ok_rp(s, false).await?))
         }
     }
     Ok(result)
@@ -2116,15 +2118,15 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    /// assert_eq!(
-    ///     c.set(b"doc_conn_flush_all", 0, 0, false, b"value").await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     c.get(b"doc_conn_flush_all").await?.unwrap().data_block,
-    ///     b"value"
-    /// );
-    /// assert_eq!(c.flush_all(Some(999), false).await?, ());
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_flush_all", 0, 0, false, b"value").await?,
+    ///         StorageResult::Stored
+    ///     );
+    ///     assert_eq!(
+    ///         c.get(b"doc_conn_flush_all").await?.unwrap().data_block,
+    ///         b"value"
+    ///     );
+    ///     assert_eq!(c.flush_all(Some(999), false).await?, ());
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
@@ -7979,6 +7981,28 @@ impl<'a> Pipeline<'a> {
         self.1.push(build_lru_cmd(arg));
         self
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{Connection, VerbosityArg, PipelineResponse};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn
+    ///     .pipeline()
+    ///     .verbosity(VerbosityArg::Off)
+    ///     .execute()
+    ///     .await?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// #     Ok::<(), mcmc_rs::Error>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn verbosity(mut self, arg: VerbosityArg) -> Self {
+        self.1.push(build_verbosity_cmd(arg).to_vec());
+        self
+    }
 }
 
 #[cfg(test)]
@@ -8550,6 +8574,7 @@ mod tests {
                 b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\n".to_vec(),
                 b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\n".to_vec(),
                 b"lru mode flat\r\n".to_vec(),
+                b"verbosity 0\r\n".to_vec(),
             ];
             let rps = [
                 b"VERSION 1.2.3\r\n".to_vec(),
@@ -8581,6 +8606,7 @@ mod tests {
                 b"HD k44OG44K544OI Oopaque b\r\n".to_vec(),
                 b"VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n".to_vec(),
                 b"OK\r\n".to_vec(),
+                b"OK\r\n".to_vec()
             ];
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
             assert_eq!(
@@ -8686,6 +8712,7 @@ mod tests {
                         base64_key: true
                     }),
                     PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(())
                 ]
             );
 
