@@ -54,7 +54,9 @@ compile_error!(
 mod rt {
     pub use smol::fs;
     pub use smol::io::{self, BufReader, Cursor};
-    pub use smol::net::{TcpStream, UdpSocket, unix::UnixStream};
+    #[cfg(unix)]
+    pub use smol::net::unix::UnixStream;
+    pub use smol::net::{TcpStream, UdpSocket};
     pub use smol::prelude::*;
 }
 #[cfg(feature = "tokio-runtime")]
@@ -64,7 +66,9 @@ mod rt {
     pub use tokio::io::{
         self, AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
     };
-    pub use tokio::net::{TcpStream, UdpSocket, UnixStream};
+    #[cfg(unix)]
+    pub use tokio::net::UnixSocket;
+    pub use tokio::net::{TcpStream, UdpStream};
 }
 use rt::*;
 
@@ -1854,6 +1858,7 @@ async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
+    #[cfg(unix)]
     Unix(BufReader<UnixStream>),
     Udp(UdpSocket, u16),
     Tls(BufReader<TlsStream<TcpStream>>),
@@ -1933,6 +1938,7 @@ impl Connection {
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
+    #[cfg(unix)]
     pub async fn unix_connect(path: &str) -> Result<Self> {
         Ok(Connection::Unix(BufReader::new(
             UnixStream::connect(path).await?,
@@ -2018,6 +2024,7 @@ impl Connection {
     pub async fn version(&mut self) -> Result<String> {
         match self {
             Connection::Tcp(s) => version_cmd(s).await,
+            #[cfg(unix)]
             Connection::Unix(s) => version_cmd(s).await,
             Connection::Udp(s, r) => version_cmd_udp(s, r).await,
             Connection::Tls(s) => version_cmd(s).await,
@@ -2045,6 +2052,7 @@ impl Connection {
     pub async fn quit(mut self) -> Result<()> {
         match &mut self {
             Connection::Tcp(s) => quit_cmd(s).await,
+            #[cfg(unix)]
             Connection::Unix(s) => quit_cmd(s).await,
             Connection::Udp(s, r) => quit_cmd_udp(s, r).await,
             Connection::Tls(s) => quit_cmd(s).await,
@@ -2072,6 +2080,7 @@ impl Connection {
     pub async fn shutdown(mut self, graceful: bool) -> Result<()> {
         match &mut self {
             Connection::Tcp(s) => shutdown_cmd(s, graceful).await,
+            #[cfg(unix)]
             Connection::Unix(s) => shutdown_cmd(s, graceful).await,
             Connection::Udp(s, r) => shutdown_cmd_udp(s, r, graceful).await,
             Connection::Tls(s) => shutdown_cmd(s, graceful).await,
@@ -2099,6 +2108,7 @@ impl Connection {
     pub async fn cache_memlimit(&mut self, limit: usize, noreply: bool) -> Result<()> {
         match self {
             Connection::Tcp(s) => cache_memlimit_cmd(s, limit, noreply).await,
+            #[cfg(unix)]
             Connection::Unix(s) => cache_memlimit_cmd(s, limit, noreply).await,
             Connection::Udp(s, r) => cache_memlimit_cmd_udp(s, r, limit, noreply).await,
             Connection::Tls(s) => cache_memlimit_cmd(s, limit, noreply).await,
@@ -2134,6 +2144,7 @@ impl Connection {
     pub async fn flush_all(&mut self, exptime: Option<i64>, noreply: bool) -> Result<()> {
         match self {
             Connection::Tcp(s) => flush_all_cmd(s, exptime, noreply).await,
+            #[cfg(unix)]
             Connection::Unix(s) => flush_all_cmd(s, exptime, noreply).await,
             Connection::Udp(s, r) => flush_all_cmd_udp(s, r, exptime, noreply).await,
             Connection::Tls(s) => flush_all_cmd(s, exptime, noreply).await,
@@ -2192,6 +2203,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 storage_cmd(
                     s,
@@ -2284,6 +2296,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 storage_cmd(
                     s,
@@ -2385,6 +2398,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 storage_cmd(
                     s,
@@ -2484,6 +2498,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 storage_cmd(
                     s,
@@ -2585,6 +2600,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 storage_cmd(
                     s,
@@ -2687,6 +2703,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 storage_cmd(
                     s,
@@ -2755,6 +2772,7 @@ impl Connection {
     ) -> Result<()> {
         match self {
             Connection::Tcp(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
+            #[cfg(unix)]
             Connection::Unix(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
             Connection::Udp(_s, _r) => {
                 unreachable!("Cannot enable UDP while using binary SASL authentication.")
@@ -2795,6 +2813,7 @@ impl Connection {
     pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
         match self {
             Connection::Tcp(s) => delete_cmd(s, key.as_ref(), noreply).await,
+            #[cfg(unix)]
             Connection::Unix(s) => delete_cmd(s, key.as_ref(), noreply).await,
             Connection::Udp(s, r) => delete_cmd_udp(s, r, key.as_ref(), noreply).await,
             Connection::Tls(s) => delete_cmd(s, key.as_ref(), noreply).await,
@@ -2833,6 +2852,7 @@ impl Connection {
     ) -> Result<Option<u64>> {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
+            #[cfg(unix)]
             Connection::Unix(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
             Connection::Udp(s, r) => {
                 incr_decr_cmd_udp(s, r, b"incr", key.as_ref(), value, noreply).await
@@ -2873,6 +2893,7 @@ impl Connection {
     ) -> Result<Option<u64>> {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
+            #[cfg(unix)]
             Connection::Unix(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
             Connection::Udp(s, r) => {
                 incr_decr_cmd_udp(s, r, b"decr", key.as_ref(), value, noreply).await
@@ -2918,6 +2939,7 @@ impl Connection {
     ) -> Result<TouchResult> {
         match self {
             Connection::Tcp(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
+            #[cfg(unix)]
             Connection::Unix(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
             Connection::Udp(s, r) => touch_cmd_udp(s, r, key.as_ref(), exptime, noreply).await,
             Connection::Tls(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
@@ -2958,6 +2980,7 @@ impl Connection {
     pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
         match self {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
+            #[cfg(unix)]
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
             Connection::Udp(s, r) => Ok(retrieval_cmd_udp(s, r, b"get", None, &[key.as_ref()])
                 .await?
@@ -2996,6 +3019,7 @@ impl Connection {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"gets", None, &[key.as_ref()])
                 .await?
                 .pop()),
+            #[cfg(unix)]
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gets", None, &[key.as_ref()])
                 .await?
                 .pop()),
@@ -3039,6 +3063,7 @@ impl Connection {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"gat", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
+            #[cfg(unix)]
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gat", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
@@ -3086,6 +3111,7 @@ impl Connection {
             Connection::Tcp(s) => Ok(retrieval_cmd(s, b"gats", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
+            #[cfg(unix)]
             Connection::Unix(s) => Ok(retrieval_cmd(s, b"gats", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
@@ -3155,6 +3181,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 retrieval_cmd(
                     s,
@@ -3230,6 +3257,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 retrieval_cmd(
                     s,
@@ -3318,6 +3346,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 retrieval_cmd(
                     s,
@@ -3397,6 +3426,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(unix)]
             Connection::Unix(s) => {
                 retrieval_cmd(
                     s,
@@ -3455,6 +3485,7 @@ impl Connection {
     pub async fn stats(&mut self, arg: Option<StatsArg>) -> Result<HashMap<String, String>> {
         match self {
             Connection::Tcp(s) => stats_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => stats_cmd(s, arg).await,
             Connection::Udp(s, r) => stats_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => stats_cmd(s, arg).await,
@@ -3484,6 +3515,7 @@ impl Connection {
     pub async fn slabs_automove(&mut self, arg: SlabsAutomoveArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => slabs_automove_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => slabs_automove_cmd(s, arg).await,
             Connection::Udp(s, r) => slabs_automove_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => slabs_automove_cmd(s, arg).await,
@@ -3513,6 +3545,7 @@ impl Connection {
     pub async fn lru_crawler(&mut self, arg: LruCrawlerArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_crawler_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => lru_crawler_cmd(s, arg).await,
@@ -3546,6 +3579,7 @@ impl Connection {
     pub async fn lru_crawler_sleep(&mut self, microseconds: usize) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_sleep_cmd(s, microseconds).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_sleep_cmd(s, microseconds).await,
             Connection::Udp(s, r) => lru_crawler_sleep_cmd_udp(s, r, microseconds).await,
             Connection::Tls(s) => lru_crawler_sleep_cmd(s, microseconds).await,
@@ -3579,6 +3613,7 @@ impl Connection {
     pub async fn lru_crawler_tocrawl(&mut self, arg: u32) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_tocrawl_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_crawler_tocrawl_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => lru_crawler_tocrawl_cmd(s, arg).await,
@@ -3606,6 +3641,7 @@ impl Connection {
     pub async fn lru_crawler_crawl(&mut self, arg: LruCrawlerCrawlArg<'_>) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_crawler_crawl_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_crawl_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_crawler_crawl_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => lru_crawler_crawl_cmd(s, arg).await,
@@ -3633,6 +3669,7 @@ impl Connection {
     pub async fn slabs_reassign(&mut self, source_class: isize, dest_class: isize) -> Result<()> {
         match self {
             Connection::Tcp(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
+            #[cfg(unix)]
             Connection::Unix(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
             Connection::Udp(s, r) => slabs_reassign_cmd_udp(s, r, source_class, dest_class).await,
             Connection::Tls(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
@@ -3667,6 +3704,7 @@ impl Connection {
     ) -> Result<Vec<String>> {
         match self {
             Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
             Connection::Udp(_s, _r) => unreachable!("this command not work with udp connection!"),
             Connection::Tls(s) => lru_crawler_metadump_cmd(s, arg).await,
@@ -3701,6 +3739,7 @@ impl Connection {
     ) -> Result<Vec<String>> {
         match self {
             Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
             Connection::Udp(_s, _r) => unreachable!("this command not work with udp connection!"),
             Connection::Tls(s) => lru_crawler_mgdump_cmd(s, arg).await,
@@ -3728,6 +3767,7 @@ impl Connection {
     pub async fn mn(&mut self) -> Result<()> {
         match self {
             Connection::Tcp(s) => mn_cmd(s).await,
+            #[cfg(unix)]
             Connection::Unix(s) => mn_cmd(s).await,
             Connection::Udp(s, r) => mn_cmd_udp(s, r).await,
             Connection::Tls(s) => mn_cmd(s).await,
@@ -3762,6 +3802,7 @@ impl Connection {
     pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
         match self {
             Connection::Tcp(s) => me_cmd(s, key.as_ref()).await,
+            #[cfg(unix)]
             Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
             Connection::Udp(s, r) => me_cmd_udp(s, r, key.as_ref()).await,
             Connection::Tls(s) => me_cmd(s, key.as_ref()).await,
@@ -3810,6 +3851,7 @@ impl Connection {
     pub async fn watch(mut self, arg: &[WatchArg]) -> Result<WatchStream> {
         match &mut self {
             Connection::Tcp(s) => watch_cmd(s, arg).await?,
+            #[cfg(unix)]
             Connection::Unix(s) => watch_cmd(s, arg).await?,
             Connection::Udp(_s, _r) => unreachable!("this command not work with udp!"),
             Connection::Tls(s) => watch_cmd(s, arg).await?,
@@ -3868,6 +3910,7 @@ impl Connection {
     pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
         match self {
             Connection::Tcp(s) => mg_cmd(s, key.as_ref(), flags).await,
+            #[cfg(unix)]
             Connection::Unix(s) => mg_cmd(s, key.as_ref(), flags).await,
             Connection::Udp(s, r) => mg_cmd_udp(s, r, key.as_ref(), flags).await,
             Connection::Tls(s) => mg_cmd(s, key.as_ref(), flags).await,
@@ -3920,6 +3963,7 @@ impl Connection {
     ) -> Result<MsItem> {
         match self {
             Connection::Tcp(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
+            #[cfg(unix)]
             Connection::Unix(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
             Connection::Udp(s, r) => {
                 ms_cmd_udp(s, r, key.as_ref(), flags, data_block.as_ref()).await
@@ -3958,6 +4002,7 @@ impl Connection {
     pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
         match self {
             Connection::Tcp(s) => md_cmd(s, key.as_ref(), flags).await,
+            #[cfg(unix)]
             Connection::Unix(s) => md_cmd(s, key.as_ref(), flags).await,
             Connection::Udp(s, r) => md_cmd_udp(s, r, key.as_ref(), flags).await,
             Connection::Tls(s) => md_cmd(s, key.as_ref(), flags).await,
@@ -4013,6 +4058,7 @@ impl Connection {
     pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
         match self {
             Connection::Tcp(s) => ma_cmd(s, key.as_ref(), flags).await,
+            #[cfg(unix)]
             Connection::Unix(s) => ma_cmd(s, key.as_ref(), flags).await,
             Connection::Udp(s, r) => ma_cmd_udp(s, r, key.as_ref(), flags).await,
             Connection::Tls(s) => ma_cmd(s, key.as_ref(), flags).await,
@@ -4040,6 +4086,7 @@ impl Connection {
     pub async fn lru(&mut self, arg: LruArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => lru_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => lru_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => lru_cmd(s, arg).await,
@@ -4067,6 +4114,7 @@ impl Connection {
     pub async fn verbosity(&mut self, arg: VerbosityArg) -> Result<()> {
         match self {
             Connection::Tcp(s) => verbosity_cmd(s, arg).await,
+            #[cfg(unix)]
             Connection::Unix(s) => verbosity_cmd(s, arg).await,
             Connection::Udp(s, r) => verbosity_cmd_udp(s, r, arg).await,
             Connection::Tls(s) => verbosity_cmd(s, arg).await,
@@ -4119,6 +4167,7 @@ impl WatchStream {
         let mut line = String::new();
         let n = match &mut self.0 {
             Connection::Tcp(s) => s.read_line(&mut line).await?,
+            #[cfg(unix)]
             Connection::Unix(s) => s.read_line(&mut line).await?,
             Connection::Udp(_s, _r) => unreachable!("this command not work with udp connection"),
             Connection::Tls(s) => s.read_line(&mut line).await?,

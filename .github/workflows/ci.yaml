@@ -124,3 +124,17 @@ jobs:
       - name: Run bench
         run: |
           cargo bench --bench bench_perf
+
+  crossplatform:
+    name: Check crossplatform.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v7
+      - name: Run checks
+        run: |
+          cargo check
+          cargo check --no-default-features --features tokio-runtime
