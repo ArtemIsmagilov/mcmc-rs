@@ -8,6 +8,7 @@
 * Implements the complete Memcached protocol.
 * Available `TCP/Unix/UDP/TLS` connections.
 * Cross-platform support for `Linux/macOS/Windows` .
+* Typed API
 
 ---
 
@@ -27,13 +28,13 @@
 ### smol-runtime feature by default
 
 ```toml
-mcmc-rs = "0.9.4"
+mcmc-rs = "0.9.5"
 ```
 
 ### tokio-runtime feature by flag
 
 ```toml
-mcmc-rs = { version = "0.9.4", default-features = false, features = ["tokio-runtime"] }
+mcmc-rs = { version = "0.9.5", default-features = false, features = ["tokio-runtime"] }
 ```
 
 ## Examples
