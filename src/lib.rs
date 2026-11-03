@@ -6909,8 +6909,9 @@ impl<'a> Pipeline<'a> {
     ///         .await?,
     ///     StorageResult::Stored
     /// );
-    /// let result = conn.pipeline().flush_all(Some(999), false).execute().await?;
+    /// let result = conn.pipeline().flush_all(None, false).execute().await?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// assert_eq!(conn.get(b"doc_pipeline_flush_all").await?, None);
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
