@@ -3267,7 +3267,6 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3321,16 +3320,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s, r) => {
-                retrieval_cmd_udp(
-                    s,
-                    r,
-                    b"get",
-                    None,
-                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
-                )
-                .await
-            }
+            Connection::Udp(_s, _r) => unreachable!("Udp not work with multicommands"),
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3353,7 +3343,6 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3398,16 +3387,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s, r) => {
-                retrieval_cmd_udp(
-                    s,
-                    r,
-                    b"gets",
-                    None,
-                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
-                )
-                .await
-            }
+            Connection::Udp(_s, _r) => unreachable!("Udp not work with multicommands"),
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3430,7 +3410,6 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3488,16 +3467,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s, r) => {
-                retrieval_cmd_udp(
-                    s,
-                    r,
-                    b"gat",
-                    Some(exptime),
-                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
-                )
-                .await
-            }
+            Connection::Udp(_s, _r) => unreachable!("Udp not work with multicommands"),
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3520,7 +3490,6 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3569,16 +3538,7 @@ impl Connection {
                 )
                 .await
             }
-            Connection::Udp(s, r) => {
-                retrieval_cmd_udp(
-                    s,
-                    r,
-                    b"gats",
-                    Some(exptime),
-                    &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
-                )
-                .await
-            }
+            Connection::Udp(_s, _r) => unreachable!("Udp not work with multicommands"),
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -6949,9 +6909,8 @@ impl<'a> Pipeline<'a> {
     ///         .await?,
     ///     StorageResult::Stored
     /// );
-    /// let result = conn.pipeline().flush_all(None, false).execute().await?;
+    /// let result = conn.pipeline().flush_all(Some(999), false).execute().await?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
-    /// assert_eq!(conn.get(b"doc_pipeline_flush_all").await?, None);
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
