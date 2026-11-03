@@ -1970,6 +1970,9 @@ async fn verbosity_cmd_udp(
     noreply: bool,
 ) -> Result<()> {
     udp_send_cmd(s, r, &build_verbosity_cmd(arg, noreply)).await?;
+    if noreply {
+        return Ok(());
+    }
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
 }
 
