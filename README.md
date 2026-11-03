@@ -54,15 +54,14 @@ fn main() -> mcmc_rs::Result<()> {
 }
 ```
 
-* There's a lot more in the [examples] directory.
-[examples]: <https://github.com/ArtemIsmagilov/mcmc-rs/tree/main/examples>
+* There's a lot more in the [examples](examples/)
 
 ## Tests
 
 ```bash
-podman-compose up
+docker compose up
 cargo test
-podman-compose down
+docker compose down
 ```
 
 ## Benchmarks

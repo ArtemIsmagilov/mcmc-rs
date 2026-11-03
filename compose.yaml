@@ -1,17 +1,17 @@
 services:
   md-tcp0:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     ports:
       - "11211:11211"
 
   md-unix0:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     command: ["-s", "/tmp/memcached0.sock", "-a", "0666"]
     volumes:
       - "/tmp:/tmp"
 
   md-tcp1:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     command: ["-p", "11212", "-S", "-Y", "/app/sasl.txt"]
     volumes:
       - "./sasl.txt:/app/sasl.txt:ro"
@@ -19,34 +19,34 @@ services:
       - "11212:11212"
 
   md-tcp2:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     restart: unless-stopped
     ports:
       - "11213:11213"
     command: ["-p", "11213", "-A"]
 
   md-udp0:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     command: ["-U", "11214"]
     ports:
       - "11214:11214/udp"
 
   md-unix1:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     restart: unless-stopped
     command: ["-A", "-s", "/tmp/memcached1.sock", "-a", "0666"]
     volumes:
       - "/tmp:/tmp"
 
   md-udp1:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     restart: unless-stopped
     command: ["-U", "11215", "-A"]
     ports:
       - "11215:11215/udp"
 
   md-unix2:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     command:
       ["-s", "/tmp/memcached2.sock", "-S", "-Y", "/app/sasl.txt", "-a", "0666"]
     volumes:
@@ -54,7 +54,7 @@ services:
       - "/tmp:/tmp"
 
   md-tls0:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     command:
       [
         "-p",
@@ -70,7 +70,7 @@ services:
       - "11216:11216"
 
   md-tls1:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     restart: unless-stopped
     command:
       [
@@ -88,7 +88,7 @@ services:
       - "11217:11217"
 
   md-tls2:
-    image: "memcached:1.6.41-alpine"
+    image: "memcached:1.6.45-alpine"
     command:
       [
         "-p",

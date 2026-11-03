@@ -9,11 +9,9 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Run servers
         run: |
-          uvx podman-compose up -d
+          docker compose up -d
       - name: Run tests
         run: |
           cargo test
@@ -24,15 +22,13 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run servers
         run: |
-          uvx podman-compose up -d
+          docker compose up -d
       - name: Run tests coverage
         run: |
           cargo llvm-cov --doctests
@@ -43,11 +39,9 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Run servers
         run: |
-          uvx podman-compose up -d
+          docker compose up -d
       - name: Run benchmark
         run: |
           cargo bench --bench bench_time
@@ -96,11 +90,9 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Run servers
         run: |
-          uvx podman-compose up -d
+          docker compose up -d
       - name: Run checks
         run: |
           cargo check
@@ -114,13 +106,11 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Setup gungraun-runner and Valgrind
         uses: gungraun/setup-gungraun@v1
       - name: Run servers
         run: |
-          uvx podman-compose up -d
+          docker compose up -d
       - name: Run bench
         run: |
           cargo bench --bench bench_perf

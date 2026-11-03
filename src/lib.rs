@@ -136,6 +136,31 @@ pub enum TouchResult {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum LruCrawlerResult {
+    Ok,
+    Busy(String),
+    BadClass(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum LruCrawlerDumpResult {
+    Ok(Vec<String>),
+    Busy(String),
+    BadClass(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SlabsReassignResult {
+    Ok,
+    Busy(String),
+    BadClass(String),
+    NoSpare(String),
+    NotFull(String),
+    UnSafe(String),
+    Same(String),
+}
+
+#[derive(Debug, PartialEq)]
 pub enum MgStatus {
     WithBody,
     WithoutBody,
@@ -253,6 +278,9 @@ pub enum PipelineResponse {
     StorageResult(StorageResult),
     DeleteResult(DeleteResult),
     TouchResult(TouchResult),
+    LruCrawlerResult(LruCrawlerResult),
+    LruCrawlerDumpResult(LruCrawlerDumpResult),
+    SlabsReassignResult(SlabsReassignResult),
 }
 
 pub enum MsMode {
@@ -533,34 +561,85 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     }
 }
 
+async fn parse_lru_crawler_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+) -> Result<LruCrawlerResult> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        return Ok(LruCrawlerResult::Ok);
+    }
+    if line.starts_with("BUSY ") {
+        return Ok(LruCrawlerResult::Busy(
+            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("BADCLASS ") {
+        return Ok(LruCrawlerResult::BadClass(
+            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
+        ));
+    }
+    Err(check_error(line))
+}
+
 async fn parse_lru_crawler_metadump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-) -> Result<Vec<String>> {
+) -> Result<LruCrawlerDumpResult> {
     let mut line = String::new();
     let mut items = Vec::new();
-    while s.read_line(&mut line).await? > 0 && line.starts_with("key=") {
-        items.push(line.trim_end().to_string());
-        line.clear();
+    s.read_line(&mut line).await?;
+    if line.starts_with("BUSY ") {
+        return Ok(LruCrawlerDumpResult::Busy(
+            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("BADCLASS ") {
+        return Ok(LruCrawlerDumpResult::BadClass(
+            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
+        ));
+    }
+    if line == "OK\r\n" {
+        while {
+            line.clear();
+            s.read_line(&mut line).await? > 0
+        } && line.starts_with("key=")
+        {
+            items.push(line.trim_end().to_string())
+        }
     }
     match line.as_str() {
-        "END\r\n" => Ok(items),
+        "END\r\n" => Ok(LruCrawlerDumpResult::Ok(items)),
         _ => Err(check_error(line)),
     }
 }
 
 async fn parse_lru_crawler_mgdump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-) -> Result<Vec<String>> {
+) -> Result<LruCrawlerDumpResult> {
     let mut line = String::new();
     let mut items = Vec::new();
-    while s.read_line(&mut line).await? > 0 && line.starts_with("mg ") {
-        let mut split = line.split(' ');
-        split.next();
-        items.push(split.next().unwrap().trim_end().to_string());
-        line.clear();
+    s.read_line(&mut line).await?;
+    if line.starts_with("BUSY ") {
+        return Ok(LruCrawlerDumpResult::Busy(
+            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("BADCLASS ") {
+        return Ok(LruCrawlerDumpResult::BadClass(
+            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
+        ));
+    }
+    if line == "OK\r\n" {
+        while {
+            line.clear();
+            s.read_line(&mut line).await? > 0
+        } && line.starts_with("mg ")
+        {
+            items.push(line.to_string())
+        }
     }
     match line.as_str() {
-        "EN\r\n" => Ok(items),
+        "EN\r\n" => Ok(LruCrawlerDumpResult::Ok(items)),
         _ => Err(check_error(line)),
     }
 }
@@ -791,6 +870,47 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     })
 }
 
+async fn parse_slabs_reassign_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
+    s: &mut S,
+) -> Result<SlabsReassignResult> {
+    let mut line = String::new();
+    s.read_line(&mut line).await?;
+    if line == "OK\r\n" {
+        return Ok(SlabsReassignResult::Ok);
+    }
+    if line.starts_with("BUSY ") {
+        return Ok(SlabsReassignResult::Busy(
+            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("BADCLASS ") {
+        return Ok(SlabsReassignResult::BadClass(
+            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("NOSPARE ") {
+        return Ok(SlabsReassignResult::NoSpare(
+            line.trim().strip_prefix("NOSPARE ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("NOTFULL ") {
+        return Ok(SlabsReassignResult::NotFull(
+            line.trim().strip_prefix("NOTFULL ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("UNSAFE ") {
+        return Ok(SlabsReassignResult::UnSafe(
+            line.trim().strip_prefix("UNSAFE ").unwrap().to_string(),
+        ));
+    }
+    if line.starts_with("SAME ") {
+        return Ok(SlabsReassignResult::Same(
+            line.trim().strip_prefix("SAME ").unwrap().to_string(),
+        ));
+    }
+    Err(check_error(line))
+}
+
 fn build_storage_cmd(
     command_name: &[u8],
     key: &[u8],
@@ -847,14 +967,11 @@ fn build_shutdown_cmd(graceful: bool) -> &'static [u8] {
 }
 
 fn build_cache_memlimit_cmd(limit: usize, noreply: bool) -> Vec<u8> {
-    let mut w = Vec::new();
-    write!(
-        &mut w,
+    format!(
         "cache_memlimit {limit}{}\r\n",
         if noreply { " noreply" } else { "" }
     )
-    .unwrap();
-    w
+    .into_bytes()
 }
 
 fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
@@ -948,15 +1065,11 @@ fn build_lru_crawler_cmd(arg: LruCrawlerArg) -> &'static [u8] {
 }
 
 fn build_lru_clawler_sleep_cmd(microseconds: usize) -> Vec<u8> {
-    let mut w = Vec::new();
-    write!(&mut w, "lru_crawler sleep {microseconds}\r\n").unwrap();
-    w
+    format!("lru_crawler sleep {microseconds}\r\n").into_bytes()
 }
 
 fn build_lru_crawler_tocrawl_cmd(arg: u32) -> Vec<u8> {
-    let mut w = Vec::new();
-    write!(&mut w, "lru_crawler tocrawl {arg}\r\n").unwrap();
-    w
+    format!("lru_crawler tocrawl {arg}\r\n").into_bytes()
 }
 
 fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
@@ -976,9 +1089,7 @@ fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
 }
 
 fn build_slabs_reassign_cmd(source_class: isize, dest_class: isize) -> Vec<u8> {
-    let mut w = Vec::new();
-    write!(&mut w, "slabs reassign {source_class} {dest_class}\r\n").unwrap();
-    w
+    format!("slabs reassign {source_class} {dest_class}\r\n").into_bytes()
 }
 
 fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
@@ -1551,17 +1662,17 @@ async fn lru_crawler_crawl_cmd_udp(
     s: &mut UdpSocket,
     r: &mut u16,
     arg: LruCrawlerCrawlArg<'_>,
-) -> Result<()> {
+) -> Result<LruCrawlerResult> {
     udp_send_cmd(s, r, &build_lru_clawler_crawl_cmd(arg)).await?;
-    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+    parse_lru_crawler_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerCrawlArg<'_>,
-) -> Result<()> {
+) -> Result<LruCrawlerResult> {
     s.write_all(&build_lru_clawler_crawl_cmd(arg)).await?;
-    parse_ok_rp(s, false).await
+    parse_lru_crawler_rp(s).await
 }
 
 async fn slabs_reassign_cmd_udp(
@@ -1569,25 +1680,25 @@ async fn slabs_reassign_cmd_udp(
     r: &mut u16,
     source_class: isize,
     dest_class: isize,
-) -> Result<()> {
+) -> Result<SlabsReassignResult> {
     udp_send_cmd(s, r, &build_slabs_reassign_cmd(source_class, dest_class)).await?;
-    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+    parse_slabs_reassign_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
 async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     source_class: isize,
     dest_class: isize,
-) -> Result<()> {
+) -> Result<SlabsReassignResult> {
     s.write_all(&build_slabs_reassign_cmd(source_class, dest_class))
         .await?;
-    parse_ok_rp(s, false).await
+    parse_slabs_reassign_rp(s).await
 }
 
 async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
-) -> Result<Vec<String>> {
+) -> Result<LruCrawlerDumpResult> {
     s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
     parse_lru_crawler_metadump_rp(s).await
 }
@@ -1595,7 +1706,7 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMgdumpArg<'_>,
-) -> Result<Vec<String>> {
+) -> Result<LruCrawlerDumpResult> {
     s.write_all(&build_lru_clawler_mgdump_cmd(arg)).await?;
     parse_lru_crawler_mgdump_rp(s).await
 }
@@ -1679,24 +1790,30 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
                 parse_ok_rp(s, cmd.ends_with(b"noreply\r\n")).await?,
             ))
         } else if cmd.starts_with(b"slabs automove ")
-            || cmd.starts_with(b"slabs reassign ")
             || cmd.starts_with(b"lru_crawler sleep ")
-            || cmd.starts_with(b"lru_crawler crawl ")
             || cmd.starts_with(b"lru_crawler tocrawl ")
             || cmd == build_lru_crawler_cmd(LruCrawlerArg::Enable)
             || cmd == build_lru_crawler_cmd(LruCrawlerArg::Disable)
         {
             result.push(PipelineResponse::Unit(parse_ok_rp(s, false).await?))
+        } else if cmd.starts_with(b"lru_crawler crawl ") {
+            result.push(PipelineResponse::LruCrawlerResult(
+                parse_lru_crawler_rp(s).await?,
+            ))
+        } else if cmd.starts_with(b"slabs reassign ") {
+            result.push(PipelineResponse::SlabsReassignResult(
+                parse_slabs_reassign_rp(s).await?,
+            ));
         } else if cmd == build_mn_cmd() {
             result.push(PipelineResponse::Unit(parse_mn_rp(s).await?))
         } else if cmd.starts_with(b"stats") {
             result.push(PipelineResponse::HashMap(parse_stats_rp(s).await?))
         } else if cmd.starts_with(b"lru_crawler metadump ") {
-            result.push(PipelineResponse::VecString(
+            result.push(PipelineResponse::LruCrawlerDumpResult(
                 parse_lru_crawler_metadump_rp(s).await?,
             ))
         } else if cmd.starts_with(b"lru_crawler mgdump ") {
-            result.push(PipelineResponse::VecString(
+            result.push(PipelineResponse::LruCrawlerDumpResult(
                 parse_lru_crawler_mgdump_rp(s).await?,
             ))
         } else if cmd.starts_with(b"mg ") {
@@ -3642,12 +3759,15 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     c.lru_crawler_crawl(LruCrawlerCrawlArg::All).await;
+    ///     c.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn lru_crawler_crawl(&mut self, arg: LruCrawlerCrawlArg<'_>) -> Result<()> {
+    pub async fn lru_crawler_crawl(
+        &mut self,
+        arg: LruCrawlerCrawlArg<'_>,
+    ) -> Result<LruCrawlerResult> {
         match self {
             Connection::Tcp(s) => lru_crawler_crawl_cmd(s, arg).await,
             #[cfg(unix)]
@@ -3670,12 +3790,16 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.slabs_reassign(1, 2).await;
+    ///     c.slabs_reassign(1, 2).await?;
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn slabs_reassign(&mut self, source_class: isize, dest_class: isize) -> Result<()> {
+    pub async fn slabs_reassign(
+        &mut self,
+        source_class: isize,
+        dest_class: isize,
+    ) -> Result<SlabsReassignResult> {
         match self {
             Connection::Tcp(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
             #[cfg(unix)]
@@ -3701,8 +3825,7 @@ impl Connection {
     ///         c.set(b"doc_conn_metadump", 0, 0, false, b"value").await?,
     ///         StorageResult::Stored
     ///     );
-    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
-    ///     c.lru_crawler_metadump(LruCrawlerMetadumpArg::All).await;
+    ///     c.lru_crawler_metadump(LruCrawlerMetadumpArg::All).await?;
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
@@ -3710,7 +3833,7 @@ impl Connection {
     pub async fn lru_crawler_metadump(
         &mut self,
         arg: LruCrawlerMetadumpArg<'_>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<LruCrawlerDumpResult> {
         match self {
             Connection::Tcp(s) => lru_crawler_metadump_cmd(s, arg).await,
             #[cfg(unix)]
@@ -3736,8 +3859,7 @@ impl Connection {
     ///         c.set(b"doc_conn_mgdump", 0, 0, false, b"value").await?,
     ///         StorageResult::Stored
     ///     );
-    ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
-    ///     c.lru_crawler_mgdump(LruCrawlerMgdumpArg::All).await;
+    ///     c.lru_crawler_mgdump(LruCrawlerMgdumpArg::All).await?;
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
@@ -3745,7 +3867,7 @@ impl Connection {
     pub async fn lru_crawler_mgdump(
         &mut self,
         arg: LruCrawlerMgdumpArg<'_>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<LruCrawlerDumpResult> {
         match self {
             Connection::Tcp(s) => lru_crawler_mgdump_cmd(s, arg).await,
             #[cfg(unix)]
@@ -6666,6 +6788,7 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
+    /// # use std::assert_matches;
     /// # use mcmc_rs::{Connection, PipelineResponse};
     /// # use smol::block_on;
     /// #
@@ -6673,7 +6796,7 @@ impl<'a> Pipeline<'a> {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().version().execute().await?;
     /// assert_eq!(result.len(), 1);
-    /// assert!(matches!(result[0], PipelineResponse::String(_)));
+    /// assert_matches!(result[0], PipelineResponse::String(_));
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
@@ -7151,6 +7274,7 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
+    /// # use std::assert_matches;
     /// # use mcmc_rs::{Connection, PipelineResponse};
     /// # use smol::block_on;
     /// #
@@ -7158,7 +7282,7 @@ impl<'a> Pipeline<'a> {
     /// let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
     /// let result = conn.pipeline().auth(b"a", b"a").version().execute().await?;
     /// assert_eq!(result[0], PipelineResponse::Unit(()));
-    /// assert!(matches!(&result[1], PipelineResponse::String(version) if !version.is_empty()));
+    /// assert_matches!(&result[1], PipelineResponse::String(version) if !version.is_empty());
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
@@ -7765,8 +7889,7 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.pipeline().slabs_reassign(1, 2).execute().await;
-    /// assert!(result.is_err());
+    /// conn.pipeline().slabs_reassign(1, 2).execute().await?;
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
@@ -8067,6 +8190,10 @@ impl<'a> Pipeline<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::assert_matches;
+
+    use pretty_assertions::assert_eq;
     use smol::block_on;
 
     #[test]
@@ -8076,25 +8203,25 @@ mod tests {
             assert_eq!("1.2.3", version_cmd(&mut c).await.unwrap());
 
             let mut c = Cursor::new(b"version\r\nERROR\r\n".to_vec());
-            assert!(matches!(version_cmd(&mut c).await, Err(Error::Error)));
+            assert_matches!(version_cmd(&mut c).await, Err(Error::Error));
 
             let mut c = Cursor::new(b"version\r\nCLIENT_ERROR client msg error\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 version_cmd(&mut c).await,
                 Err(Error::ClientError(e)) if e == "client msg error"
-            ));
+            );
 
             let mut c = Cursor::new(b"version\r\nSERVER_ERROR server msg error\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 version_cmd(&mut c).await,
                 Err(Error::ServerError(e)) if e == "server msg error"
-            ));
+            );
 
             let mut c = Cursor::new(b"version\r\nUNEXPECTED_ERROR msg error\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 version_cmd(&mut c).await,
                 Err(Error::UnexpectedError(e)) if e == "UNEXPECTED_ERROR msg error\r\n"
-            ));
+            );
         })
     }
 
@@ -8127,10 +8254,10 @@ mod tests {
             assert!(cache_memlimit_cmd(&mut c, 1, true).await.is_ok());
 
             let mut c = Cursor::new(b"cache_memlimit 1\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 cache_memlimit_cmd(&mut c, 1, false).await,
                 Err(Error::Error)
-            ));
+            );
         })
     }
 
@@ -8144,10 +8271,7 @@ mod tests {
             assert!(flush_all_cmd(&mut c, Some(1), true).await.is_ok());
 
             let mut c = Cursor::new(b"flush_all\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                flush_all_cmd(&mut c, None, false).await,
-                Err(Error::Error)
-            ));
+            assert_matches!(flush_all_cmd(&mut c, None, false).await, Err(Error::Error));
         })
     }
 
@@ -8195,10 +8319,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"add key 0 0 0\r\nvalue\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 storage_cmd(&mut c, b"add", b"key", 0, 0, None, false, b"value").await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8224,10 +8348,7 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"delete key\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                delete_cmd(&mut c, b"key", false).await,
-                Err(Error::Error)
-            ));
+            assert_matches!(delete_cmd(&mut c, b"key", false).await, Err(Error::Error));
         })
     }
 
@@ -8238,10 +8359,7 @@ mod tests {
             assert!(auth_cmd(&mut c, b"a", b"b").await.is_ok());
 
             let mut c = Cursor::new(b"set _ _ _ 3\r\na b\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                auth_cmd(&mut c, b"a", b"b").await,
-                Err(Error::Error)
-            ));
+            assert_matches!(auth_cmd(&mut c, b"a", b"b").await, Err(Error::Error));
         })
     }
 
@@ -8273,10 +8391,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"incr key 1\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, false).await,
                 Err(Error::Error)
-            ));
+            );
         })
     }
 
@@ -8302,10 +8420,7 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"touch key 0\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                touch_cmd(&mut c, b"key", 0, false).await,
-                Err(Error::Error)
-            ))
+            assert_matches!(touch_cmd(&mut c, b"key", 0, false).await, Err(Error::Error))
         })
     }
 
@@ -8358,10 +8473,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"get key\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 retrieval_cmd(&mut c, b"get", None, &[b"key"]).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8379,34 +8494,34 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"stats settings\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Settings)).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"stats items\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Items)).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"stats sizes\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Sizes)).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"stats slabs\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Slabs)).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Conns)).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8421,16 +8536,16 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::One).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"slabs automove 2\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::Two).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8441,10 +8556,10 @@ mod tests {
             assert!(lru_crawler_cmd(&mut c, LruCrawlerArg::Enable).await.is_ok());
 
             let mut c = Cursor::new(b"lru_crawler disable\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 lru_crawler_cmd(&mut c, LruCrawlerArg::Disable).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8455,10 +8570,7 @@ mod tests {
             assert!(lru_crawler_sleep_cmd(&mut c, 1_000_000).await.is_ok());
 
             let mut c = Cursor::new(b"lru_crawler sleep 0\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                lru_crawler_sleep_cmd(&mut c, 0).await,
-                Err(Error::Error)
-            ))
+            assert_matches!(lru_crawler_sleep_cmd(&mut c, 0).await, Err(Error::Error))
         })
     }
 
@@ -8469,10 +8581,7 @@ mod tests {
             assert!(lru_crawler_tocrawl_cmd(&mut c, 0).await.is_ok());
 
             let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                lru_crawler_tocrawl_cmd(&mut c, 0).await,
-                Err(Error::Error)
-            ))
+            assert_matches!(lru_crawler_tocrawl_cmd(&mut c, 0).await, Err(Error::Error))
         })
     }
 
@@ -8480,17 +8589,34 @@ mod tests {
     fn test_lru_crawler_crawl() {
         block_on(async {
             let mut c = Cursor::new(b"lru_crawler crawl 1,2,3\r\nOK\r\n".to_vec());
-            assert!(
+            assert_eq!(
                 lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::Classids(&[1, 2, 3]))
                     .await
-                    .is_ok()
+                    .unwrap(),
+                LruCrawlerResult::Ok
+            );
+
+            let mut c = Cursor::new(b"lru_crawler crawl 1,2,3\r\nBUSY msg\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::Classids(&[1, 2, 3]))
+                    .await
+                    .unwrap(),
+                LruCrawlerResult::Busy("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"lru_crawler crawl 1,2,3\r\nBADCLASS msg\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::Classids(&[1, 2, 3]))
+                    .await
+                    .unwrap(),
+                LruCrawlerResult::BadClass("msg".to_string())
             );
 
             let mut c = Cursor::new(b"lru_crawler crawl all\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::All).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8498,67 +8624,131 @@ mod tests {
     fn test_slabs_reassign() {
         block_on(async {
             let mut c = Cursor::new(b"slabs reassign 1 10\r\nOK\r\n".to_vec());
-            assert!(slabs_reassign_cmd(&mut c, 1, 10).await.is_ok());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::Ok
+            );
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nBUSY msg\r\n".to_vec());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::Busy("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nBADCLASS msg\r\n".to_vec());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::BadClass("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nNOSPARE msg\r\n".to_vec());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::NoSpare("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nNOTFULL msg\r\n".to_vec());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::NotFull("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nUNSAFE msg\r\n".to_vec());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::UnSafe("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"slabs reassign 1 10\r\nSAME msg\r\n".to_vec());
+            assert_eq!(
+                slabs_reassign_cmd(&mut c, 1, 10).await.unwrap(),
+                SlabsReassignResult::Same("msg".to_string())
+            );
 
             let mut c = Cursor::new(b"slabs reassign 1 10\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                slabs_reassign_cmd(&mut c, 1, 10).await,
-                Err(Error::Error)
-            ))
+            assert_matches!(slabs_reassign_cmd(&mut c, 1, 10).await, Err(Error::Error))
         })
     }
 
     #[test]
     fn test_lru_crawler_metadump() {
         block_on(async {
-            let mut c = Cursor::new(b"lru_crawler metadump all\r\nkey=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec());
+            let mut c = Cursor::new(b"lru_crawler metadump all\r\nOK\r\nkey=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec());
             assert_eq!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::All)
                     .await
                     .unwrap(),
-                [
-                    "key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0",
+                LruCrawlerDumpResult::Ok(vec![
+                    "key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0".to_string(),
                     "key=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0"
-                ]
+                        .to_string()
+                ])
+            );
+
+            let mut c = Cursor::new(b"lru_crawler metadump all\r\nBUSY msg\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::All)
+                    .await
+                    .unwrap(),
+                LruCrawlerDumpResult::Busy("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"lru_crawler metadump all\r\nBADCLASS msg\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::All)
+                    .await
+                    .unwrap(),
+                LruCrawlerDumpResult::BadClass("msg".to_string())
             );
 
             let mut c = Cursor::new(b"lru_crawler metadump 1,2,3\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3])).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"lru_crawler metadump hash\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Hash).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
     #[test]
     fn test_lru_crawler_mgdump() {
         block_on(async {
-            let mut c =
-                Cursor::new(b"lru_crawler mgdump 1,2,3\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec());
+            let mut c = Cursor::new(
+                b"lru_crawler mgdump 1,2,3\r\nOK\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec(),
+            );
             assert_eq!(
                 lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Classids(&[1, 2, 3]))
                     .await
                     .unwrap(),
-                ["key", "key2"]
+                LruCrawlerDumpResult::Ok(vec!["mg key\r\n".to_string(), "mg key2\r\n".to_string()])
             );
 
-            let mut c = Cursor::new(b"lru_crawler mgdump all\r\nERROR\r\n".to_vec());
-            assert!(matches!(
-                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All).await,
-                Err(Error::Error)
-            ));
+            let mut c = Cursor::new(b"lru_crawler mgdump all\r\nBUSY msg\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::All)
+                    .await
+                    .unwrap(),
+                LruCrawlerDumpResult::Busy("msg".to_string())
+            );
+
+            let mut c = Cursor::new(b"lru_crawler mgdump 1,2,3\r\nBADCLASS msg\r\n".to_vec());
+            assert_eq!(
+                lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Classids(&[1, 2, 3]))
+                    .await
+                    .unwrap(),
+                LruCrawlerDumpResult::BadClass("msg".to_string())
+            );
 
             let mut c = Cursor::new(b"lru_crawler mgdump hash\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Hash).await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -8569,7 +8759,7 @@ mod tests {
             assert!(mn_cmd(&mut c).await.is_ok());
 
             let mut c = Cursor::new(b"mn\r\nERROR\r\n".to_vec());
-            assert!(matches!(mn_cmd(&mut c).await, Err(Error::Error)))
+            assert_matches!(mn_cmd(&mut c).await, Err(Error::Error))
         })
     }
 
@@ -8588,7 +8778,7 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"me key\r\nERROR\r\n".to_vec());
-            assert!(matches!(me_cmd(&mut c, b"key").await, Err(Error::Error)));
+            assert_matches!(me_cmd(&mut c, b"key").await, Err(Error::Error));
         })
     }
 
@@ -8656,8 +8846,8 @@ mod tests {
                 b"OK\r\n".to_vec(),
                 b"OK\r\n".to_vec(),
                 b"OK\r\n".to_vec(),
-                b"key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec(),
-                b"mg key\r\nmg key2\r\nEN\r\n".to_vec(),
+                b"OK\r\nkey=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec(),
+                b"OK\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec(),
                 b"MN\r\n".to_vec(),
                 b"ME key exp=-1 la=3 cas=2 fetch=no cls=1 size=63\r\n".to_vec(),
                 b"VA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec(),
@@ -8718,15 +8908,18 @@ mod tests {
                     PipelineResponse::Unit(()),
                     PipelineResponse::Unit(()),
                     PipelineResponse::Unit(()),
-                    PipelineResponse::Unit(()),
-                    PipelineResponse::Unit(()),
-                    PipelineResponse::VecString(vec![
+                    PipelineResponse::LruCrawlerResult(LruCrawlerResult::Ok),
+                    PipelineResponse::SlabsReassignResult(SlabsReassignResult::Ok),
+                    PipelineResponse::LruCrawlerDumpResult(LruCrawlerDumpResult::Ok(vec![
                         "key=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0"
                             .to_string(),
                         "key=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0"
                             .to_string()
-                    ]),
-                    PipelineResponse::VecString(vec!["key".to_string(), "key2".to_string()]),
+                    ])),
+                    PipelineResponse::LruCrawlerDumpResult(LruCrawlerDumpResult::Ok(vec![
+                        "mg key\r\n".to_string(),
+                        "mg key2\r\n".to_string()
+                    ])),
                     PipelineResponse::Unit(()),
                     PipelineResponse::OptionString(Some(
                         "key exp=-1 la=3 cas=2 fetch=no cls=1 size=63".to_string()
@@ -8786,10 +8979,7 @@ mod tests {
                 b"VERSION 1.2.3\r\n".to_vec(),
             ];
             let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
-            assert!(matches!(
-                execute_cmd(&mut c, &cmds).await,
-                Err(Error::Error)
-            ));
+            assert_matches!(execute_cmd(&mut c, &cmds).await, Err(Error::Error));
         })
     }
 
@@ -8816,10 +9006,10 @@ mod tests {
             );
 
             let mut c = Cursor::new(b"watch fetchers mutations\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 watch_cmd(&mut c, &[WatchArg::Fetchers, WatchArg::Mutations]).await,
                 Err(Error::Error)
-            ));
+            );
         })
     }
 
@@ -8947,7 +9137,7 @@ mod tests {
             let mut c = Cursor::new(
                 b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\nERROR\r\n".to_vec(),
             );
-            assert!(matches!(
+            assert_matches!(
                 mg_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -8971,7 +9161,7 @@ mod tests {
                 )
                 .await,
                 Err(Error::Error)
-            ));
+            );
         })
     }
 
@@ -9074,7 +9264,7 @@ mod tests {
                 b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 ME N0\r\nhi\r\nERROR\r\n"
                     .to_vec(),
             );
-            assert!(matches!(
+            assert_matches!(
                 ms_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -9096,7 +9286,7 @@ mod tests {
                 )
                 .await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(
                 b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\nHD b c0 k44OG44K544OI Oopaque s0\r\n".to_vec(),
@@ -9211,7 +9401,7 @@ mod tests {
 
             let mut c =
                 Cursor::new(b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 md_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -9228,7 +9418,7 @@ mod tests {
                 )
                 .await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -9377,7 +9567,7 @@ mod tests {
             let mut c = Cursor::new(
                 b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\nERROR\r\n".to_vec(),
             );
-            assert!(matches!(
+            assert_matches!(
                 ma_cmd(
                     &mut c,
                     b"44OG44K544OI",
@@ -9399,7 +9589,7 @@ mod tests {
                 )
                 .await,
                 Err(Error::Error)
-            ))
+            )
         })
     }
 
@@ -9407,10 +9597,10 @@ mod tests {
     fn test_lru() {
         block_on(async {
             let mut c = Cursor::new(b"lru mode flat\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 lru_cmd(&mut c, LruArg::Mode(LruMode::Flat)).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"lru mode segmented\r\nOK\r\n".to_vec());
             assert!(
@@ -9443,10 +9633,10 @@ mod tests {
     fn test_verbosity() {
         block_on(async {
             let mut c = Cursor::new(b"verbosity 0\r\nERROR\r\n".to_vec());
-            assert!(matches!(
+            assert_matches!(
                 verbosity_cmd(&mut c, VerbosityArg::Off, false).await,
                 Err(Error::Error)
-            ));
+            );
 
             let mut c = Cursor::new(b"verbosity 0 noreply\r\n".to_vec());
             assert_eq!(

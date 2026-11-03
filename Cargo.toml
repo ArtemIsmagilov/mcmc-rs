@@ -38,6 +38,7 @@ thiserror = "2.0.21"
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["async_smol"] }
 gungraun = "0.20.0"
+pretty_assertions = "1.4.1"
 
 [features]
 default = ["smol-runtime"]
