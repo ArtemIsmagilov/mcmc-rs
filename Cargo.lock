@@ -849,7 +849,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "mcmc-rs"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "async-native-tls",
  "crc32fast",

@@ -1970,7 +1970,7 @@ async fn verbosity_cmd_udp(
     noreply: bool,
 ) -> Result<()> {
     udp_send_cmd(s, r, &build_verbosity_cmd(arg, noreply)).await?;
-    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
 }
 
 async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
@@ -3264,6 +3264,7 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3349,6 +3350,7 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3425,6 +3427,7 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -3514,6 +3517,7 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert_eq!(
@@ -4209,7 +4213,7 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     let result = c.lru(LruArg::Mode(LruMode::Flat)).await;
+    ///     c.lru(LruArg::Mode(LruMode::Flat)).await?;
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
@@ -4238,6 +4242,7 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     assert!(c.verbosity(VerbosityArg::Off, false).await.is_ok());
+    ///     assert!(c.verbosity(VerbosityArg::Off, true).await.is_ok());
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
@@ -7868,11 +7873,11 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn
+    /// conn
     ///     .pipeline()
     ///     .lru_crawler_crawl(LruCrawlerCrawlArg::All)
     ///     .execute()
-    ///     .await;
+    ///     .await?;
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
@@ -7907,9 +7912,7 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn.set(b"doc_pipeline_metadump", 0, 0, false, b"value").await?;
-    /// let _ = conn.pipeline().lru_crawler(LruCrawlerArg::Enable).execute().await;
-    /// conn.pipeline().lru_crawler_metadump(LruCrawlerMetadumpArg::All).execute().await;
+    /// conn.pipeline().lru_crawler_metadump(LruCrawlerMetadumpArg::All).execute().await?;
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
@@ -7927,8 +7930,7 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// conn.set(b"doc_pipeline_mgdump", 0, 0, false, b"value").await?;
-    /// let _ = conn.pipeline().lru_crawler(LruCrawlerArg::Enable).execute().await;
-    /// conn.pipeline().lru_crawler_mgdump(LruCrawlerMgdumpArg::All).execute().await;
+    /// conn.pipeline().lru_crawler_mgdump(LruCrawlerMgdumpArg::All).execute().await?;
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
