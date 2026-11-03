@@ -1182,13 +1182,14 @@ fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
     w
 }
 
-fn build_verbosity_cmd(arg: VerbosityArg) -> &'static [u8] {
-    match arg {
-        VerbosityArg::Off => b"verbosity 0\r\n",
-        VerbosityArg::Error => b"verbosity 1\r\n",
-        VerbosityArg::Info => b"verbosity 2\r\n",
-        VerbosityArg::Debug => b"verbosity 3\r\n",
-    }
+fn build_verbosity_cmd(arg: VerbosityArg, noreply: bool) -> Vec<u8> {
+    let a = match arg {
+        VerbosityArg::Off => 0,
+        VerbosityArg::Error => 1,
+        VerbosityArg::Info => 2,
+        VerbosityArg::Debug => 3,
+    };
+    format!("verbosity {a}{}\r\n", if noreply { " noreply" } else { "" }).into_bytes()
 }
 
 async fn udp_send_cmd(s: &mut UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> {
@@ -1712,7 +1713,9 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
             result.push(PipelineResponse::OptionString(parse_me_rp(s).await?))
         } else {
             assert!(cmd.starts_with(b"verbosity "));
-            result.push(PipelineResponse::Unit(parse_ok_rp(s, false).await?))
+            result.push(PipelineResponse::Unit(
+                parse_ok_rp(s, cmd.ends_with(b" noreply\r\n")).await?,
+            ))
         }
     }
     Ok(result)
@@ -1843,17 +1846,23 @@ async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -
     parse_ok_rp(s, false).await
 }
 
-async fn verbosity_cmd_udp(s: &mut UdpSocket, r: &mut u16, arg: VerbosityArg) -> Result<()> {
-    udp_send_cmd(s, r, build_verbosity_cmd(arg)).await?;
+async fn verbosity_cmd_udp(
+    s: &mut UdpSocket,
+    r: &mut u16,
+    arg: VerbosityArg,
+    noreply: bool,
+) -> Result<()> {
+    udp_send_cmd(s, r, &build_verbosity_cmd(arg, noreply)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
 async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: VerbosityArg,
+    noreply: bool,
 ) -> Result<()> {
-    s.write_all(build_verbosity_cmd(arg)).await?;
-    parse_ok_rp(s, false).await
+    s.write_all(&build_verbosity_cmd(arg, noreply)).await?;
+    parse_ok_rp(s, noreply).await
 }
 
 pub enum Connection {
@@ -4106,18 +4115,18 @@ impl Connection {
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
-    ///     assert!(c.verbosity(VerbosityArg::Off).await.is_ok());
+    ///     assert!(c.verbosity(VerbosityArg::Off, false).await.is_ok());
     /// }
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
-    pub async fn verbosity(&mut self, arg: VerbosityArg) -> Result<()> {
+    pub async fn verbosity(&mut self, arg: VerbosityArg, noreply: bool) -> Result<()> {
         match self {
-            Connection::Tcp(s) => verbosity_cmd(s, arg).await,
+            Connection::Tcp(s) => verbosity_cmd(s, arg, noreply).await,
             #[cfg(unix)]
-            Connection::Unix(s) => verbosity_cmd(s, arg).await,
-            Connection::Udp(s, r) => verbosity_cmd_udp(s, r, arg).await,
-            Connection::Tls(s) => verbosity_cmd(s, arg).await,
+            Connection::Unix(s) => verbosity_cmd(s, arg, noreply).await,
+            Connection::Udp(s, r) => verbosity_cmd_udp(s, r, arg, noreply).await,
+            Connection::Tls(s) => verbosity_cmd(s, arg, noreply).await,
         }
     }
 }
@@ -8042,15 +8051,15 @@ impl<'a> Pipeline<'a> {
     /// let mut conn = Connection::default().await?;
     /// let result = conn
     ///     .pipeline()
-    ///     .verbosity(VerbosityArg::Off)
+    ///     .verbosity(VerbosityArg::Off, false)
     ///     .execute()
     ///     .await?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// #     Ok::<(), mcmc_rs::Error>(())
     /// # }).unwrap()
     /// ```
-    pub fn verbosity(mut self, arg: VerbosityArg) -> Self {
-        self.1.push(build_verbosity_cmd(arg).to_vec());
+    pub fn verbosity(mut self, arg: VerbosityArg, noreply: bool) -> Self {
+        self.1.push(build_verbosity_cmd(arg, noreply));
         self
     }
 }
@@ -9435,25 +9444,39 @@ mod tests {
         block_on(async {
             let mut c = Cursor::new(b"verbosity 0\r\nERROR\r\n".to_vec());
             assert!(matches!(
-                verbosity_cmd(&mut c, VerbosityArg::Off).await,
+                verbosity_cmd(&mut c, VerbosityArg::Off, false).await,
                 Err(Error::Error)
             ));
 
-            let mut c = Cursor::new(b"verbosity 0\r\nOK\r\n".to_vec());
-            assert_eq!(verbosity_cmd(&mut c, VerbosityArg::Off).await.unwrap(), ());
+            let mut c = Cursor::new(b"verbosity 0 noreply\r\n".to_vec());
+            assert_eq!(
+                verbosity_cmd(&mut c, VerbosityArg::Off, true)
+                    .await
+                    .unwrap(),
+                ()
+            );
 
             let mut c = Cursor::new(b"verbosity 1\r\nOK\r\n".to_vec());
             assert_eq!(
-                verbosity_cmd(&mut c, VerbosityArg::Error).await.unwrap(),
+                verbosity_cmd(&mut c, VerbosityArg::Error, false)
+                    .await
+                    .unwrap(),
                 ()
             );
 
             let mut c = Cursor::new(b"verbosity 2\r\nOK\r\n".to_vec());
-            assert_eq!(verbosity_cmd(&mut c, VerbosityArg::Info).await.unwrap(), ());
+            assert_eq!(
+                verbosity_cmd(&mut c, VerbosityArg::Info, false)
+                    .await
+                    .unwrap(),
+                ()
+            );
 
             let mut c = Cursor::new(b"verbosity 3\r\nOK\r\n".to_vec());
             assert_eq!(
-                verbosity_cmd(&mut c, VerbosityArg::Debug).await.unwrap(),
+                verbosity_cmd(&mut c, VerbosityArg::Debug, false)
+                    .await
+                    .unwrap(),
                 ()
             );
         })
