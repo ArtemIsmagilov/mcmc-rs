@@ -2074,7 +2074,7 @@ impl Connection {
     pub async fn udp_connect(bind_addr: &str, connect_addr: &str) -> Result<Self> {
         let s = UdpSocket::bind(bind_addr).await?;
         s.connect(connect_addr).await?;
-        Ok(Connection::Udp(s, 0))
+        Ok(Connection::Udp(s, rand::random()))
     }
 
     /// # Example
