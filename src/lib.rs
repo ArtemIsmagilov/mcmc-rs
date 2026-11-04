@@ -121,18 +121,28 @@ pub enum StorageResult {
     NotStored,
     Exists,
     NotFound,
+    NoReply,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum DeleteResult {
     Deleted,
     NotFound,
+    NoReply,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum TouchResult {
     Touched,
     NotFound,
+    NoReply,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum IncrDecrResult {
+    Value(u64),
+    NotFound,
+    NoReply,
 }
 
 #[derive(Debug, PartialEq)]
@@ -269,7 +279,7 @@ pub enum PipelineResponse {
     OptionString(Option<String>),
     VecString(Vec<String>),
     Unit(()),
-    Value(Option<u64>),
+    IncrDecrResult(IncrDecrResult),
     HashMap(HashMap<String, String>),
     MetaGet(MgItem),
     MetaSet(MsItem),
@@ -417,7 +427,7 @@ async fn parse_storage_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     noreply: bool,
 ) -> Result<StorageResult> {
     if noreply {
-        return Ok(StorageResult::Stored);
+        return Ok(StorageResult::NoReply);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
@@ -486,7 +496,7 @@ async fn parse_delete_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     noreply: bool,
 ) -> Result<DeleteResult> {
     if noreply {
-        return Ok(DeleteResult::Deleted);
+        return Ok(DeleteResult::NoReply);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
@@ -509,17 +519,17 @@ async fn parse_auth_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Resul
 async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     noreply: bool,
-) -> Result<Option<u64>> {
+) -> Result<IncrDecrResult> {
     if noreply {
-        return Ok(None);
+        return Ok(IncrDecrResult::NoReply);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
     if line == "NOT_FOUND\r\n" {
-        return Ok(None);
+        return Ok(IncrDecrResult::NotFound);
     }
     match line.trim_end().parse() {
-        Ok(v) => Ok(Some(v)),
+        Ok(v) => Ok(IncrDecrResult::Value(v)),
         Err(_) => Err(check_error(line)),
     }
 }
@@ -529,7 +539,7 @@ async fn parse_touch_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     noreply: bool,
 ) -> Result<TouchResult> {
     if noreply {
-        return Ok(TouchResult::Touched);
+        return Ok(TouchResult::NoReply);
     }
     let mut line = String::new();
     s.read_line(&mut line).await?;
@@ -1507,7 +1517,7 @@ async fn incr_decr_cmd_udp(
     key: &[u8],
     value: u64,
     noreply: bool,
-) -> Result<Option<u64>> {
+) -> Result<IncrDecrResult> {
     udp_send_cmd(
         s,
         r,
@@ -1515,7 +1525,7 @@ async fn incr_decr_cmd_udp(
     )
     .await?;
     if noreply {
-        Ok(None)
+        Ok(IncrDecrResult::NoReply)
     } else {
         parse_incr_decr_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -1527,7 +1537,7 @@ pub async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     value: u64,
     noreply: bool,
-) -> Result<Option<u64>> {
+) -> Result<IncrDecrResult> {
     s.write_all(&build_incr_decr_cmd(command_name, key, value, noreply))
         .await?;
     parse_incr_decr_rp(s, noreply).await
@@ -1542,7 +1552,7 @@ async fn touch_cmd_udp(
 ) -> Result<TouchResult> {
     udp_send_cmd(s, r, &build_touch_cmd(key, exptime, noreply)).await?;
     if noreply {
-        Ok(TouchResult::Touched)
+        Ok(TouchResult::NoReply)
     } else {
         parse_touch_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -1777,7 +1787,7 @@ async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
             result.push(
                 parse_incr_decr_rp(s, cmd.ends_with(b"noreply\r\n"))
                     .await
-                    .map(PipelineResponse::Value),
+                    .map(PipelineResponse::IncrDecrResult),
             )
         } else if cmd.starts_with(b"touch ") {
             result.push(
@@ -2978,7 +2988,7 @@ impl Connection {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
             #[cfg(unix)]
@@ -3019,7 +3029,7 @@ impl Connection {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         match self {
             Connection::Tcp(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
             #[cfg(unix)]
@@ -4822,7 +4832,7 @@ impl ClientCrc32 {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .incr(key.as_ref(), value, noreply)
@@ -4855,7 +4865,7 @@ impl ClientCrc32 {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         let size = self.0.len();
         self.0[crc32(key.as_ref()) as usize % size]
             .decr(key.as_ref(), value, noreply)
@@ -5657,7 +5667,7 @@ impl ClientHashRing {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].incr(key.as_ref(), value, noreply).await
     }
@@ -5690,7 +5700,7 @@ impl ClientHashRing {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         let i = *self.1.get(&key.as_ref()).unwrap();
         self.0[i].decr(key.as_ref(), value, noreply).await
     }
@@ -6485,7 +6495,7 @@ impl ClientRendezvous {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].incr(key.as_ref(), value, noreply).await
     }
@@ -6521,7 +6531,7 @@ impl ClientRendezvous {
         key: impl AsRef<[u8]>,
         value: u64,
         noreply: bool,
-    ) -> Result<Option<u64>> {
+    ) -> Result<IncrDecrResult> {
         let i = *self.1.sorted(&key.as_ref()).next().unwrap();
         self.0[i].decr(key.as_ref(), value, noreply).await
     }
@@ -8334,7 +8344,7 @@ mod tests {
                 storage_cmd(&mut c, b"append", b"key", 0, 0, None, true, b"value")
                     .await
                     .unwrap(),
-                StorageResult::Stored
+                StorageResult::NoReply
             );
 
             let mut c = Cursor::new(b"prepend key 0 0 0\r\nvalue\r\nNOT_STORED\r\n".to_vec());
@@ -8387,7 +8397,7 @@ mod tests {
             let mut c = Cursor::new(b"delete key noreply\r\n".to_vec());
             assert_eq!(
                 delete_cmd(&mut c, b"key", true).await.unwrap(),
-                DeleteResult::Deleted
+                DeleteResult::NoReply
             );
 
             let mut c = Cursor::new(b"delete key\r\nERROR\r\n".to_vec());
@@ -8420,23 +8430,23 @@ mod tests {
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, false)
                     .await
                     .unwrap(),
-                Some(2)
+                IncrDecrResult::Value(2)
             );
 
             let mut c = Cursor::new(b"incr key 1 noreply\r\n".to_vec());
-            assert!(
+            assert_eq!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, true)
                     .await
-                    .unwrap()
-                    .is_none(),
+                    .unwrap(),
+                IncrDecrResult::NoReply,
             );
 
             let mut c = Cursor::new(b"incr key 1\r\nNOT_FOUND\r\n".to_vec());
-            assert!(
+            assert_eq!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, false)
                     .await
-                    .unwrap()
-                    .is_none()
+                    .unwrap(),
+                IncrDecrResult::NotFound
             );
 
             let mut c = Cursor::new(b"incr key 1\r\nERROR\r\n".to_vec());
@@ -8465,7 +8475,7 @@ mod tests {
             let mut c = Cursor::new(b"touch key 0 noreply\r\n".to_vec());
             assert_eq!(
                 touch_cmd(&mut c, b"key", 0, true).await.unwrap(),
-                TouchResult::Touched
+                TouchResult::NoReply
             );
 
             let mut c = Cursor::new(b"touch key 0\r\nERROR\r\n".to_vec());
@@ -8936,14 +8946,14 @@ mod tests {
                     PipelineResponse::Unit(()),
                     PipelineResponse::Unit(()),
                     PipelineResponse::StorageResult(StorageResult::Stored),
-                    PipelineResponse::StorageResult(StorageResult::Stored),
+                    PipelineResponse::StorageResult(StorageResult::NoReply),
                     PipelineResponse::DeleteResult(DeleteResult::Deleted),
-                    PipelineResponse::DeleteResult(DeleteResult::Deleted),
+                    PipelineResponse::DeleteResult(DeleteResult::NoReply),
                     PipelineResponse::Unit(()),
-                    PipelineResponse::Value(Some(2)),
-                    PipelineResponse::Value(None),
+                    PipelineResponse::IncrDecrResult(IncrDecrResult::Value(2)),
+                    PipelineResponse::IncrDecrResult(IncrDecrResult::NoReply),
                     PipelineResponse::TouchResult(TouchResult::Touched),
-                    PipelineResponse::TouchResult(TouchResult::Touched),
+                    PipelineResponse::TouchResult(TouchResult::NoReply),
                     PipelineResponse::OptionItem(None),
                     PipelineResponse::VecItem(Vec::new()),
                     PipelineResponse::VecItem(vec![
