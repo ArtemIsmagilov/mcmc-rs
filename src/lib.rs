@@ -3966,10 +3966,22 @@ impl Connection {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// let result = conn.pipeline().get("key1").get("key2").get("key3").version().execute().await?;
-    /// assert_eq!(result.len(), 2);
-    /// assert_eq!(result[0], PipelineResponse::Item(None));
-    /// assert_matches!(result[1], PipelineResponse::String(_));
+    /// let result = conn
+    ///     .pipeline()
+    ///     .get("key1")
+    ///     .get("key2")
+    ///     .get("key3")
+    ///     .version()
+    ///     .execute()
+    ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(result.len(), 4);
+    /// assert_eq!(result[0], PipelineResponse::OptionItem(None));
+    /// assert_eq!(result[1], PipelineResponse::OptionItem(None));
+    /// assert_eq!(result[2], PipelineResponse::OptionItem(None));
+    /// assert_matches!(result[3], PipelineResponse::String(_));
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -6779,6 +6791,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().version().execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result.len(), 1);
     /// assert_matches!(result[0], PipelineResponse::String(_));
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6806,6 +6821,9 @@ impl<'a> Pipeline<'a> {
     ///         .get(b"doc_pipeline_execute")
     ///         .execute()
     ///         .await?;
+    ///     let result = result
+    ///         .into_iter()
+    ///         .collect::<mcmc_rs::Result<Vec<_>>>()?;
     ///     assert_eq!(result.len(), 2);
     ///     assert_eq!(
     ///         result[0],
@@ -6846,6 +6864,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().version().execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::String(version) => assert!(!version.is_empty()),
     ///     other => panic!("unexpected response: {other:?}"),
@@ -6867,6 +6888,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().quit().execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6902,6 +6926,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().cache_memlimit(64, false).execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6926,6 +6953,9 @@ impl<'a> Pipeline<'a> {
     ///     StorageResult::Stored
     /// );
     /// let result = conn.pipeline().flush_all(None, false).execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// assert_eq!(conn.get(b"doc_pipeline_flush_all").await?, None);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6949,6 +6979,9 @@ impl<'a> Pipeline<'a> {
     ///     .set(b"doc_pipeline_set", 0, 0, false, b"value")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
@@ -6991,6 +7024,9 @@ impl<'a> Pipeline<'a> {
     ///     .add(b"doc_pipeline_add", 0, 0, false, b"second")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [
@@ -7035,6 +7071,9 @@ impl<'a> Pipeline<'a> {
     ///     .replace(b"doc_pipeline_replace", 0, 0, false, b"value")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::NotStored)]
@@ -7046,6 +7085,9 @@ impl<'a> Pipeline<'a> {
     ///     .replace(b"doc_pipeline_replace", 0, 0, false, b"second")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
@@ -7087,6 +7129,9 @@ impl<'a> Pipeline<'a> {
     ///     .append(b"doc_pipeline_append", 0, 0, false, b"-tail")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::NotStored)]
@@ -7099,6 +7144,9 @@ impl<'a> Pipeline<'a> {
     ///     .get(b"doc_pipeline_append")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result[0],
     ///     PipelineResponse::StorageResult(StorageResult::Stored)
@@ -7149,6 +7197,9 @@ impl<'a> Pipeline<'a> {
     ///     .prepend(b"doc_pipeline_prepend", 0, 0, false, b"head-")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::NotStored)]
@@ -7161,6 +7212,9 @@ impl<'a> Pipeline<'a> {
     ///     .get(b"doc_pipeline_prepend")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result[0],
     ///     PipelineResponse::StorageResult(StorageResult::Stored)
@@ -7211,6 +7265,9 @@ impl<'a> Pipeline<'a> {
     ///     .cas(b"doc_pipeline_cas", 0, 0, 0, false, b"value")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::NotFound)]
@@ -7227,6 +7284,9 @@ impl<'a> Pipeline<'a> {
     ///     .cas(b"doc_pipeline_cas", 0, 0, cas, false, b"new")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
@@ -7265,6 +7325,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::tcp_connect("127.0.0.1:11212").await?;
     /// let result = conn.pipeline().auth(b"a", b"a").version().execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result[0], PipelineResponse::Unit(()));
     /// assert_matches!(&result[1], PipelineResponse::String(version) if !version.is_empty());
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -7292,6 +7355,9 @@ impl<'a> Pipeline<'a> {
     ///     .delete(b"doc_pipeline_delete", false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [
@@ -7321,6 +7387,9 @@ impl<'a> Pipeline<'a> {
     ///     .incr(b"doc_pipeline_incr", 1, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Value(None)]);
     /// conn.set(b"doc_pipeline_incr", 0, 0, false, b"10").await?;
     /// let result = conn
@@ -7328,6 +7397,9 @@ impl<'a> Pipeline<'a> {
     ///     .incr(b"doc_pipeline_incr", 5, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Value(Some(15))]);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -7352,6 +7424,9 @@ impl<'a> Pipeline<'a> {
     ///     .decr(b"doc_pipeline_decr", 1, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Value(None)]);
     /// conn.set(b"doc_pipeline_decr", 0, 0, false, b"10").await?;
     /// let result = conn
@@ -7359,6 +7434,9 @@ impl<'a> Pipeline<'a> {
     ///     .decr(b"doc_pipeline_decr", 5, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Value(Some(5))]);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -7383,6 +7461,9 @@ impl<'a> Pipeline<'a> {
     ///     .touch(b"doc_pipeline_touch", 60, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::TouchResult(TouchResult::NotFound)]
@@ -7394,6 +7475,9 @@ impl<'a> Pipeline<'a> {
     ///     .touch(b"doc_pipeline_touch", 60, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::TouchResult(TouchResult::Touched)]
@@ -7416,9 +7500,15 @@ impl<'a> Pipeline<'a> {
     /// let mut conn = Connection::default().await?;
     /// let _ = conn.delete(b"doc_pipeline_get", false).await?;
     /// let result = conn.pipeline().get(b"doc_pipeline_get").execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::OptionItem(None)]);
     /// conn.set(b"doc_pipeline_get", 0, 0, false, b"value").await?;
     /// let result = conn.pipeline().get(b"doc_pipeline_get").execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::OptionItem(Some(Item {
@@ -7448,6 +7538,9 @@ impl<'a> Pipeline<'a> {
     /// conn.set(b"doc_pipeline_gets", 0, 0, false, b"value")
     ///     .await?;
     /// let result = conn.pipeline().gets(b"doc_pipeline_gets").execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::OptionItem(Some(item)) => {
     ///         assert_eq!(item.key, "doc_pipeline_gets");
@@ -7479,6 +7572,9 @@ impl<'a> Pipeline<'a> {
     ///     .gat(60, b"doc_pipeline_gat")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::OptionItem(Some(item)) => {
     ///         assert_eq!(item.key, "doc_pipeline_gat");
@@ -7512,6 +7608,9 @@ impl<'a> Pipeline<'a> {
     ///     .gats(60, b"doc_pipeline_gats")
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::OptionItem(Some(item)) => {
     ///         assert_eq!(item.key, "doc_pipeline_gats");
@@ -7545,6 +7644,9 @@ impl<'a> Pipeline<'a> {
     ///     .get_multi(&[b"doc_pipeline_get_multi_a", b"doc_pipeline_get_multi_b"])
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::VecItem(Vec::new())]);
     /// conn.set(b"doc_pipeline_get_multi_a", 0, 0, false, b"a")
     ///     .await?;
@@ -7555,6 +7657,9 @@ impl<'a> Pipeline<'a> {
     ///     .get_multi(&[b"doc_pipeline_get_multi_a", b"doc_pipeline_get_multi_b"])
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::VecItem(vec![
@@ -7601,6 +7706,9 @@ impl<'a> Pipeline<'a> {
     ///     .gets_multi(&[b"doc_pipeline_gets_multi_a", b"doc_pipeline_gets_multi_b"])
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::VecItem(items) => {
     ///         assert_eq!(items.len(), 2);
@@ -7642,6 +7750,9 @@ impl<'a> Pipeline<'a> {
     ///     )
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::VecItem(vec![
@@ -7691,6 +7802,9 @@ impl<'a> Pipeline<'a> {
     ///     )
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::VecItem(items) => {
     ///         assert_eq!(items.len(), 2);
@@ -7721,6 +7835,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().stats(None).execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::HashMap(stats) => {
     ///         assert!(stats.contains_key("pid"));
@@ -7750,6 +7867,9 @@ impl<'a> Pipeline<'a> {
     ///     .slabs_automove(SlabsAutomoveArg::Zero)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
     /// assert_eq!(settings.get("slab_automove").map(String::as_str), Some("0"));
@@ -7802,6 +7922,9 @@ impl<'a> Pipeline<'a> {
     ///     .lru_crawler_sleep(1_000_000)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
     /// assert_eq!(
@@ -7830,6 +7953,9 @@ impl<'a> Pipeline<'a> {
     ///     .execute()
     ///     .await;
     /// let result = conn.pipeline().lru_crawler_tocrawl(1).execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// let settings = conn.stats(Some(StatsArg::Settings)).await?;
     /// assert_eq!(
@@ -7852,8 +7978,7 @@ impl<'a> Pipeline<'a> {
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
-    /// conn
-    ///     .pipeline()
+    /// conn.pipeline()
     ///     .lru_crawler_crawl(LruCrawlerCrawlArg::All)
     ///     .execute()
     ///     .await?;
@@ -7927,6 +8052,9 @@ impl<'a> Pipeline<'a> {
     /// # block_on(async {
     /// let mut conn = Connection::default().await?;
     /// let result = conn.pipeline().mn().execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -7946,6 +8074,9 @@ impl<'a> Pipeline<'a> {
     /// let mut conn = Connection::default().await?;
     /// conn.set(b"doc_pipeline_me", 0, 0, false, b"value").await?;
     /// let result = conn.pipeline().me(b"doc_pipeline_me").execute().await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::OptionString(Some(info)) => assert!(info.starts_with("doc_pipeline_me ")),
     ///     other => panic!("unexpected response: {other:?}"),
@@ -7980,6 +8111,9 @@ impl<'a> Pipeline<'a> {
     ///     )
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::MetaGet(item) => {
     ///         assert_eq!(item.status, MgStatus::WithBody);
@@ -8020,6 +8154,9 @@ impl<'a> Pipeline<'a> {
     ///     )
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::MetaSet(item) => {
     ///         assert_eq!(item.status, StorageResult::Stored);
@@ -8060,6 +8197,9 @@ impl<'a> Pipeline<'a> {
     ///     .md(b"doc_pipeline_md", &[MdFlag::ReturnKey])
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::MetaDelete(item) => {
     ///         assert_eq!(item.status, MdStatus::Deleted);
@@ -8103,6 +8243,9 @@ impl<'a> Pipeline<'a> {
     ///     )
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// match &result[0] {
     ///     PipelineResponse::MetaArithmetic(item) => {
     ///         assert_eq!(item.status, MaStatus::WithBody);
@@ -8158,6 +8301,9 @@ impl<'a> Pipeline<'a> {
     ///     .verbosity(VerbosityArg::Off, false)
     ///     .execute()
     ///     .await?;
+    /// let result = result
+    ///     .into_iter()
+    ///     .collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -8872,7 +9018,7 @@ mod tests {
                     .unwrap()
                     .into_iter()
                     .map(|x| x.unwrap())
-                    .collect::<Vec<PipelineResponse>>(),
+                    .collect::<Vec<_>>(),
                 [
                     PipelineResponse::String("1.2.3".to_string()),
                     PipelineResponse::Unit(()),
