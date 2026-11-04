@@ -1449,7 +1449,7 @@ async fn storage_cmd_udp(
     )
     .await?;
     if noreply {
-        Ok(StorageResult::Stored)
+        Ok(StorageResult::NoReply)
     } else {
         parse_storage_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -1486,7 +1486,7 @@ async fn delete_cmd_udp(
 ) -> Result<DeleteResult> {
     udp_send_cmd(s, r, &build_delete_cmd(key, noreply)).await?;
     if noreply {
-        Ok(DeleteResult::Deleted)
+        Ok(DeleteResult::NoReply)
     } else {
         parse_delete_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
     }
@@ -2316,6 +2316,10 @@ impl Connection {
     ///             data_block: b"value".to_vec()
     ///         })
     ///     );
+    ///     assert_eq!(
+    ///         c.set(b"doc_conn_set_noreply", 7, 0, true, b"value").await?,
+    ///         StorageResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2409,6 +2413,10 @@ impl Connection {
     ///         StorageResult::NotStored
     ///     );
     ///     assert_eq!(c.get(b"doc_conn_add").await?.unwrap().data_block, b"first");
+    ///     assert_eq!(
+    ///         c.add(b"doc_conn_add_noreply", 0, 0, true, b"value").await?,
+    ///         StorageResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2511,6 +2519,11 @@ impl Connection {
     ///         c.get(b"doc_conn_replace").await?.unwrap().data_block,
     ///         b"second"
     ///     );
+    ///     assert_eq!(
+    ///         c.replace(b"doc_conn_replace", 0, 0, true, b"noreply")
+    ///             .await?,
+    ///         StorageResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2610,6 +2623,10 @@ impl Connection {
     ///     assert_eq!(
     ///         c.get(b"doc_conn_append").await?.unwrap().data_block,
     ///         b"base-tail"
+    ///     );
+    ///     assert_eq!(
+    ///         c.append(b"doc_conn_append", 0, 0, true, b"-noreply").await?,
+    ///         StorageResult::NoReply
     ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -2713,6 +2730,11 @@ impl Connection {
     ///         c.get(b"doc_conn_prepend").await?.unwrap().data_block,
     ///         b"head-base"
     ///     );
+    ///     assert_eq!(
+    ///         c.prepend(b"doc_conn_prepend", 0, 0, true, b"noreply-")
+    ///             .await?,
+    ///         StorageResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2815,6 +2837,12 @@ impl Connection {
     ///         StorageResult::Exists
     ///     );
     ///     assert_eq!(c.get(b"doc_conn_cas").await?.unwrap().data_block, b"new");
+    ///     let cas = c.gets(b"doc_conn_cas").await?.unwrap().cas_unique.unwrap();
+    ///     assert_eq!(
+    ///         c.cas(b"doc_conn_cas", 0, 0, cas, true, b"noreply")
+    ///             .await?,
+    ///         StorageResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2945,6 +2973,10 @@ impl Connection {
     ///         c.delete(b"doc_conn_delete", false).await?,
     ///         DeleteResult::NotFound
     ///     );
+    ///     assert_eq!(
+    ///         c.delete(b"doc_conn_delete", true).await?,
+    ///         DeleteResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2962,7 +2994,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, IncrDecrResult, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -2973,12 +3005,22 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_incr", false).await?;
-    ///     assert_eq!(c.incr(b"doc_conn_incr", 1, false).await?, None);
+    ///     assert_eq!(
+    ///         c.incr(b"doc_conn_incr", 1, false).await?,
+    ///         IncrDecrResult::NotFound
+    ///     );
     ///     assert_eq!(
     ///         c.set(b"doc_conn_incr", 0, 0, false, b"10").await?,
     ///         StorageResult::Stored
     ///     );
-    ///     assert_eq!(c.incr(b"doc_conn_incr", 5, false).await?, Some(15));
+    ///     assert_eq!(
+    ///         c.incr(b"doc_conn_incr", 5, false).await?,
+    ///         IncrDecrResult::Value(15)
+    ///     );
+    ///     assert_eq!(
+    ///         c.incr(b"doc_conn_incr", 1, true).await?,
+    ///         IncrDecrResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -3003,7 +3045,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, IncrDecrResult, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3014,12 +3056,22 @@ impl Connection {
     ///     Connection::tls_connect("localhost", 11216, "cert.pem").await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_decr", false).await?;
-    ///     assert_eq!(c.decr(b"doc_conn_decr", 1, false).await?, None);
+    ///     assert_eq!(
+    ///         c.decr(b"doc_conn_decr", 1, false).await?,
+    ///         IncrDecrResult::NotFound
+    ///     );
     ///     assert_eq!(
     ///         c.set(b"doc_conn_decr", 0, 0, false, b"10").await?,
     ///         StorageResult::Stored
     ///     );
-    ///     assert_eq!(c.decr(b"doc_conn_decr", 5, false).await?, Some(5));
+    ///     assert_eq!(
+    ///         c.decr(b"doc_conn_decr", 5, false).await?,
+    ///         IncrDecrResult::Value(5)
+    ///     );
+    ///     assert_eq!(
+    ///         c.decr(b"doc_conn_decr", 1, true).await?,
+    ///         IncrDecrResult::NoReply
+    ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -3065,6 +3117,10 @@ impl Connection {
     ///     assert_eq!(
     ///         c.touch(b"doc_conn_touch", 60, false).await?,
     ///         TouchResult::Touched
+    ///     );
+    ///     assert_eq!(
+    ///         c.touch(b"doc_conn_touch", 60, true).await?,
+    ///         TouchResult::NoReply
     ///     );
     /// }
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -4491,6 +4547,12 @@ impl ClientCrc32 {
     ///         data_block: b"value".to_vec()
     ///     })
     /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_set_noreply", 7, 0, true, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -4796,6 +4858,10 @@ impl ClientCrc32 {
     ///     client.delete(b"doc_crc32_delete", false).await?,
     ///     mcmc_rs::DeleteResult::NotFound
     /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_crc32_delete", true).await?,
+    ///     mcmc_rs::DeleteResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -4818,12 +4884,22 @@ impl ClientCrc32 {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let _ = client.delete(b"doc_crc32_incr", false).await?;
-    /// assert_eq!(client.incr(b"doc_crc32_incr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.incr(b"doc_crc32_incr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
     /// assert_eq!(
     ///     client.set(b"doc_crc32_incr", 0, 0, false, b"10").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// assert_eq!(client.incr(b"doc_crc32_incr", 5, false).await?, Some(15));
+    /// assert_eq!(
+    ///     client.incr(b"doc_crc32_incr", 5, false).await?,
+    ///     mcmc_rs::IncrDecrResult::Value(15)
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_crc32_incr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -4851,12 +4927,22 @@ impl ClientCrc32 {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let _ = client.delete(b"doc_crc32_decr", false).await?;
-    /// assert_eq!(client.decr(b"doc_crc32_decr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.decr(b"doc_crc32_decr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
     /// assert_eq!(
     ///     client.set(b"doc_crc32_decr", 0, 0, false, b"10").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// assert_eq!(client.decr(b"doc_crc32_decr", 5, false).await?, Some(5));
+    /// assert_eq!(
+    ///     client.decr(b"doc_crc32_decr", 5, false).await?,
+    ///     mcmc_rs::IncrDecrResult::Value(5)
+    /// );
+    /// assert_eq!(
+    ///     client.decr(b"doc_crc32_decr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -4896,6 +4982,10 @@ impl ClientCrc32 {
     /// assert_eq!(
     ///     client.touch(b"doc_crc32_touch", 60, false).await?,
     ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_crc32_touch", 60, true).await?,
+    ///     mcmc_rs::TouchResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -5305,6 +5395,12 @@ impl ClientHashRing {
     ///         data_block: b"value".to_vec()
     ///     })
     /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_set_noreply", 7, 0, true, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -5628,6 +5724,10 @@ impl ClientHashRing {
     ///     client.delete(b"doc_hash_ring_delete", false).await?,
     ///     mcmc_rs::DeleteResult::NotFound
     /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_hash_ring_delete", true).await?,
+    ///     mcmc_rs::DeleteResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -5648,7 +5748,10 @@ impl ClientHashRing {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let _ = client.delete(b"doc_hash_ring_incr", false).await?;
-    /// assert_eq!(client.incr(b"doc_hash_ring_incr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.incr(b"doc_hash_ring_incr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
     /// assert_eq!(
     ///     client
     ///         .set(b"doc_hash_ring_incr", 0, 0, false, b"10")
@@ -5657,7 +5760,11 @@ impl ClientHashRing {
     /// );
     /// assert_eq!(
     ///     client.incr(b"doc_hash_ring_incr", 5, false).await?,
-    ///     Some(15)
+    ///     mcmc_rs::IncrDecrResult::Value(15)
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_hash_ring_incr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -5684,14 +5791,24 @@ impl ClientHashRing {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let _ = client.delete(b"doc_hash_ring_decr", false).await?;
-    /// assert_eq!(client.decr(b"doc_hash_ring_decr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.decr(b"doc_hash_ring_decr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
     /// assert_eq!(
     ///     client
     ///         .set(b"doc_hash_ring_decr", 0, 0, false, b"10")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// assert_eq!(client.decr(b"doc_hash_ring_decr", 5, false).await?, Some(5));
+    /// assert_eq!(
+    ///     client.decr(b"doc_hash_ring_decr", 5, false).await?,
+    ///     mcmc_rs::IncrDecrResult::Value(5)
+    /// );
+    /// assert_eq!(
+    ///     client.decr(b"doc_hash_ring_decr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -5731,6 +5848,10 @@ impl ClientHashRing {
     /// assert_eq!(
     ///     client.touch(b"doc_hash_ring_touch", 60, false).await?,
     ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_hash_ring_touch", 60, true).await?,
+    ///     mcmc_rs::TouchResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6133,6 +6254,12 @@ impl ClientRendezvous {
     ///         data_block: b"value".to_vec()
     ///     })
     /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_set_noreply", 7, 0, true, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -6456,6 +6583,10 @@ impl ClientRendezvous {
     ///     client.delete(b"doc_rendezvous_delete", false).await?,
     ///     mcmc_rs::DeleteResult::NotFound
     /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_rendezvous_delete", true).await?,
+    ///     mcmc_rs::DeleteResult::NoReply
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -6476,7 +6607,10 @@ impl ClientRendezvous {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let _ = client.delete(b"doc_rendezvous_incr", false).await?;
-    /// assert_eq!(client.incr(b"doc_rendezvous_incr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.incr(b"doc_rendezvous_incr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
     /// assert_eq!(
     ///     client
     ///         .set(b"doc_rendezvous_incr", 0, 0, false, b"10")
@@ -6485,7 +6619,11 @@ impl ClientRendezvous {
     /// );
     /// assert_eq!(
     ///     client.incr(b"doc_rendezvous_incr", 5, false).await?,
-    ///     Some(15)
+    ///     mcmc_rs::IncrDecrResult::Value(15)
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_rendezvous_incr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6512,7 +6650,10 @@ impl ClientRendezvous {
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// let _ = client.delete(b"doc_rendezvous_decr", false).await?;
-    /// assert_eq!(client.decr(b"doc_rendezvous_decr", 1, false).await?, None);
+    /// assert_eq!(
+    ///     client.decr(b"doc_rendezvous_decr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
     /// assert_eq!(
     ///     client
     ///         .set(b"doc_rendezvous_decr", 0, 0, false, b"10")
@@ -6521,7 +6662,11 @@ impl ClientRendezvous {
     /// );
     /// assert_eq!(
     ///     client.decr(b"doc_rendezvous_decr", 5, false).await?,
-    ///     Some(5)
+    ///     mcmc_rs::IncrDecrResult::Value(5)
+    /// );
+    /// assert_eq!(
+    ///     client.decr(b"doc_rendezvous_decr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6562,6 +6707,10 @@ impl ClientRendezvous {
     /// assert_eq!(
     ///     client.touch(b"doc_rendezvous_touch", 60, false).await?,
     ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_rendezvous_touch", 60, true).await?,
+    ///     mcmc_rs::TouchResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6980,6 +7129,16 @@ impl<'a> Pipeline<'a> {
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
     /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .set(b"doc_pipeline_set_noreply", 0, 0, true, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -7025,6 +7184,16 @@ impl<'a> Pipeline<'a> {
     ///         PipelineResponse::StorageResult(StorageResult::Stored),
     ///         PipelineResponse::StorageResult(StorageResult::NotStored),
     ///     ]
+    /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .add(b"doc_pipeline_add_noreply", 0, 0, true, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -7079,6 +7248,16 @@ impl<'a> Pipeline<'a> {
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
+    /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .replace(b"doc_pipeline_replace", 0, 0, true, b"noreply")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -7144,6 +7323,16 @@ impl<'a> Pipeline<'a> {
     ///         data_block: b"base-tail".to_vec()
     ///     }))
     /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .append(b"doc_pipeline_append", 0, 0, true, b"-noreply")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -7208,6 +7397,16 @@ impl<'a> Pipeline<'a> {
     ///         data_block: b"head-base".to_vec()
     ///     }))
     /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .prepend(b"doc_pipeline_prepend", 0, 0, true, b"noreply-")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -7266,6 +7465,22 @@ impl<'a> Pipeline<'a> {
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
+    /// );
+    /// let cas = conn
+    ///     .gets(b"doc_pipeline_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// let result = conn
+    ///     .pipeline()
+    ///     .cas(b"doc_pipeline_cas", 0, 0, cas, true, b"noreply")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -7339,6 +7554,16 @@ impl<'a> Pipeline<'a> {
     ///         PipelineResponse::DeleteResult(DeleteResult::NotFound),
     ///     ]
     /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .delete(b"doc_pipeline_delete", true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::DeleteResult(DeleteResult::NoReply)]
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -7350,7 +7575,7 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use mcmc_rs::{Connection, IncrDecrResult, PipelineResponse, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -7362,7 +7587,10 @@ impl<'a> Pipeline<'a> {
     ///     .execute()
     ///     .await?;
     /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
-    /// assert_eq!(result, [PipelineResponse::Value(None)]);
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::IncrDecrResult(IncrDecrResult::NotFound)]
+    /// );
     /// conn.set(b"doc_pipeline_incr", 0, 0, false, b"10").await?;
     /// let result = conn
     ///     .pipeline()
@@ -7370,7 +7598,20 @@ impl<'a> Pipeline<'a> {
     ///     .execute()
     ///     .await?;
     /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
-    /// assert_eq!(result, [PipelineResponse::Value(Some(15))]);
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::IncrDecrResult(IncrDecrResult::Value(15))]
+    /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .incr(b"doc_pipeline_incr", 1, true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::IncrDecrResult(IncrDecrResult::NoReply)]
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -7383,7 +7624,7 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use mcmc_rs::{Connection, IncrDecrResult, PipelineResponse, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -7395,7 +7636,10 @@ impl<'a> Pipeline<'a> {
     ///     .execute()
     ///     .await?;
     /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
-    /// assert_eq!(result, [PipelineResponse::Value(None)]);
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::IncrDecrResult(IncrDecrResult::NotFound)]
+    /// );
     /// conn.set(b"doc_pipeline_decr", 0, 0, false, b"10").await?;
     /// let result = conn
     ///     .pipeline()
@@ -7403,7 +7647,20 @@ impl<'a> Pipeline<'a> {
     ///     .execute()
     ///     .await?;
     /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
-    /// assert_eq!(result, [PipelineResponse::Value(Some(5))]);
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::IncrDecrResult(IncrDecrResult::Value(5))]
+    /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .decr(b"doc_pipeline_decr", 1, true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::IncrDecrResult(IncrDecrResult::NoReply)]
+    /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -7443,6 +7700,16 @@ impl<'a> Pipeline<'a> {
     /// assert_eq!(
     ///     result,
     ///     [PipelineResponse::TouchResult(TouchResult::Touched)]
+    /// );
+    /// let result = conn
+    ///     .pipeline()
+    ///     .touch(b"doc_pipeline_touch", 60, true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::TouchResult(TouchResult::NoReply)]
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -8436,6 +8703,22 @@ mod tests {
             let mut c = Cursor::new(b"incr key 1 noreply\r\n".to_vec());
             assert_eq!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, true)
+                    .await
+                    .unwrap(),
+                IncrDecrResult::NoReply,
+            );
+
+            let mut c = Cursor::new(b"decr key 1\r\n2\r\n".to_vec());
+            assert_eq!(
+                incr_decr_cmd(&mut c, b"decr", b"key", 1, false)
+                    .await
+                    .unwrap(),
+                IncrDecrResult::Value(2)
+            );
+
+            let mut c = Cursor::new(b"decr key 1 noreply\r\n".to_vec());
+            assert_eq!(
+                incr_decr_cmd(&mut c, b"decr", b"key", 1, true)
                     .await
                     .unwrap(),
                 IncrDecrResult::NoReply,
