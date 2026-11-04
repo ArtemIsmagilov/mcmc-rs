@@ -9173,44 +9173,128 @@ mod tests {
     fn test_pipeline() {
         block_on(async {
             let cmds = [
-                b"version\r\n".to_vec(),
+                (b"version\r\n".to_vec(), PipelineExpect::Version),
                 // b"quit\r\n".to_vec(),
                 // b"shutdown\r\n".to_vec(),
-                b"cache_memlimit 1\r\n".to_vec(),
-                b"cache_memlimit 1 noreply\r\n".to_vec(),
-                b"flush_all\r\n".to_vec(),
-                b"flush_all 1 noreply\r\n".to_vec(),
-                b"cas key 0 0 5 0\r\nvalue\r\n".to_vec(),
-                b"append key 0 0 5 noreply\r\nvalue\r\n".to_vec(),
-                b"delete key\r\n".to_vec(),
-                b"delete key noreply\r\n".to_vec(),
-                b"set _ _ _ 3\r\na b\r\n".to_vec(),
-                b"incr key 1\r\n".to_vec(),
-                b"incr key 1 noreply\r\n".to_vec(),
-                b"touch key 0\r\n".to_vec(),
-                b"touch key 0 noreply\r\n".to_vec(),
-                b"gets key\r\n".to_vec(),
-                b"get key key2\r\n".to_vec(),
-                b"gat 0 key key2\r\n".to_vec(),
-                b"gats 0 key\r\n".to_vec(),
-                b"stats\r\n".to_vec(),
-                b"slabs automove 0\r\n".to_vec(),
-                b"lru_crawler enable\r\n".to_vec(),
-                b"lru_crawler disable\r\n".to_vec(),
-                b"lru_crawler sleep 1000000\r\n".to_vec(),
-                b"lru_crawler tocrawl 0\r\n".to_vec(),
-                b"lru_crawler crawl 1,2,3\r\n".to_vec(),
-                b"slabs reassign 1 10\r\n".to_vec(),
-                b"lru_crawler metadump all\r\n".to_vec(),
-                b"lru_crawler mgdump 3\r\n".to_vec(),
-                b"mn\r\n".to_vec(),
-                b"me key\r\n".to_vec(),
-                b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\n".to_vec(),
-                b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\n".to_vec(),
-                b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\n".to_vec(),
-                b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\n".to_vec(),
-                b"lru mode flat\r\n".to_vec(),
-                b"verbosity 0\r\n".to_vec(),
+                (
+                    b"cache_memlimit 1\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"cache_memlimit 1 noreply\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: true },
+                ),
+                (
+                    b"flush_all\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"flush_all 1 noreply\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: true },
+                ),
+                (
+                    b"cas key 0 0 5 0\r\nvalue\r\n".to_vec(),
+                    PipelineExpect::Storage { noreply: false },
+                ),
+                (
+                    b"append key 0 0 5 noreply\r\nvalue\r\n".to_vec(),
+                    PipelineExpect::Storage { noreply: true },
+                ),
+                (
+                    b"delete key\r\n".to_vec(),
+                    PipelineExpect::Delete { noreply: false },
+                ),
+                (
+                    b"delete key noreply\r\n".to_vec(),
+                    PipelineExpect::Delete { noreply: true },
+                ),
+                (b"set _ _ _ 3\r\na b\r\n".to_vec(), PipelineExpect::Auth),
+                (
+                    b"incr key 1\r\n".to_vec(),
+                    PipelineExpect::IncrDecr { noreply: false },
+                ),
+                (
+                    b"incr key 1 noreply\r\n".to_vec(),
+                    PipelineExpect::IncrDecr { noreply: true },
+                ),
+                (
+                    b"touch key 0\r\n".to_vec(),
+                    PipelineExpect::Touch { noreply: false },
+                ),
+                (
+                    b"touch key 0 noreply\r\n".to_vec(),
+                    PipelineExpect::Touch { noreply: true },
+                ),
+                (b"gets key\r\n".to_vec(), PipelineExpect::RetrievalOne),
+                (b"get key key2\r\n".to_vec(), PipelineExpect::RetrievalMulti),
+                (
+                    b"gat 0 key key2\r\n".to_vec(),
+                    PipelineExpect::RetrievalMulti,
+                ),
+                (b"gats 0 key\r\n".to_vec(), PipelineExpect::RetrievalOne),
+                (b"stats\r\n".to_vec(), PipelineExpect::Stats),
+                (
+                    b"slabs automove 0\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"lru_crawler enable\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"lru_crawler disable\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"lru_crawler sleep 1000000\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"lru_crawler tocrawl 0\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"lru_crawler crawl 1,2,3\r\n".to_vec(),
+                    PipelineExpect::LruCrawler,
+                ),
+                (
+                    b"slabs reassign 1 10\r\n".to_vec(),
+                    PipelineExpect::SlabsReassign,
+                ),
+                (
+                    b"lru_crawler metadump all\r\n".to_vec(),
+                    PipelineExpect::LruCrawlerMetaDump,
+                ),
+                (
+                    b"lru_crawler mgdump 3\r\n".to_vec(),
+                    PipelineExpect::LruCrawlerMgDump,
+                ),
+                (b"mn\r\n".to_vec(), PipelineExpect::Mn),
+                (b"me key\r\n".to_vec(), PipelineExpect::Me),
+                (
+                    b"mg 44OG44K544OI b c f h k l Oopaque s t u E0 N0 R0 T0 v\r\n".to_vec(),
+                    PipelineExpect::MetaGet,
+                ),
+                (
+                    b"ms 44OG44K544OI 2 b c C0 E0 F0 I k Oopaque s T0 MS N0\r\nhi\r\n".to_vec(),
+                    PipelineExpect::MetaSet,
+                ),
+                (
+                    b"md 44OG44K544OI b C0 E0 I k Oopaque T0 x\r\n".to_vec(),
+                    PipelineExpect::MetaDelete,
+                ),
+                (
+                    b"ma 44OG44K544OI b C0 E0 N0 J0 D0 T0 M+ Oopaque t c v k\r\n".to_vec(),
+                    PipelineExpect::MetaArithmetic,
+                ),
+                (
+                    b"lru mode flat\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
+                (
+                    b"verbosity 0\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
             ];
             let rps = [
                 b"VERSION 1.2.3\r\n".to_vec(),
@@ -9244,7 +9328,13 @@ mod tests {
                 b"OK\r\n".to_vec(),
                 b"OK\r\n".to_vec()
             ];
-            let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
+            let mut c = Cursor::new(
+                [
+                    cmds.iter().flat_map(|x| &x.0).copied().collect::<Vec<_>>(),
+                    rps.concat(),
+                ]
+                .concat(),
+            );
             assert_eq!(
                 execute_cmd(&mut c, &cmds)
                     .await
@@ -9359,16 +9449,22 @@ mod tests {
             );
 
             let cmds = [
-                b"version\r\n".to_vec(),
-                b"version\r\n".to_vec(),
-                b"version\r\n".to_vec(),
+                (b"version\r\n".to_vec(), PipelineExpect::Version),
+                (b"version\r\n".to_vec(), PipelineExpect::Version),
+                (b"version\r\n".to_vec(), PipelineExpect::Version),
             ];
             let rps = [
                 b"VERSION 1.2.3\r\n".to_vec(),
                 b"ERROR\r\n".to_vec(),
                 b"VERSION 1.2.3\r\n".to_vec(),
             ];
-            let mut c = Cursor::new([cmds.concat(), rps.concat()].concat().to_vec());
+            let mut c = Cursor::new(
+                [
+                    cmds.iter().flat_map(|x| &x.0).copied().collect::<Vec<_>>(),
+                    rps.concat(),
+                ]
+                .concat(),
+            );
             assert_matches!(
                 execute_cmd(&mut c, &cmds).await.unwrap().as_slice(),
                 [
