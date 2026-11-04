@@ -26,7 +26,9 @@ fn expensive_setup(n: &str) -> Connection {
 #[library_benchmark]
 #[benches::with_setup(args = ["unix", "tls", "tcp", "udp"], setup = expensive_setup)]
 fn bench_processing(mut c: Connection) -> Item {
-    smol::block_on(async { c.get(black_box(b"key0")).await.unwrap().unwrap() })
+    black_box(smol::block_on(async {
+        c.get(black_box(b"key0")).await.unwrap().unwrap()
+    }))
 }
 
 library_benchmark_group!(name = bench_processing_group, benchmarks = bench_processing);

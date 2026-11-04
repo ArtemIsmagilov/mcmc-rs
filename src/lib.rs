@@ -293,6 +293,29 @@ pub enum PipelineResponse {
     SlabsReassignResult(SlabsReassignResult),
 }
 
+enum PipelineExpect {
+    RetrievalOne,
+    RetrievalMulti,
+    Storage { noreply: bool },
+    Delete { noreply: bool },
+    IncrDecr { noreply: bool },
+    Touch { noreply: bool },
+    Version,
+    Ok { noreply: bool },
+    Stats,
+    LruCrawler,
+    SlabsReassign,
+    LruCrawlerMetaDump,
+    LruCrawlerMgDump,
+    Mn,
+    Me,
+    MetaGet,
+    MetaSet,
+    MetaDelete,
+    MetaArithmetic,
+    Auth,
+}
+
 pub enum MsMode {
     Add,
     Append,
@@ -1738,126 +1761,89 @@ async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 
 async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
-    cmds: &[Vec<u8>],
+    cmds: &[(Vec<u8>, PipelineExpect)],
 ) -> Result<Vec<Result<PipelineResponse>>> {
-    s.write_all(&cmds.concat()).await?;
-    let mut result = Vec::new();
-    for cmd in cmds {
-        if cmd.starts_with(b"gets ")
-            || cmd.starts_with(b"get ")
-            || cmd.starts_with(b"gats ")
-            || cmd.starts_with(b"gat ")
-        {
-            if (cmd.starts_with(b"gat") && cmd.iter().filter(|x| x == &&b' ').count() == 2)
-                || (cmd.starts_with(b"get") && cmd.iter().filter(|x| x == &&b' ').count() == 1)
-            {
-                result.push(
-                    parse_retrieval_rp(s)
-                        .await
-                        .map(|mut x| PipelineResponse::OptionItem(x.pop())),
-                )
-            } else {
+    let capacity = cmds.iter().map(|x| x.0.len()).sum();
+    let mut buf = Vec::with_capacity(capacity);
+    cmds.iter().for_each(|x| buf.extend(&x.0));
+    s.write_all(&buf).await?;
+    let mut result = Vec::with_capacity(cmds.len());
+    for x in cmds {
+        match x.1 {
+            PipelineExpect::RetrievalOne => result.push(
+                parse_retrieval_rp(s)
+                    .await
+                    .map(|mut x| PipelineResponse::OptionItem(x.pop())),
+            ),
+            PipelineExpect::RetrievalMulti => {
                 result.push(parse_retrieval_rp(s).await.map(PipelineResponse::VecItem))
             }
-        } else if cmd.starts_with(b"set _ _ _ ") {
-            result.push(parse_auth_rp(s).await.map(PipelineResponse::Unit))
-        } else if cmd.starts_with(b"set ")
-            || cmd.starts_with(b"add ")
-            || cmd.starts_with(b"replace ")
-            || cmd.starts_with(b"append ")
-            || cmd.starts_with(b"prepend ")
-            || cmd.starts_with(b"cas ")
-        {
-            let mut split = cmd.split(|x| x == &b'\r');
-            let n = split.next().unwrap();
-            result.push(
-                parse_storage_rp(s, n.ends_with(b"noreply"))
+            PipelineExpect::Auth => result.push(parse_auth_rp(s).await.map(PipelineResponse::Unit)),
+            PipelineExpect::Storage { noreply } => result.push(
+                parse_storage_rp(s, noreply)
                     .await
                     .map(PipelineResponse::StorageResult),
-            )
-        } else if cmd == build_version_cmd() {
-            result.push(parse_version_rp(s).await.map(PipelineResponse::String))
-        } else if cmd.starts_with(b"delete ") {
-            result.push(
-                parse_delete_rp(s, cmd.ends_with(b"noreply\r\n"))
+            ),
+            PipelineExpect::Version => {
+                result.push(parse_version_rp(s).await.map(PipelineResponse::String))
+            }
+            PipelineExpect::Delete { noreply } => result.push(
+                parse_delete_rp(s, noreply)
                     .await
                     .map(PipelineResponse::DeleteResult),
-            )
-        } else if cmd.starts_with(b"incr ") || cmd.starts_with(b"decr ") {
-            result.push(
-                parse_incr_decr_rp(s, cmd.ends_with(b"noreply\r\n"))
+            ),
+            PipelineExpect::IncrDecr { noreply } => result.push(
+                parse_incr_decr_rp(s, noreply)
                     .await
                     .map(PipelineResponse::IncrDecrResult),
-            )
-        } else if cmd.starts_with(b"touch ") {
-            result.push(
-                parse_touch_rp(s, cmd.ends_with(b"noreply\r\n"))
+            ),
+            PipelineExpect::Touch { noreply } => result.push(
+                parse_touch_rp(s, noreply)
                     .await
                     .map(PipelineResponse::TouchResult),
-            )
-        } else if cmd == build_quit_cmd() || cmd.starts_with(b"shutdown") {
-            result.push(Ok(PipelineResponse::Unit(())));
-            break;
-        } else if cmd.starts_with(b"flush_all") || cmd.starts_with(b"cache_memlimit ") {
-            result.push(
-                parse_ok_rp(s, cmd.ends_with(b"noreply\r\n"))
-                    .await
-                    .map(PipelineResponse::Unit),
-            )
-        } else if cmd.starts_with(b"slabs automove ")
-            || cmd.starts_with(b"lru_crawler sleep ")
-            || cmd.starts_with(b"lru_crawler tocrawl ")
-            || cmd == build_lru_crawler_cmd(LruCrawlerArg::Enable)
-            || cmd == build_lru_crawler_cmd(LruCrawlerArg::Disable)
-        {
-            result.push(parse_ok_rp(s, false).await.map(PipelineResponse::Unit))
-        } else if cmd.starts_with(b"lru_crawler crawl ") {
-            result.push(
+            ),
+            PipelineExpect::Ok { noreply } => {
+                result.push(parse_ok_rp(s, noreply).await.map(PipelineResponse::Unit))
+            }
+            PipelineExpect::LruCrawler => result.push(
                 parse_lru_crawler_rp(s)
                     .await
                     .map(PipelineResponse::LruCrawlerResult),
-            )
-        } else if cmd.starts_with(b"slabs reassign ") {
-            result.push(
+            ),
+            PipelineExpect::SlabsReassign => result.push(
                 parse_slabs_reassign_rp(s)
                     .await
                     .map(PipelineResponse::SlabsReassignResult),
-            )
-        } else if cmd == build_mn_cmd() {
-            result.push(parse_mn_rp(s).await.map(PipelineResponse::Unit))
-        } else if cmd.starts_with(b"stats") {
-            result.push(parse_stats_rp(s).await.map(PipelineResponse::HashMap))
-        } else if cmd.starts_with(b"lru_crawler metadump ") {
-            result.push(
+            ),
+            PipelineExpect::Mn => result.push(parse_mn_rp(s).await.map(PipelineResponse::Unit)),
+            PipelineExpect::Stats => {
+                result.push(parse_stats_rp(s).await.map(PipelineResponse::HashMap))
+            }
+            PipelineExpect::LruCrawlerMetaDump => result.push(
                 parse_lru_crawler_metadump_rp(s)
                     .await
                     .map(PipelineResponse::LruCrawlerDumpResult),
-            )
-        } else if cmd.starts_with(b"lru_crawler mgdump ") {
-            result.push(
+            ),
+            PipelineExpect::LruCrawlerMgDump => result.push(
                 parse_lru_crawler_mgdump_rp(s)
                     .await
                     .map(PipelineResponse::LruCrawlerDumpResult),
-            )
-        } else if cmd.starts_with(b"mg ") {
-            result.push(parse_mg_rp(s).await.map(PipelineResponse::MetaGet))
-        } else if cmd.starts_with(b"ms ") {
-            result.push(parse_ms_rp(s).await.map(PipelineResponse::MetaSet))
-        } else if cmd.starts_with(b"md ") {
-            result.push(parse_md_rp(s).await.map(PipelineResponse::MetaDelete))
-        } else if cmd.starts_with(b"ma ") {
-            result.push(parse_ma_rp(s).await.map(PipelineResponse::MetaArithmetic))
-        } else if cmd.starts_with(b"lru ") {
-            result.push(parse_ok_rp(s, false).await.map(PipelineResponse::Unit))
-        } else if cmd.starts_with(b"me ") {
-            result.push(parse_me_rp(s).await.map(PipelineResponse::OptionString))
-        } else {
-            assert!(cmd.starts_with(b"verbosity "));
-            result.push(
-                parse_ok_rp(s, cmd.ends_with(b" noreply\r\n"))
-                    .await
-                    .map(PipelineResponse::Unit),
-            )
+            ),
+            PipelineExpect::MetaGet => {
+                result.push(parse_mg_rp(s).await.map(PipelineResponse::MetaGet))
+            }
+            PipelineExpect::MetaSet => {
+                result.push(parse_ms_rp(s).await.map(PipelineResponse::MetaSet))
+            }
+            PipelineExpect::MetaDelete => {
+                result.push(parse_md_rp(s).await.map(PipelineResponse::MetaDelete))
+            }
+            PipelineExpect::MetaArithmetic => {
+                result.push(parse_ma_rp(s).await.map(PipelineResponse::MetaArithmetic))
+            }
+            PipelineExpect::Me => {
+                result.push(parse_me_rp(s).await.map(PipelineResponse::OptionString))
+            }
         }
     }
     Ok(result)
@@ -6936,7 +6922,7 @@ impl ClientRendezvous {
     }
 }
 
-pub struct Pipeline<'a>(&'a mut Connection, Vec<Vec<u8>>);
+pub struct Pipeline<'a>(&'a mut Connection, Vec<(Vec<u8>, PipelineExpect)>);
 impl<'a> Pipeline<'a> {
     /// # Example
     ///
@@ -7026,43 +7012,8 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn version(mut self) -> Self {
-        self.1.push(build_version_cmd().to_vec());
-        self
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{Connection, PipelineResponse};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// let result = conn.pipeline().quit().execute().await?;
-    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
-    /// assert_eq!(result, [PipelineResponse::Unit(())]);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub fn quit(mut self) -> Self {
-        self.1.push(build_quit_cmd().to_vec());
-        self
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{Connection, PipelineResponse};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// let _pipeline = conn.pipeline().shutdown(false);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub fn shutdown(mut self, graceful: bool) -> Self {
-        self.1.push(build_shutdown_cmd(graceful).to_vec());
+        self.1
+            .push((build_version_cmd().to_vec(), PipelineExpect::Version));
         self
     }
 
@@ -7081,8 +7032,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn cache_memlimit(mut self, limit: usize, noreply: bool) -> Self {
-        self.1
-            .push(build_cache_memlimit_cmd(limit, noreply).to_vec());
+        self.1.push((
+            build_cache_memlimit_cmd(limit, noreply).to_vec(),
+            PipelineExpect::Ok { noreply },
+        ));
         self
     }
 
@@ -7107,7 +7060,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn flush_all(mut self, exptime: Option<i64>, noreply: bool) -> Self {
-        self.1.push(build_flush_all_cmd(exptime, noreply).to_vec());
+        self.1.push((
+            build_flush_all_cmd(exptime, noreply).to_vec(),
+            PipelineExpect::Ok { noreply },
+        ));
         self
     }
 
@@ -7150,14 +7106,17 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_storage_cmd(
-            b"set",
-            key.as_ref(),
-            flags,
-            exptime,
-            None,
-            noreply,
-            data_block.as_ref(),
+        self.1.push((
+            build_storage_cmd(
+                b"set",
+                key.as_ref(),
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
         ));
         self
     }
@@ -7206,14 +7165,17 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_storage_cmd(
-            b"add",
-            key.as_ref(),
-            flags,
-            exptime,
-            None,
-            noreply,
-            data_block.as_ref(),
+        self.1.push((
+            build_storage_cmd(
+                b"add",
+                key.as_ref(),
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
         ));
         self
     }
@@ -7270,14 +7232,17 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_storage_cmd(
-            b"replace",
-            key.as_ref(),
-            flags,
-            exptime,
-            None,
-            noreply,
-            data_block.as_ref(),
+        self.1.push((
+            build_storage_cmd(
+                b"replace",
+                key.as_ref(),
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
         ));
         self
     }
@@ -7344,14 +7309,17 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_storage_cmd(
-            b"append",
-            key.as_ref(),
-            flags,
-            exptime,
-            None,
-            noreply,
-            data_block.as_ref(),
+        self.1.push((
+            build_storage_cmd(
+                b"append",
+                key.as_ref(),
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
         ));
         self
     }
@@ -7418,14 +7386,17 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_storage_cmd(
-            b"prepend",
-            key.as_ref(),
-            flags,
-            exptime,
-            None,
-            noreply,
-            data_block.as_ref(),
+        self.1.push((
+            build_storage_cmd(
+                b"prepend",
+                key.as_ref(),
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
         ));
         self
     }
@@ -7494,14 +7465,17 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_storage_cmd(
-            b"cas",
-            key.as_ref(),
-            flags,
-            exptime,
-            Some(cas_unique),
-            noreply,
-            data_block.as_ref(),
+        self.1.push((
+            build_storage_cmd(
+                b"cas",
+                key.as_ref(),
+                flags,
+                exptime,
+                Some(cas_unique),
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
         ));
         self
     }
@@ -7525,8 +7499,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn auth(mut self, username: impl AsRef<[u8]>, password: impl AsRef<[u8]>) -> Self {
-        self.1
-            .push(build_auth_cmd(username.as_ref(), password.as_ref()));
+        self.1.push((
+            build_auth_cmd(username.as_ref(), password.as_ref()),
+            PipelineExpect::Auth,
+        ));
         self
     }
 
@@ -7568,7 +7544,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn delete(mut self, key: impl AsRef<[u8]>, noreply: bool) -> Self {
-        self.1.push(build_delete_cmd(key.as_ref(), noreply));
+        self.1.push((
+            build_delete_cmd(key.as_ref(), noreply),
+            PipelineExpect::Delete { noreply },
+        ));
         self
     }
 
@@ -7616,8 +7595,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn incr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
-        self.1
-            .push(build_incr_decr_cmd(b"incr", key.as_ref(), value, noreply));
+        self.1.push((
+            build_incr_decr_cmd(b"incr", key.as_ref(), value, noreply),
+            PipelineExpect::IncrDecr { noreply },
+        ));
         self
     }
 
@@ -7665,8 +7646,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn decr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
-        self.1
-            .push(build_incr_decr_cmd(b"decr", key.as_ref(), value, noreply));
+        self.1.push((
+            build_incr_decr_cmd(b"decr", key.as_ref(), value, noreply),
+            PipelineExpect::IncrDecr { noreply },
+        ));
         self
     }
 
@@ -7715,7 +7698,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn touch(mut self, key: impl AsRef<[u8]>, exptime: i64, noreply: bool) -> Self {
-        self.1.push(build_touch_cmd(key.as_ref(), exptime, noreply));
+        self.1.push((
+            build_touch_cmd(key.as_ref(), exptime, noreply),
+            PipelineExpect::Touch { noreply },
+        ));
         self
     }
 
@@ -7747,8 +7733,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn get(mut self, key: impl AsRef<[u8]>) -> Self {
-        self.1
-            .push(build_retrieval_cmd(b"get", None, &[key.as_ref()]));
+        self.1.push((
+            build_retrieval_cmd(b"get", None, &[key.as_ref()]),
+            PipelineExpect::RetrievalOne,
+        ));
         self
     }
 
@@ -7776,8 +7764,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn gets(mut self, key: impl AsRef<[u8]>) -> Self {
-        self.1
-            .push(build_retrieval_cmd(b"gets", None, &[key.as_ref()]));
+        self.1.push((
+            build_retrieval_cmd(b"gets", None, &[key.as_ref()]),
+            PipelineExpect::RetrievalOne,
+        ));
         self
     }
 
@@ -7809,8 +7799,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn gat(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
-        self.1
-            .push(build_retrieval_cmd(b"gat", Some(exptime), &[key.as_ref()]));
+        self.1.push((
+            build_retrieval_cmd(b"gat", Some(exptime), &[key.as_ref()]),
+            PipelineExpect::RetrievalOne,
+        ));
         self
     }
 
@@ -7843,8 +7835,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn gats(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
-        self.1
-            .push(build_retrieval_cmd(b"gats", Some(exptime), &[key.as_ref()]));
+        self.1.push((
+            build_retrieval_cmd(b"gats", Some(exptime), &[key.as_ref()]),
+            PipelineExpect::RetrievalOne,
+        ));
         self
     }
 
@@ -7896,10 +7890,13 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn get_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
-        self.1.push(build_retrieval_cmd(
-            b"get",
-            None,
-            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        self.1.push((
+            build_retrieval_cmd(
+                b"get",
+                None,
+                &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+            ),
+            PipelineExpect::RetrievalMulti,
         ));
         self
     }
@@ -7935,10 +7932,13 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn gets_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
-        self.1.push(build_retrieval_cmd(
-            b"gets",
-            None,
-            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        self.1.push((
+            build_retrieval_cmd(
+                b"gets",
+                None,
+                &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+            ),
+            PipelineExpect::RetrievalMulti,
         ));
         self
     }
@@ -7985,10 +7985,13 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn gat_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
-        self.1.push(build_retrieval_cmd(
-            b"gat",
-            Some(exptime),
-            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        self.1.push((
+            build_retrieval_cmd(
+                b"gat",
+                Some(exptime),
+                &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+            ),
+            PipelineExpect::RetrievalMulti,
         ));
         self
     }
@@ -8027,10 +8030,13 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn gats_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
-        self.1.push(build_retrieval_cmd(
-            b"gats",
-            Some(exptime),
-            &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+        self.1.push((
+            build_retrieval_cmd(
+                b"gats",
+                Some(exptime),
+                &keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>(),
+            ),
+            PipelineExpect::RetrievalMulti,
         ));
         self
     }
@@ -8057,7 +8063,8 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn stats(mut self, arg: Option<StatsArg>) -> Self {
-        self.1.push(build_stats_cmd(arg).to_vec());
+        self.1
+            .push((build_stats_cmd(arg).to_vec(), PipelineExpect::Stats));
         self
     }
 
@@ -8082,7 +8089,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn slabs_automove(mut self, arg: SlabsAutomoveArg) -> Self {
-        self.1.push(build_slabs_automove_cmd(arg).to_vec());
+        self.1.push((
+            build_slabs_automove_cmd(arg).to_vec(),
+            PipelineExpect::Ok { noreply: false },
+        ));
         self
     }
 
@@ -8105,7 +8115,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler(mut self, arg: LruCrawlerArg) -> Self {
-        self.1.push(build_lru_crawler_cmd(arg).to_vec());
+        self.1.push((
+            build_lru_crawler_cmd(arg).to_vec(),
+            PipelineExpect::Ok { noreply: false },
+        ));
         self
     }
 
@@ -8138,7 +8151,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_sleep(mut self, microseconds: usize) -> Self {
-        self.1.push(build_lru_clawler_sleep_cmd(microseconds));
+        self.1.push((
+            build_lru_clawler_sleep_cmd(microseconds),
+            PipelineExpect::Ok { noreply: false },
+        ));
         self
     }
 
@@ -8167,7 +8183,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_tocrawl(mut self, arg: u32) -> Self {
-        self.1.push(build_lru_crawler_tocrawl_cmd(arg));
+        self.1.push((
+            build_lru_crawler_tocrawl_cmd(arg),
+            PipelineExpect::Ok { noreply: false },
+        ));
         self
     }
 
@@ -8187,7 +8206,8 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_crawl(mut self, arg: LruCrawlerCrawlArg<'_>) -> Self {
-        self.1.push(build_lru_clawler_crawl_cmd(arg));
+        self.1
+            .push((build_lru_clawler_crawl_cmd(arg), PipelineExpect::LruCrawler));
         self
     }
 
@@ -8204,8 +8224,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn slabs_reassign(mut self, source_class: isize, dest_class: isize) -> Self {
-        self.1
-            .push(build_slabs_reassign_cmd(source_class, dest_class));
+        self.1.push((
+            build_slabs_reassign_cmd(source_class, dest_class),
+            PipelineExpect::SlabsReassign,
+        ));
         self
     }
 
@@ -8222,7 +8244,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_metadump(mut self, arg: LruCrawlerMetadumpArg<'_>) -> Self {
-        self.1.push(build_lru_clawler_metadump_cmd(arg));
+        self.1.push((
+            build_lru_clawler_metadump_cmd(arg),
+            PipelineExpect::LruCrawlerMetaDump,
+        ));
         self
     }
 
@@ -8240,7 +8265,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru_crawler_mgdump(mut self, arg: LruCrawlerMgdumpArg<'_>) -> Self {
-        self.1.push(build_lru_clawler_mgdump_cmd(arg));
+        self.1.push((
+            build_lru_clawler_mgdump_cmd(arg),
+            PipelineExpect::LruCrawlerMgDump,
+        ));
         self
     }
 
@@ -8259,7 +8287,7 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn mn(mut self) -> Self {
-        self.1.push(build_mn_cmd().to_vec());
+        self.1.push((build_mn_cmd().to_vec(), PipelineExpect::Mn));
         self
     }
 
@@ -8282,7 +8310,8 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn me(mut self, key: impl AsRef<[u8]>) -> Self {
-        self.1.push(build_me_cmd(key.as_ref()));
+        self.1
+            .push((build_me_cmd(key.as_ref()), PipelineExpect::Me));
         self
     }
 
@@ -8323,11 +8352,9 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn mg(mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Self {
-        self.1.push(build_mc_cmd(
-            b"mg",
-            key.as_ref(),
-            &build_mg_flags(flags),
-            None,
+        self.1.push((
+            build_mc_cmd(b"mg", key.as_ref(), &build_mg_flags(flags), None),
+            PipelineExpect::MetaGet,
         ));
         self
     }
@@ -8367,11 +8394,14 @@ impl<'a> Pipeline<'a> {
         flags: &[MsFlag],
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push(build_mc_cmd(
-            b"ms",
-            key.as_ref(),
-            &build_ms_flags(flags),
-            Some(data_block.as_ref()),
+        self.1.push((
+            build_mc_cmd(
+                b"ms",
+                key.as_ref(),
+                &build_ms_flags(flags),
+                Some(data_block.as_ref()),
+            ),
+            PipelineExpect::MetaSet,
         ));
         self
     }
@@ -8402,11 +8432,9 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn md(mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Self {
-        self.1.push(build_mc_cmd(
-            b"md",
-            key.as_ref(),
-            &build_md_flags(flags),
-            None,
+        self.1.push((
+            build_mc_cmd(b"md", key.as_ref(), &build_md_flags(flags), None),
+            PipelineExpect::MetaDelete,
         ));
         self
     }
@@ -8447,11 +8475,9 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn ma(mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Self {
-        self.1.push(build_mc_cmd(
-            b"ma",
-            key.as_ref(),
-            &build_ma_flags(flags),
-            None,
+        self.1.push((
+            build_mc_cmd(b"ma", key.as_ref(), &build_ma_flags(flags), None),
+            PipelineExpect::MetaArithmetic,
         ));
         self
     }
@@ -8473,7 +8499,8 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn lru(mut self, arg: LruArg) -> Self {
-        self.1.push(build_lru_cmd(arg));
+        self.1
+            .push((build_lru_cmd(arg), PipelineExpect::Ok { noreply: false }));
         self
     }
 
@@ -8496,7 +8523,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn verbosity(mut self, arg: VerbosityArg, noreply: bool) -> Self {
-        self.1.push(build_verbosity_cmd(arg, noreply));
+        self.1.push((
+            build_verbosity_cmd(arg, noreply),
+            PipelineExpect::Ok { noreply },
+        ));
         self
     }
 }
