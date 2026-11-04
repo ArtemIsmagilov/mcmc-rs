@@ -2611,7 +2611,8 @@ impl Connection {
     ///         b"base-tail"
     ///     );
     ///     assert_eq!(
-    ///         c.append(b"doc_conn_append", 0, 0, true, b"-noreply").await?,
+    ///         c.append(b"doc_conn_append", 0, 0, true, b"-noreply")
+    ///             .await?,
     ///         StorageResult::NoReply
     ///     );
     /// }
@@ -2825,8 +2826,7 @@ impl Connection {
     ///     assert_eq!(c.get(b"doc_conn_cas").await?.unwrap().data_block, b"new");
     ///     let cas = c.gets(b"doc_conn_cas").await?.unwrap().cas_unique.unwrap();
     ///     assert_eq!(
-    ///         c.cas(b"doc_conn_cas", 0, 0, cas, true, b"noreply")
-    ///             .await?,
+    ///         c.cas(b"doc_conn_cas", 0, 0, cas, true, b"noreply").await?,
     ///         StorageResult::NoReply
     ///     );
     /// }
