@@ -4036,7 +4036,7 @@ impl Connection {
     /// # }).unwrap()
     /// ```
     pub fn pipeline(&mut self) -> Pipeline<'_> {
-        Pipeline::new(self)
+        Pipeline(self, Vec::new())
     }
 
     /// # Example
@@ -6924,26 +6924,6 @@ impl ClientRendezvous {
 
 pub struct Pipeline<'a>(&'a mut Connection, Vec<(Vec<u8>, PipelineExpect)>);
 impl<'a> Pipeline<'a> {
-    /// # Example
-    ///
-    /// ```
-    /// # use std::assert_matches;
-    /// # use mcmc_rs::{Connection, PipelineResponse};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
-    /// let result = conn.pipeline().version().execute().await?;
-    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
-    /// assert_eq!(result.len(), 1);
-    /// assert_matches!(result[0], PipelineResponse::String(_));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    fn new(conn: &'a mut Connection) -> Self {
-        Self(conn, Vec::new())
-    }
-
     /// # Example
     ///
     /// ```
