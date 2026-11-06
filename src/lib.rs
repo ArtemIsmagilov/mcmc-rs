@@ -887,10 +887,10 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
         }
     }
     if let Some(a) = data_len {
-        let mut buf = String::with_capacity(a + 2);
-        s.read_line(&mut buf).await?;
+        let mut buf = vec![0; a + 2];
+        s.read_exact(&mut buf).await?;
         buf.truncate(a);
-        number = Some(buf.parse().unwrap());
+        number = Some(String::from_utf8(buf).unwrap().parse().unwrap());
     }
     Ok(MaItem {
         status,
@@ -9276,42 +9276,42 @@ mod tests {
                     PipelineExpect::Ok { noreply: false },
                 ),
             ];
-            let rps = [
-                b"VERSION 1.2.3\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"STORED\r\n".to_vec(),
-                b"DELETED\r\n".to_vec(),
-                b"STORED\r\n".to_vec(),
-                b"2\r\n".to_vec(),
-                b"TOUCHED\r\n".to_vec(),
-                b"END\r\n".to_vec(),
-                b"END\r\n".to_vec(),
-                b"VALUE key 0 1 0\r\na\r\nVALUE key2 0 1 0\r\na\r\nEND\r\n".to_vec(),
-                b"VALUE key 0 1 0\r\na\r\nEND\r\n".to_vec(),
-                b"STAT version 1.2.3\r\nSTAT threads 4\r\nEND\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\nkey=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n".to_vec(),
-                b"OK\r\nmg key\r\nmg key2\r\nEN\r\n".to_vec(),
-                b"MN\r\n".to_vec(),
-                b"ME key exp=-1 la=3 cas=2 fetch=no cls=1 size=63\r\n".to_vec(),
-                b"VA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n".to_vec(),
-                b"HD b c0 k44OG44K544OI Oopaque s0\r\n".to_vec(),
-                b"HD k44OG44K544OI Oopaque b\r\n".to_vec(),
-                b"VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n".to_vec(),
-                b"OK\r\n".to_vec(),
-                b"OK\r\n".to_vec()
-            ];
+            let rps = b"\
+                VERSION 1.2.3\r\n\
+                OK\r\n\
+                OK\r\n\
+                STORED\r\n\
+                DELETED\r\n\
+                STORED\r\n\
+                2\r\n\
+                TOUCHED\r\n\
+                END\r\n\
+                END\r\n\
+                VALUE key 0 1 0\r\na\r\nVALUE key2 0 1 0\r\na\r\nEND\r\n\
+                VALUE key 0 1 0\r\na\r\nEND\r\n\
+                STAT version 1.2.3\r\nSTAT threads 4\r\nEND\r\n\
+                OK\r\n\
+                OK\r\n\
+                OK\r\n\
+                OK\r\n\
+                OK\r\n\
+                OK\r\n\
+                OK\r\n\
+                OK\r\nkey=key exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nkey=key2 exp=-1 la=1745299782 cas=2 fetch=no cls=1 size=63 flags=0\r\nEND\r\n\
+                OK\r\nmg key\r\nmg key2\r\nEN\r\n\
+                MN\r\n\
+                ME key exp=-1 la=3 cas=2 fetch=no cls=1 size=63\r\n\
+                VA 1 b c0 f0 h0 k44OG44K544OI l0 Oopaque s0 t0 W X Z\r\nA\r\n\
+                HD b c0 k44OG44K544OI Oopaque s0\r\n\
+                HD k44OG44K544OI Oopaque b\r\n\
+                VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n\
+                OK\r\n\
+                OK\r\n\
+                ";
             let mut c = Cursor::new(
                 [
                     cmds.iter().flat_map(|x| &x.0).copied().collect::<Vec<_>>(),
-                    rps.concat(),
+                    rps.to_vec(),
                 ]
                 .concat(),
             );
@@ -9433,15 +9433,15 @@ mod tests {
                 (b"version\r\n".to_vec(), PipelineExpect::Version),
                 (b"version\r\n".to_vec(), PipelineExpect::Version),
             ];
-            let rps = [
-                b"VERSION 1.2.3\r\n".to_vec(),
-                b"ERROR\r\n".to_vec(),
-                b"VERSION 1.2.3\r\n".to_vec(),
-            ];
+            let rps = b"\
+                VERSION 1.2.3\r\n\
+                ERROR\r\n\
+                VERSION 1.2.3\r\n\
+                ";
             let mut c = Cursor::new(
                 [
                     cmds.iter().flat_map(|x| &x.0).copied().collect::<Vec<_>>(),
-                    rps.concat(),
+                    rps.to_vec(),
                 ]
                 .concat(),
             );
