@@ -74,6 +74,9 @@ use rt::*;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MemcachedError {
+    #[error("TLS error: {0}")]
+    Tls(#[from] async_native_tls::Error),
+
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 
@@ -2119,10 +2122,9 @@ impl Connection {
     pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> Result<Self> {
         let cert = fs::read(ca_path).await?;
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
-        let connector =
-            TlsConnector::new().add_root_certificate(Certificate::from_pem(&cert).unwrap());
+        let connector = TlsConnector::new().add_root_certificate(Certificate::from_pem(&cert)?);
         Ok(Connection::Tls(BufReader::new(
-            connector.connect(hostname, tcp_stream).await.unwrap(),
+            connector.connect(hostname, tcp_stream).await?,
         )))
     }
 
