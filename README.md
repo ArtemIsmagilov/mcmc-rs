@@ -76,7 +76,7 @@ cargo bench --bench bench_perf
 ## Build flamegraph
 
 ```bash
-cargo flamegraph --bench bench_frame
+cargo flamegraph --bench bench_graph
 ```
 
 ## Test coverage

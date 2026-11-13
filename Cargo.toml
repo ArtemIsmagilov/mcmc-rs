@@ -30,7 +30,8 @@ name = "bench_graph"
 harness = false
 
 [dependencies]
-karyon_async_rustls = { version = "1.0.1", default-features = false, optional = true }
+futures-rustls = { version = "0.26.0", optional = true }
+tokio-rustls = { version = "0.26.6", optional = true }
 webpki-roots = "1.0.12"
 crc32fast = "1.5.5"
 hashring = "0.3.7"
@@ -47,8 +48,8 @@ pretty_assertions = "1.4.1"
 
 [features]
 default = ["smol-runtime"]
-smol-runtime = ["karyon_async_rustls/smol", "dep:smol"]
-tokio-runtime = ["karyon_async_rustls/tokio", "dep:tokio", "tokio/full"]
+smol-runtime = ["futures-rustls", "dep:smol"]
+tokio-runtime = ["tokio-rustls", "dep:tokio", "tokio/full"]
 
 [profile.bench]
 debug = true

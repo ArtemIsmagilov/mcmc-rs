@@ -45,9 +45,6 @@ use std::sync::Arc;
 use crc32fast::hash as crc32;
 use hashring::HashRing;
 use hrw_hash::HrwNodes;
-use karyon_async_rustls::rustls;
-use karyon_async_rustls::rustls::pki_types::pem::PemObject;
-use karyon_async_rustls::{TlsConnector, TlsStream};
 
 #[cfg(all(feature = "smol-runtime", feature = "tokio-runtime"))]
 compile_error!(
@@ -55,6 +52,9 @@ compile_error!(
 );
 #[cfg(feature = "smol-runtime")]
 mod rt {
+    pub use futures_rustls::rustls;
+    pub use futures_rustls::rustls::pki_types::pem::PemObject;
+    pub use futures_rustls::{TlsConnector, client::TlsStream};
     pub use smol::fs;
     pub use smol::io::{self, BufReader, Cursor};
     #[cfg(unix)]
@@ -72,6 +72,9 @@ mod rt {
     #[cfg(unix)]
     pub use tokio::net::UnixStream;
     pub use tokio::net::{TcpStream, UdpSocket};
+    pub use tokio_rustls::rustls;
+    pub use tokio_rustls::rustls::pki_types::pem::PemObject;
+    pub use tokio_rustls::{TlsConnector, client::TlsStream};
 }
 use rt::*;
 
@@ -102,21 +105,11 @@ fn check_error(line: String) -> MemcachedError {
     if line == "ERROR\r\n" {
         return MemcachedError::UnknownCommand;
     };
-    if line.starts_with("CLIENT_ERROR") {
-        return MemcachedError::Client(
-            line.trim()
-                .strip_prefix("CLIENT_ERROR ")
-                .unwrap()
-                .to_string(),
-        );
+    if let Some(line) = line.strip_prefix("CLIENT_ERROR ") {
+        return MemcachedError::Client(line.trim().to_owned());
     }
-    if line.starts_with("SERVER_ERROR") {
-        return MemcachedError::Server(
-            line.trim()
-                .strip_prefix("SERVER_ERROR ")
-                .unwrap()
-                .to_string(),
-        );
+    if let Some(line) = line.strip_prefix("SERVER_ERROR ") {
+        return MemcachedError::Server(line.trim().to_owned());
     };
     MemcachedError::Unexpected(line)
 }
@@ -2127,17 +2120,16 @@ impl Connection {
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let mut root_store =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let certs = rustls::pki_types::CertificateDer::from_pem_slice(&cert).unwrap();
-        root_store.add(certs)?;
+        for cert_der in rustls::pki_types::CertificateDer::pem_slice_iter(&cert) {
+            root_store.add(cert_der.unwrap())?;
+        }
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let connector = TlsConnector::from(Arc::new(config));
         let domain = hostname.to_owned().try_into().unwrap();
         let tls_stream = connector.connect(domain, tcp_stream).await?;
-        Ok(Connection::Tls(BufReader::new(TlsStream::Client(
-            tls_stream,
-        ))))
+        Ok(Connection::Tls(BufReader::new(tls_stream)))
     }
 
     /// # Example

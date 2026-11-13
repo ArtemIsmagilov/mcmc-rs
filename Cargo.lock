@@ -711,16 +711,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "karyon_async_rustls"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a9b6fc65eb42d932d9cf60b31ec357a2743b1c02d503b67cb93243cde53c1ae"
-dependencies = [
- "futures-rustls",
- "tokio-rustls",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -754,14 +744,15 @@ dependencies = [
  "crc32fast",
  "criterion",
  "fastrand",
+ "futures-rustls",
  "gungraun",
  "hashring",
  "hrw-hash",
- "karyon_async_rustls",
  "pretty_assertions",
  "smol",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "webpki-roots",
 ]
 
