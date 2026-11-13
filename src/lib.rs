@@ -1090,7 +1090,7 @@ fn build_lru_crawler_cmd(arg: LruCrawlerArg) -> &'static [u8] {
     }
 }
 
-fn build_lru_clawler_sleep_cmd(microseconds: usize) -> Vec<u8> {
+fn build_lru_crawler_sleep_cmd(microseconds: usize) -> Vec<u8> {
     format!("lru_crawler sleep {microseconds}\r\n").into_bytes()
 }
 
@@ -1098,7 +1098,7 @@ fn build_lru_crawler_tocrawl_cmd(arg: u32) -> Vec<u8> {
     format!("lru_crawler tocrawl {arg}\r\n").into_bytes()
 }
 
-fn build_lru_clawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
+fn build_lru_crawler_crawl_cmd(arg: LruCrawlerCrawlArg) -> Vec<u8> {
     let mut w = Vec::from(b"lru_crawler crawl ");
     match arg {
         LruCrawlerCrawlArg::Classids(ids) => ids.iter().enumerate().for_each(|(index, id)| {
@@ -1118,7 +1118,7 @@ fn build_slabs_reassign_cmd(source_class: isize, dest_class: isize) -> Vec<u8> {
     format!("slabs reassign {source_class} {dest_class}\r\n").into_bytes()
 }
 
-fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
+fn build_lru_crawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
     let mut w = Vec::from(b"lru_crawler metadump ");
     match arg {
         LruCrawlerMetadumpArg::Classids(ids) => ids.iter().enumerate().for_each(|(index, id)| {
@@ -1135,7 +1135,7 @@ fn build_lru_clawler_metadump_cmd(arg: LruCrawlerMetadumpArg) -> Vec<u8> {
     w
 }
 
-fn build_lru_clawler_mgdump_cmd(arg: LruCrawlerMgdumpArg) -> Vec<u8> {
+fn build_lru_crawler_mgdump_cmd(arg: LruCrawlerMgdumpArg) -> Vec<u8> {
     let mut w = Vec::from(b"lru_crawler mgdump ");
     match arg {
         LruCrawlerMgdumpArg::Classids(ids) => ids.iter().enumerate().for_each(|(index, id)| {
@@ -1650,7 +1650,7 @@ async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 }
 
 async fn lru_crawler_sleep_cmd_udp(s: &UdpSocket, r: &mut u16, microseconds: usize) -> Result<()> {
-    udp_send_cmd(s, r, &build_lru_clawler_sleep_cmd(microseconds)).await?;
+    udp_send_cmd(s, r, &build_lru_crawler_sleep_cmd(microseconds)).await?;
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
@@ -1658,7 +1658,7 @@ async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     microseconds: usize,
 ) -> Result<()> {
-    s.write_all(&build_lru_clawler_sleep_cmd(microseconds))
+    s.write_all(&build_lru_crawler_sleep_cmd(microseconds))
         .await?;
     parse_ok_rp(s, false).await
 }
@@ -1681,7 +1681,7 @@ async fn lru_crawler_crawl_cmd_udp(
     r: &mut u16,
     arg: LruCrawlerCrawlArg<'_>,
 ) -> Result<LruCrawlerResult> {
-    udp_send_cmd(s, r, &build_lru_clawler_crawl_cmd(arg)).await?;
+    udp_send_cmd(s, r, &build_lru_crawler_crawl_cmd(arg)).await?;
     parse_lru_crawler_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
@@ -1689,7 +1689,7 @@ async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerCrawlArg<'_>,
 ) -> Result<LruCrawlerResult> {
-    s.write_all(&build_lru_clawler_crawl_cmd(arg)).await?;
+    s.write_all(&build_lru_crawler_crawl_cmd(arg)).await?;
     parse_lru_crawler_rp(s).await
 }
 
@@ -1717,7 +1717,7 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
 ) -> Result<LruCrawlerDumpResult> {
-    s.write_all(&build_lru_clawler_metadump_cmd(arg)).await?;
+    s.write_all(&build_lru_crawler_metadump_cmd(arg)).await?;
     parse_lru_crawler_metadump_rp(s).await
 }
 
@@ -1725,7 +1725,7 @@ async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMgdumpArg<'_>,
 ) -> Result<LruCrawlerDumpResult> {
-    s.write_all(&build_lru_clawler_mgdump_cmd(arg)).await?;
+    s.write_all(&build_lru_crawler_mgdump_cmd(arg)).await?;
     parse_lru_crawler_mgdump_rp(s).await
 }
 
@@ -8138,7 +8138,7 @@ impl<'a> Pipeline<'a> {
     /// ```
     pub fn lru_crawler_sleep(mut self, microseconds: usize) -> Self {
         self.1.push((
-            build_lru_clawler_sleep_cmd(microseconds),
+            build_lru_crawler_sleep_cmd(microseconds),
             PipelineExpect::Ok { noreply: false },
         ));
         self
@@ -8193,7 +8193,7 @@ impl<'a> Pipeline<'a> {
     /// ```
     pub fn lru_crawler_crawl(mut self, arg: LruCrawlerCrawlArg<'_>) -> Self {
         self.1
-            .push((build_lru_clawler_crawl_cmd(arg), PipelineExpect::LruCrawler));
+            .push((build_lru_crawler_crawl_cmd(arg), PipelineExpect::LruCrawler));
         self
     }
 
@@ -8231,7 +8231,7 @@ impl<'a> Pipeline<'a> {
     /// ```
     pub fn lru_crawler_metadump(mut self, arg: LruCrawlerMetadumpArg<'_>) -> Self {
         self.1.push((
-            build_lru_clawler_metadump_cmd(arg),
+            build_lru_crawler_metadump_cmd(arg),
             PipelineExpect::LruCrawlerMetaDump,
         ));
         self
@@ -8252,7 +8252,7 @@ impl<'a> Pipeline<'a> {
     /// ```
     pub fn lru_crawler_mgdump(mut self, arg: LruCrawlerMgdumpArg<'_>) -> Self {
         self.1.push((
-            build_lru_clawler_mgdump_cmd(arg),
+            build_lru_crawler_mgdump_cmd(arg),
             PipelineExpect::LruCrawlerMgDump,
         ));
         self
