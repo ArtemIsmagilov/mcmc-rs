@@ -16,12 +16,9 @@ webpki-roots = "1.0.12"
 crc32fast = "1.5.5"
 hashring = "0.3.7"
 hrw-hash = "2.0.3"
-smol = { version = "2.0.2", optional = true }
-tokio = { version = "1.54.1", optional = true, features = [
-  "net",
-  "fs",
-  "io-util",
-] }
+async-net = { version = "2.0.0", optional = true }
+futures-lite = { version = "2.6.1", optional = true }
+tokio = { version = "1.54.1", optional = true, features = ["net", "io-util"] }
 thiserror = "2.0.21"
 fastrand = "2.5.0"
 
@@ -30,10 +27,11 @@ criterion = { version = "0.8.2", features = ["async_smol"] }
 gungraun = "0.20.0"
 pretty_assertions = "1.4.1"
 tokio = { version = "1.54.1", features = ["full"] }
+smol = "2.0.2"
 
 [features]
 default = ["smol-runtime"]
-smol-runtime = ["dep:futures-rustls", "dep:smol"]
+smol-runtime = ["dep:futures-rustls", "dep:async-net", "dep:futures-lite"]
 tokio-runtime = ["dep:tokio-rustls", "dep:tokio"]
 
 [profile.bench]

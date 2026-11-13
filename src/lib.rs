@@ -52,15 +52,14 @@ compile_error!(
 );
 #[cfg(feature = "smol-runtime")]
 mod rt {
+    #[cfg(unix)]
+    pub use async_net::unix::UnixStream;
+    pub use async_net::{TcpStream, UdpSocket};
+    pub use futures_lite::io::{BufReader, Cursor};
+    pub use futures_lite::prelude::*;
     pub use futures_rustls::rustls;
     pub use futures_rustls::rustls::pki_types::pem::PemObject;
     pub use futures_rustls::{TlsConnector, client::TlsStream};
-    pub use smol::fs;
-    pub use smol::io::{BufReader, Cursor};
-    #[cfg(unix)]
-    pub use smol::net::unix::UnixStream;
-    pub use smol::net::{TcpStream, UdpSocket};
-    pub use smol::prelude::*;
 }
 #[cfg(feature = "tokio-runtime")]
 mod rt {
@@ -2112,11 +2111,12 @@ impl Connection {
     /// # }).unwrap()
     /// ```
     pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> Result<Self> {
-        let cert = fs::read(ca_path).await?;
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let mut root_store =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        for cert_der in rustls::pki_types::CertificateDer::pem_slice_iter(&cert) {
+        for cert_der in
+            rustls::pki_types::CertificateDer::pem_file_iter(ca_path).map_err(TlsError::from)?
+        {
             root_store
                 .add(cert_der.map_err(TlsError::from)?)
                 .map_err(TlsError::from)?;
