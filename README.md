@@ -73,6 +73,12 @@ cargo bench --bench bench_time
 cargo bench --bench bench_perf
 ```
 
+## Build flamegraph
+
+```bash
+cargo flamegraph --bench bench_frame
+```
+
 ## Test coverage
 
 ```bash

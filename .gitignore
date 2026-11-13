@@ -1,2 +1,4 @@
 /target
 mutants*
+flamegraph.svg
+perf.data*

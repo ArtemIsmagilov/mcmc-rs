@@ -61,11 +61,11 @@ services:
         "11216",
         "-Z",
         "-o",
-        "ssl_chain_cert=/app/cert.pem,ssl_key=/app/key.pem",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key",
       ]
     volumes:
-      - "./cert.pem:/app/cert.pem:ro"
-      - "./key.pem:/app/key.pem:ro"
+      - "./server.crt:/app/server.crt:ro"
+      - "./server.key:/app/server.key:ro"
     ports:
       - "11216:11216"
 
@@ -79,11 +79,11 @@ services:
         "-A",
         "-Z",
         "-o",
-        "ssl_chain_cert=/app/cert.pem,ssl_key=/app/key.pem",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key",
       ]
     volumes:
-      - "./cert.pem:/app/cert.pem:ro"
-      - "./key.pem:/app/key.pem:ro"
+      - "./server.crt:/app/server.crt:ro"
+      - "./server.key:/app/server.key:ro"
     ports:
       - "11217:11217"
 
@@ -98,11 +98,11 @@ services:
         "/app/sasl.txt",
         "-Z",
         "-o",
-        "ssl_chain_cert=/app/cert.pem,ssl_key=/app/key.pem",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key",
       ]
     volumes:
-      - "./cert.pem:/app/cert.pem:ro"
-      - "./key.pem:/app/key.pem:ro"
+      - "./server.crt:/app/server.crt:ro"
+      - "./server.key:/app/server.key:ro"
       - "./sasl.txt:/app/sasl.txt:ro"
     ports:
       - "11218:11218"
