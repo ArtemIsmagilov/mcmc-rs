@@ -1,4 +1,3 @@
-use tokio::io;
 use tokio::runtime::Runtime;
 
 use mcmc_rs::{ClientCrc32, Connection, WatchArg};
