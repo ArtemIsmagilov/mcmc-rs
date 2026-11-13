@@ -511,9 +511,9 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> 
 
 async fn parse_version_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<String> {
     let mut line = String::new();
-    let n = s.read_line(&mut line).await?;
-    if line.starts_with("VERSION") {
-        Ok(line[8..n - 2].to_string())
+    s.read_line(&mut line).await?;
+    if let Some(line) = line.strip_prefix("VERSION ") {
+        Ok(line.trim().to_owned())
     } else {
         Err(check_error(line))
     }
