@@ -56,7 +56,7 @@ mod rt {
     pub use futures_rustls::rustls::pki_types::pem::PemObject;
     pub use futures_rustls::{TlsConnector, client::TlsStream};
     pub use smol::fs;
-    pub use smol::io::{self, BufReader, Cursor};
+    pub use smol::io::{BufReader, Cursor};
     #[cfg(unix)]
     pub use smol::net::unix::UnixStream;
     pub use smol::net::{TcpStream, UdpSocket};
@@ -67,7 +67,7 @@ mod rt {
     pub use std::io::Cursor;
     pub use tokio::fs;
     pub use tokio::io::{
-        self, AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+        AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
     };
     #[cfg(unix)]
     pub use tokio::net::UnixStream;
@@ -80,7 +80,6 @@ use rt::*;
 
 use thiserror::Error;
 
-// Группа ошибок TLS
 #[derive(Error, Debug)]
 pub enum TlsError {
     #[error("invalid CA certificate: {0}")]
@@ -93,7 +92,6 @@ pub enum TlsError {
     InvalidServerName(String),
 }
 
-// Группа ошибок протокола
 #[derive(Error, Debug)]
 pub enum ProtocolError {
     #[error("Client sent a nonexistent command name")]
@@ -106,7 +104,6 @@ pub enum ProtocolError {
     Server(String),
 }
 
-// Верхний уровень
 #[derive(Error, Debug)]
 pub enum MemcachedError {
     #[error("TLS error: {0}")]
@@ -126,13 +123,13 @@ pub type Result<T> = std::result::Result<T, MemcachedError>;
 
 fn check_error(line: String) -> MemcachedError {
     if line == "ERROR\r\n" {
-        return MemcachedError::UnknownCommand;
+        return MemcachedError::Protocol(ProtocolError::UnknownCommand);
     };
     if let Some(line) = line.strip_prefix("CLIENT_ERROR ") {
-        return MemcachedError::Client(line.trim().to_owned());
+        return MemcachedError::Protocol(ProtocolError::Client(line.trim().to_owned()));
     }
     if let Some(line) = line.strip_prefix("SERVER_ERROR ") {
-        return MemcachedError::Server(line.trim().to_owned());
+        return MemcachedError::Protocol(ProtocolError::Server(line.trim().to_owned()));
     };
     MemcachedError::Unexpected(line)
 }
@@ -624,15 +621,11 @@ async fn parse_lru_crawler_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     if line == "OK\r\n" {
         return Ok(LruCrawlerResult::Ok);
     }
-    if line.starts_with("BUSY ") {
-        return Ok(LruCrawlerResult::Busy(
-            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BUSY ") {
+        return Ok(LruCrawlerResult::Busy(line.trim().to_owned()));
     }
-    if line.starts_with("BADCLASS ") {
-        return Ok(LruCrawlerResult::BadClass(
-            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BADCLASS ") {
+        return Ok(LruCrawlerResult::BadClass(line.trim().to_owned()));
     }
     Err(check_error(line))
 }
@@ -643,15 +636,11 @@ async fn parse_lru_crawler_metadump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     let mut line = String::new();
     let mut items = Vec::new();
     s.read_line(&mut line).await?;
-    if line.starts_with("BUSY ") {
-        return Ok(LruCrawlerDumpResult::Busy(
-            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BUSY ") {
+        return Ok(LruCrawlerDumpResult::Busy(line.trim().to_owned()));
     }
-    if line.starts_with("BADCLASS ") {
-        return Ok(LruCrawlerDumpResult::BadClass(
-            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BADCLASS ") {
+        return Ok(LruCrawlerDumpResult::BadClass(line.trim().to_owned()));
     }
     if line == "OK\r\n" {
         while {
@@ -659,7 +648,7 @@ async fn parse_lru_crawler_metadump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
             s.read_line(&mut line).await? > 0
         } && line.starts_with("key=")
         {
-            items.push(line.trim_end().to_string())
+            items.push(line.trim().to_string())
         }
     }
     match line.as_str() {
@@ -674,15 +663,11 @@ async fn parse_lru_crawler_mgdump_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     let mut line = String::new();
     let mut items = Vec::new();
     s.read_line(&mut line).await?;
-    if line.starts_with("BUSY ") {
-        return Ok(LruCrawlerDumpResult::Busy(
-            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BUSY ") {
+        return Ok(LruCrawlerDumpResult::Busy(line.trim().to_owned()));
     }
-    if line.starts_with("BADCLASS ") {
-        return Ok(LruCrawlerDumpResult::BadClass(
-            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BADCLASS ") {
+        return Ok(LruCrawlerDumpResult::BadClass(line.trim().to_owned()));
     }
     if line == "OK\r\n" {
         while {
@@ -710,10 +695,10 @@ async fn parse_mn_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
 
 async fn parse_me_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<Option<String>> {
     let mut line = String::new();
-    let n = s.read_line(&mut line).await?;
+    s.read_line(&mut line).await?;
     match line.as_str() {
         "EN\r\n" => Ok(None),
-        _ if line.starts_with("ME") => Ok(Some(line[3..n - 2].to_string())),
+        _ if let Some(line) = line.strip_prefix("ME ") => Ok(Some(line.trim().to_owned())),
         _ => Err(check_error(line)),
     }
 }
@@ -933,35 +918,23 @@ async fn parse_slabs_reassign_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     if line == "OK\r\n" {
         return Ok(SlabsReassignResult::Ok);
     }
-    if line.starts_with("BUSY ") {
-        return Ok(SlabsReassignResult::Busy(
-            line.trim().strip_prefix("BUSY ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BUSY ") {
+        return Ok(SlabsReassignResult::Busy(line.trim().to_owned()));
     }
-    if line.starts_with("BADCLASS ") {
-        return Ok(SlabsReassignResult::BadClass(
-            line.trim().strip_prefix("BADCLASS ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("BADCLASS ") {
+        return Ok(SlabsReassignResult::BadClass(line.trim().to_owned()));
     }
-    if line.starts_with("NOSPARE ") {
-        return Ok(SlabsReassignResult::NoSpare(
-            line.trim().strip_prefix("NOSPARE ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("NOSPARE ") {
+        return Ok(SlabsReassignResult::NoSpare(line.trim().to_owned()));
     }
-    if line.starts_with("NOTFULL ") {
-        return Ok(SlabsReassignResult::NotFull(
-            line.trim().strip_prefix("NOTFULL ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("NOTFULL ") {
+        return Ok(SlabsReassignResult::NotFull(line.trim().to_owned()));
     }
-    if line.starts_with("UNSAFE ") {
-        return Ok(SlabsReassignResult::UnSafe(
-            line.trim().strip_prefix("UNSAFE ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("UNSAFE ") {
+        return Ok(SlabsReassignResult::UnSafe(line.trim().to_owned()));
     }
-    if line.starts_with("SAME ") {
-        return Ok(SlabsReassignResult::Same(
-            line.trim().strip_prefix("SAME ").unwrap().to_string(),
-        ));
+    if let Some(line) = line.strip_prefix("SAME ") {
+        return Ok(SlabsReassignResult::Same(line.trim().to_owned()));
     }
     Err(check_error(line))
 }
@@ -2144,13 +2117,18 @@ impl Connection {
         let mut root_store =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         for cert_der in rustls::pki_types::CertificateDer::pem_slice_iter(&cert) {
-            root_store.add(cert_der?)?;
+            root_store
+                .add(cert_der.map_err(TlsError::from)?)
+                .map_err(TlsError::from)?;
         }
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let connector = TlsConnector::from(Arc::new(config));
-        let domain = hostname.to_owned().try_into()?;
+        let domain = hostname
+            .to_owned()
+            .try_into()
+            .map_err(|_| TlsError::InvalidServerName(hostname.to_owned()))?;
         let tls_stream = connector.connect(domain, tcp_stream).await?;
         Ok(Connection::Tls(BufReader::new(tls_stream)))
     }
@@ -8558,19 +8536,21 @@ mod tests {
             let mut c = Cursor::new(b"version\r\nERROR\r\n".to_vec());
             assert_matches!(
                 version_cmd(&mut c).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"version\r\nCLIENT_ERROR client msg error\r\n".to_vec());
             assert_matches!(
                 version_cmd(&mut c).await,
-                Err(MemcachedError::Client(e)) if e == "client msg error"
+                Err(MemcachedError::Protocol(ProtocolError::Client(e)))
+                    if e == "client msg error"
             );
 
             let mut c = Cursor::new(b"version\r\nSERVER_ERROR server msg error\r\n".to_vec());
             assert_matches!(
                 version_cmd(&mut c).await,
-                Err(MemcachedError::Server(e)) if e == "server msg error"
+                Err(MemcachedError::Protocol(ProtocolError::Server(e)))
+                    if e == "server msg error"
             );
 
             let mut c = Cursor::new(b"version\r\nUNEXPECTED_ERROR msg error\r\n".to_vec());
@@ -8612,7 +8592,7 @@ mod tests {
             let mut c = Cursor::new(b"cache_memlimit 1\r\nERROR\r\n".to_vec());
             assert_matches!(
                 cache_memlimit_cmd(&mut c, 1, false).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -8629,7 +8609,7 @@ mod tests {
             let mut c = Cursor::new(b"flush_all\r\nERROR\r\n".to_vec());
             assert_matches!(
                 flush_all_cmd(&mut c, None, false).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -8680,7 +8660,7 @@ mod tests {
             let mut c = Cursor::new(b"add key 0 0 0\r\nvalue\r\nERROR\r\n".to_vec());
             assert_matches!(
                 storage_cmd(&mut c, b"add", b"key", 0, 0, None, false, b"value").await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8709,7 +8689,7 @@ mod tests {
             let mut c = Cursor::new(b"delete key\r\nERROR\r\n".to_vec());
             assert_matches!(
                 delete_cmd(&mut c, b"key", false).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -8723,7 +8703,7 @@ mod tests {
             let mut c = Cursor::new(b"set _ _ _ 3\r\na b\r\nERROR\r\n".to_vec());
             assert_matches!(
                 auth_cmd(&mut c, b"a", b"b").await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -8774,7 +8754,7 @@ mod tests {
             let mut c = Cursor::new(b"incr key 1\r\nERROR\r\n".to_vec());
             assert_matches!(
                 incr_decr_cmd(&mut c, b"incr", b"key", 1, false).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -8803,7 +8783,7 @@ mod tests {
             let mut c = Cursor::new(b"touch key 0\r\nERROR\r\n".to_vec());
             assert_matches!(
                 touch_cmd(&mut c, b"key", 0, false).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8859,7 +8839,7 @@ mod tests {
             let mut c = Cursor::new(b"get key\r\nERROR\r\n".to_vec());
             assert_matches!(
                 retrieval_cmd(&mut c, b"get", None, &[b"key"]).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8880,31 +8860,31 @@ mod tests {
             let mut c = Cursor::new(b"stats settings\r\nERROR\r\n".to_vec());
             assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Settings)).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"stats items\r\nERROR\r\n".to_vec());
             assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Items)).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"stats sizes\r\nERROR\r\n".to_vec());
             assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Sizes)).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"stats slabs\r\nERROR\r\n".to_vec());
             assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Slabs)).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
             assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Conns)).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8922,13 +8902,13 @@ mod tests {
             let mut c = Cursor::new(b"slabs automove 1\r\nERROR\r\n".to_vec());
             assert_matches!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::One).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"slabs automove 2\r\nERROR\r\n".to_vec());
             assert_matches!(
                 slabs_automove_cmd(&mut c, SlabsAutomoveArg::Two).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8942,7 +8922,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler disable\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_cmd(&mut c, LruCrawlerArg::Disable).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8956,7 +8936,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler sleep 0\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_sleep_cmd(&mut c, 0).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -8970,7 +8950,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler tocrawl 0\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_tocrawl_cmd(&mut c, 0).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -9005,7 +8985,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler crawl all\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_crawl_cmd(&mut c, LruCrawlerCrawlArg::All).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -9058,7 +9038,7 @@ mod tests {
             let mut c = Cursor::new(b"slabs reassign 1 10\r\nERROR\r\n".to_vec());
             assert_matches!(
                 slabs_reassign_cmd(&mut c, 1, 10).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -9097,13 +9077,13 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler metadump 1,2,3\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Classids(&[1, 2, 3])).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"lru_crawler metadump hash\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_metadump_cmd(&mut c, LruCrawlerMetadumpArg::Hash).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -9140,7 +9120,7 @@ mod tests {
             let mut c = Cursor::new(b"lru_crawler mgdump hash\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_crawler_mgdump_cmd(&mut c, LruCrawlerMgdumpArg::Hash).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -9152,7 +9132,10 @@ mod tests {
             assert!(mn_cmd(&mut c).await.is_ok());
 
             let mut c = Cursor::new(b"mn\r\nERROR\r\n".to_vec());
-            assert_matches!(mn_cmd(&mut c).await, Err(MemcachedError::UnknownCommand))
+            assert_matches!(
+                mn_cmd(&mut c).await,
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
+            )
         })
     }
 
@@ -9173,7 +9156,7 @@ mod tests {
             let mut c = Cursor::new(b"me key\r\nERROR\r\n".to_vec());
             assert_matches!(
                 me_cmd(&mut c, b"key").await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -9478,7 +9461,7 @@ mod tests {
                 execute_cmd(&mut c, &cmds).await.unwrap().as_slice(),
                 [
                     Ok(PipelineResponse::String(_)),
-                    Err(MemcachedError::UnknownCommand),
+                    Err(MemcachedError::Protocol(ProtocolError::UnknownCommand)),
                     Ok(PipelineResponse::String(_)),
                 ]
             );
@@ -9510,7 +9493,7 @@ mod tests {
             let mut c = Cursor::new(b"watch fetchers mutations\r\nERROR\r\n".to_vec());
             assert_matches!(
                 watch_cmd(&mut c, &[WatchArg::Fetchers, WatchArg::Mutations]).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -9662,7 +9645,7 @@ mod tests {
                     ]
                 )
                 .await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
         })
     }
@@ -9787,7 +9770,7 @@ mod tests {
                     b"hi"
                 )
                 .await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(
@@ -9919,7 +9902,7 @@ mod tests {
                     ]
                 )
                 .await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -10090,7 +10073,7 @@ mod tests {
                     ],
                 )
                 .await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })
     }
@@ -10101,7 +10084,7 @@ mod tests {
             let mut c = Cursor::new(b"lru mode flat\r\nERROR\r\n".to_vec());
             assert_matches!(
                 lru_cmd(&mut c, LruArg::Mode(LruMode::Flat)).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"lru mode segmented\r\nOK\r\n".to_vec());
@@ -10137,7 +10120,7 @@ mod tests {
             let mut c = Cursor::new(b"verbosity 0\r\nERROR\r\n".to_vec());
             assert_matches!(
                 verbosity_cmd(&mut c, VerbosityArg::Off, false).await,
-                Err(MemcachedError::UnknownCommand)
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             );
 
             let mut c = Cursor::new(b"verbosity 0 noreply\r\n".to_vec());
