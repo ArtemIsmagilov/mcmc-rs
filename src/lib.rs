@@ -78,14 +78,24 @@ mod rt {
 }
 use rt::*;
 
-#[derive(thiserror::Error, Debug)]
-pub enum MemcachedError {
+use thiserror::Error;
+
+// Группа ошибок TLS
+#[derive(Error, Debug)]
+pub enum TlsError {
+    #[error("invalid CA certificate: {0}")]
+    InvalidCa(#[from] rustls::pki_types::pem::Error),
+
     #[error("TLS error: {0}")]
     Tls(#[from] rustls::Error),
 
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
+    #[error("invalid server name: {0}")]
+    InvalidServerName(String),
+}
 
+// Группа ошибок протокола
+#[derive(Error, Debug)]
+pub enum ProtocolError {
     #[error("Client sent a nonexistent command name")]
     UnknownCommand,
 
@@ -94,6 +104,19 @@ pub enum MemcachedError {
 
     #[error("Internal server error: {0}")]
     Server(String),
+}
+
+// Верхний уровень
+#[derive(Error, Debug)]
+pub enum MemcachedError {
+    #[error("TLS error: {0}")]
+    Tls(#[from] TlsError),
+
+    #[error("Protocol error: {0}")]
+    Protocol(#[from] ProtocolError),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 
     #[error("Unexpected error: {0}")]
     Unexpected(String),
@@ -2121,13 +2144,13 @@ impl Connection {
         let mut root_store =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         for cert_der in rustls::pki_types::CertificateDer::pem_slice_iter(&cert) {
-            root_store.add(cert_der.unwrap())?;
+            root_store.add(cert_der?)?;
         }
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let connector = TlsConnector::from(Arc::new(config));
-        let domain = hostname.to_owned().try_into().unwrap();
+        let domain = hostname.to_owned().try_into()?;
         let tls_stream = connector.connect(domain, tcp_stream).await?;
         Ok(Connection::Tls(BufReader::new(tls_stream)))
     }
