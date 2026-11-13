@@ -64,7 +64,6 @@ mod rt {
 #[cfg(feature = "tokio-runtime")]
 mod rt {
     pub use std::io::Cursor;
-    pub use tokio::fs;
     pub use tokio::io::{
         AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
     };
