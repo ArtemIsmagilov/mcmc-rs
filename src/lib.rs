@@ -88,8 +88,8 @@ pub enum TlsError {
     #[error("TLS error: {0}")]
     Tls(#[from] rustls::Error),
 
-    #[error("invalid server name: {0}")]
-    InvalidServerName(String),
+    #[error("invalid server name '{0}': {1}")]
+    InvalidServerName(String, #[source] rustls::pki_types::InvalidDnsNameError),
 }
 
 #[derive(Error, Debug)]
@@ -1981,7 +1981,7 @@ pub enum Connection {
     #[cfg(unix)]
     Unix(BufReader<UnixStream>),
     Udp(UdpSocket, u16),
-    Tls(BufReader<TlsStream<TcpStream>>),
+    Tls(Box<BufReader<TlsStream<TcpStream>>>),
 }
 impl Connection {
     /// # Example
@@ -2128,9 +2128,9 @@ impl Connection {
         let domain = hostname
             .to_owned()
             .try_into()
-            .map_err(|_| TlsError::InvalidServerName(hostname.to_owned()))?;
+            .map_err(|e| TlsError::InvalidServerName(hostname.to_owned(), e))?;
         let tls_stream = connector.connect(domain, tcp_stream).await?;
-        Ok(Connection::Tls(BufReader::new(tls_stream)))
+        Ok(Connection::Tls(Box::new(BufReader::new(tls_stream))))
     }
 
     /// # Example
