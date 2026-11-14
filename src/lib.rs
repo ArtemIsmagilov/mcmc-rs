@@ -57,9 +57,6 @@ mod rt {
     pub use async_net::{TcpStream, UdpSocket};
     pub use futures_lite::io::{BufReader, Cursor};
     pub use futures_lite::prelude::*;
-    pub use futures_rustls::rustls;
-    pub use futures_rustls::rustls::pki_types::pem::PemObject;
-    pub use futures_rustls::{TlsConnector, client::TlsStream};
 }
 #[cfg(feature = "tokio-runtime")]
 mod rt {
@@ -70,11 +67,23 @@ mod rt {
     #[cfg(unix)]
     pub use tokio::net::UnixStream;
     pub use tokio::net::{TcpStream, UdpSocket};
+}
+use rt::*;
+
+#[cfg(feature = "tls-smol")]
+mod tls {
+    pub use futures_rustls::rustls;
+    pub use futures_rustls::rustls::pki_types::pem::PemObject;
+    pub use futures_rustls::{TlsConnector, client::TlsStream};
+}
+#[cfg(feature = "tls-tokio")]
+mod tls {
     pub use tokio_rustls::rustls;
     pub use tokio_rustls::rustls::pki_types::pem::PemObject;
     pub use tokio_rustls::{TlsConnector, client::TlsStream};
 }
-use rt::*;
+#[cfg(any(feature = "tls-smol", feature = "tls-tokio"))]
+use tls::*;
 
 use thiserror::Error;
 
@@ -1979,6 +1988,7 @@ pub enum Connection {
     #[cfg(unix)]
     Unix(BufReader<UnixStream>),
     Udp(UdpSocket, u16),
+    #[cfg(feature = "_tls")]
     Tls(Box<BufReader<TlsStream<TcpStream>>>),
 }
 impl Connection {
@@ -2109,6 +2119,7 @@ impl Connection {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
+    #[cfg(feature = "_tls")]
     pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> Result<Self> {
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let mut root_store =
@@ -2158,6 +2169,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => version_cmd(s).await,
             Connection::Udp(s, r) => version_cmd_udp(s, r).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => version_cmd(s).await,
         }
     }
@@ -2186,6 +2198,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => quit_cmd(s).await,
             Connection::Udp(s, r) => quit_cmd_udp(s, r).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => quit_cmd(s).await,
         }
     }
