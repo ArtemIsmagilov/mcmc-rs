@@ -1,6 +1,6 @@
 [package]
 name = "mcmc-rs"
-version = "0.10.3"
+version = "0.11.0"
 edition = "2024"
 description = "Minimal rust client for memcached"
 readme = "README.md"
@@ -41,20 +41,23 @@ debug = true
 
 [[example]]
 name = "simple-smol"
-required-features = ["smol-runtime"]
+required-features = ["tls-smol"]
 
 [[example]]
 name = "simple-tokio"
-required-features = ["tokio-runtime"]
+required-features = ["tls-tokio"]
 
 [[bench]]
 harness = false
 name = "bench_time"
+required-features = ["tls-smol"]
 
 [[bench]]
 harness = false
 name = "bench_perf"
+required-features = ["tls-smol"]
 
 [[bench]]
 name = "bench_graph"
 harness = false
+required-features = ["tls-smol"]

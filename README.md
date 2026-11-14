@@ -26,16 +26,28 @@
 * [ClientRendezvous] is a structure that represents a
   Cluster connections with Rendezvous hashing.
 
-### smol-runtime feature by default
+### smol-runtime
 
 ```toml
-mcmc-rs = "0.9.5"
+mcmc-rs = { version = "0.11.0", features = ["smol-runtime"] }
 ```
 
-### tokio-runtime feature by flag
+### tokio-runtime
 
 ```toml
-mcmc-rs = { version = "0.9.5", default-features = false, features = ["tokio-runtime"] }
+mcmc-rs = { version = "0.11.0", features = ["tokio-runtime"] }
+```
+
+### TLS with smol
+
+```toml
+mcmc-rs = { version = "0.9.5", features = ["tls-smol"] }
+```
+
+### TLS with tokio
+
+```toml
+mcmc-rs = { version = "0.9.5", features = ["tls-tokio"] }
 ```
 
 ## Examples
@@ -62,21 +74,21 @@ fn main() -> mcmc_rs::Result<()> {
 
 ```bash
 docker compose up
-cargo test
+cargo test --features tls-smol
 docker compose down
 ```
 
 ## Benchmarks
 
 ```bash
-cargo bench --bench bench_time
-cargo bench --bench bench_perf
+cargo bench --bench bench_time --features tls-smol
+cargo bench --bench bench_perf --features tls-smol
 ```
 
 ## Build flamegraph
 
 ```bash
-cargo flamegraph --bench bench_graph
+cargo flamegraph --bench bench_graph --features tls-smol
 ```
 
 ## Test coverage

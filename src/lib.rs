@@ -40,6 +40,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+#[cfg(feature = "_tls")]
 use std::sync::Arc;
 
 use crc32fast::hash as crc32;
@@ -87,6 +88,7 @@ use tls::*;
 
 use thiserror::Error;
 
+#[cfg(feature = "_tls")]
 #[derive(Error, Debug)]
 pub enum TlsError {
     #[error("invalid CA certificate: {0}")]
@@ -113,6 +115,7 @@ pub enum ProtocolError {
 
 #[derive(Error, Debug)]
 pub enum MemcachedError {
+    #[cfg(feature = "_tls")]
     #[error("TLS error: {0}")]
     Tls(#[from] TlsError),
 
@@ -2227,6 +2230,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => shutdown_cmd(s, graceful).await,
             Connection::Udp(s, r) => shutdown_cmd_udp(s, r, graceful).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => shutdown_cmd(s, graceful).await,
         }
     }
@@ -2255,6 +2259,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => cache_memlimit_cmd(s, limit, noreply).await,
             Connection::Udp(s, r) => cache_memlimit_cmd_udp(s, r, limit, noreply).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => cache_memlimit_cmd(s, limit, noreply).await,
         }
     }
@@ -2291,6 +2296,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => flush_all_cmd(s, exptime, noreply).await,
             Connection::Udp(s, r) => flush_all_cmd_udp(s, r, exptime, noreply).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => flush_all_cmd(s, exptime, noreply).await,
         }
     }
@@ -2379,6 +2385,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 storage_cmd(
                     s,
@@ -2476,6 +2483,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 storage_cmd(
                     s,
@@ -2583,6 +2591,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 storage_cmd(
                     s,
@@ -2688,6 +2697,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 storage_cmd(
                     s,
@@ -2795,6 +2805,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 storage_cmd(
                     s,
@@ -2903,6 +2914,7 @@ impl Connection {
                 )
                 .await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 storage_cmd(
                     s,
@@ -2949,6 +2961,7 @@ impl Connection {
             Connection::Udp(_s, _r) => {
                 panic!("Cannot enable UDP while using binary SASL authentication.")
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => auth_cmd(s, username.as_ref(), password.as_ref()).await,
         }
     }
@@ -2992,6 +3005,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => delete_cmd(s, key.as_ref(), noreply).await,
             Connection::Udp(s, r) => delete_cmd_udp(s, r, key.as_ref(), noreply).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => delete_cmd(s, key.as_ref(), noreply).await,
         }
     }
@@ -3043,6 +3057,7 @@ impl Connection {
             Connection::Udp(s, r) => {
                 incr_decr_cmd_udp(s, r, b"incr", key.as_ref(), value, noreply).await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => incr_decr_cmd(s, b"incr", key.as_ref(), value, noreply).await,
         }
     }
@@ -3094,6 +3109,7 @@ impl Connection {
             Connection::Udp(s, r) => {
                 incr_decr_cmd_udp(s, r, b"decr", key.as_ref(), value, noreply).await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => incr_decr_cmd(s, b"decr", key.as_ref(), value, noreply).await,
         }
     }
@@ -3142,6 +3158,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
             Connection::Udp(s, r) => touch_cmd_udp(s, r, key.as_ref(), exptime, noreply).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => touch_cmd(s, key.as_ref(), exptime, noreply).await,
         }
     }
@@ -3185,6 +3202,7 @@ impl Connection {
             Connection::Udp(s, r) => Ok(retrieval_cmd_udp(s, r, b"get", None, &[key.as_ref()])
                 .await?
                 .pop()),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => Ok(retrieval_cmd(s, b"get", None, &[key.as_ref()]).await?.pop()),
         }
     }
@@ -3226,6 +3244,7 @@ impl Connection {
             Connection::Udp(s, r) => Ok(retrieval_cmd_udp(s, r, b"gets", None, &[key.as_ref()])
                 .await?
                 .pop()),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => Ok(retrieval_cmd(s, b"gets", None, &[key.as_ref()])
                 .await?
                 .pop()),
@@ -3274,6 +3293,7 @@ impl Connection {
                         .pop(),
                 )
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => Ok(retrieval_cmd(s, b"gat", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
@@ -3322,6 +3342,7 @@ impl Connection {
                         .pop(),
                 )
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => Ok(retrieval_cmd(s, b"gats", Some(exptime), &[key.as_ref()])
                 .await?
                 .pop()),
@@ -3392,6 +3413,7 @@ impl Connection {
                 .await
             }
             Connection::Udp(_s, _r) => panic!("Udp not work with multicommands"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3459,6 +3481,7 @@ impl Connection {
                 .await
             }
             Connection::Udp(_s, _r) => panic!("Udp not work with multicommands"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3539,6 +3562,7 @@ impl Connection {
                 .await
             }
             Connection::Udp(_s, _r) => panic!("Udp not work with multicommands"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3610,6 +3634,7 @@ impl Connection {
                 .await
             }
             Connection::Udp(_s, _r) => panic!("Udp not work with multicommands"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => {
                 retrieval_cmd(
                     s,
@@ -3652,6 +3677,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => stats_cmd(s, arg).await,
             Connection::Udp(s, r) => stats_cmd_udp(s, r, arg).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => stats_cmd(s, arg).await,
         }
     }
@@ -3682,6 +3708,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => slabs_automove_cmd(s, arg).await,
             Connection::Udp(s, r) => slabs_automove_cmd_udp(s, r, arg).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => slabs_automove_cmd(s, arg).await,
         }
     }
@@ -3712,6 +3739,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_crawler_cmd_udp(s, r, arg).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_crawler_cmd(s, arg).await,
         }
     }
@@ -3746,6 +3774,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_sleep_cmd(s, microseconds).await,
             Connection::Udp(s, r) => lru_crawler_sleep_cmd_udp(s, r, microseconds).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_crawler_sleep_cmd(s, microseconds).await,
         }
     }
@@ -3780,6 +3809,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_tocrawl_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_crawler_tocrawl_cmd_udp(s, r, arg).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_crawler_tocrawl_cmd(s, arg).await,
         }
     }
@@ -3811,6 +3841,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_crawl_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_crawler_crawl_cmd_udp(s, r, arg).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_crawler_crawl_cmd(s, arg).await,
         }
     }
@@ -3843,6 +3874,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
             Connection::Udp(s, r) => slabs_reassign_cmd_udp(s, r, source_class, dest_class).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => slabs_reassign_cmd(s, source_class, dest_class).await,
         }
     }
@@ -3877,6 +3909,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_metadump_cmd(s, arg).await,
             Connection::Udp(_s, _r) => panic!("this command not work with udp connection!"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_crawler_metadump_cmd(s, arg).await,
         }
     }
@@ -3911,6 +3944,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_crawler_mgdump_cmd(s, arg).await,
             Connection::Udp(_s, _r) => panic!("this command not work with udp connection!"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_crawler_mgdump_cmd(s, arg).await,
         }
     }
@@ -3939,6 +3973,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => mn_cmd(s).await,
             Connection::Udp(s, r) => mn_cmd_udp(s, r).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => mn_cmd(s).await,
         }
     }
@@ -3974,6 +4009,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => me_cmd(s, key.as_ref()).await,
             Connection::Udp(s, r) => me_cmd_udp(s, r, key.as_ref()).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => me_cmd(s, key.as_ref()).await,
         }
     }
@@ -4023,6 +4059,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => watch_cmd(s, arg).await?,
             Connection::Udp(_s, _r) => panic!("this command not work with udp!"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => watch_cmd(s, arg).await?,
         };
         Ok(WatchStream(self))
@@ -4108,6 +4145,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => mg_cmd(s, key.as_ref(), flags).await,
             Connection::Udp(s, r) => mg_cmd_udp(s, r, key.as_ref(), flags).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => mg_cmd(s, key.as_ref(), flags).await,
         }
     }
@@ -4163,6 +4201,7 @@ impl Connection {
             Connection::Udp(s, r) => {
                 ms_cmd_udp(s, r, key.as_ref(), flags, data_block.as_ref()).await
             }
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => ms_cmd(s, key.as_ref(), flags, data_block.as_ref()).await,
         }
     }
@@ -4200,6 +4239,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => md_cmd(s, key.as_ref(), flags).await,
             Connection::Udp(s, r) => md_cmd_udp(s, r, key.as_ref(), flags).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => md_cmd(s, key.as_ref(), flags).await,
         }
     }
@@ -4256,6 +4296,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => ma_cmd(s, key.as_ref(), flags).await,
             Connection::Udp(s, r) => ma_cmd_udp(s, r, key.as_ref(), flags).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => ma_cmd(s, key.as_ref(), flags).await,
         }
     }
@@ -4284,6 +4325,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => lru_cmd(s, arg).await,
             Connection::Udp(s, r) => lru_cmd_udp(s, r, arg).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => lru_cmd(s, arg).await,
         }
     }
@@ -4313,6 +4355,7 @@ impl Connection {
             #[cfg(unix)]
             Connection::Unix(s) => verbosity_cmd(s, arg, noreply).await,
             Connection::Udp(s, r) => verbosity_cmd_udp(s, r, arg, noreply).await,
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => verbosity_cmd(s, arg, noreply).await,
         }
     }
@@ -4366,6 +4409,7 @@ impl WatchStream {
             #[cfg(unix)]
             Connection::Unix(s) => s.read_line(&mut line).await?,
             Connection::Udp(_s, _r) => panic!("this command not work with udp connection"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => s.read_line(&mut line).await?,
         };
         if n == 0 {
@@ -6989,6 +7033,7 @@ impl<'a> Pipeline<'a> {
             #[cfg(unix)]
             Connection::Unix(s) => execute_cmd(s, &self.1).await,
             Connection::Udp(_s, _r) => panic!("pipeline not work with udp!"),
+            #[cfg(feature = "_tls")]
             Connection::Tls(s) => execute_cmd(s, &self.1).await,
         }
     }
