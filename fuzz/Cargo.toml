@@ -14,6 +14,9 @@ smol = "2.0.2"
 [dependencies.mcmc-rs]
 path = ".."
 
+[features]
+smol-runtime = ["mcmc-rs/smol-runtime"]
+
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"
