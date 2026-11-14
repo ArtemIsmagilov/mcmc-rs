@@ -39,6 +39,9 @@ tls-tokio = ["_tls", "dep:tokio-rustls", "tokio-runtime"]
 [profile.bench]
 debug = true
 
+[package.metadata.docs.rs]
+features = ["tls-smol"]
+
 [[example]]
 name = "simple-smol"
 required-features = ["tls-smol"]
