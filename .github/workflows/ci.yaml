@@ -128,3 +128,18 @@ jobs:
           cargo check --features tokio-runtime
           cargo check --features tls-smol
           cargo check --features tls-tokio
+
+  profiling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install flamegraph
+        uses: taiki-e/install-action@v2
+        with:
+          tool: flamegraph
+      - name: Generate flamegraph
+        run: cargo flamegraph --bench bench_prof --features smol-runtime
+      - name: Upload flamegraph artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: "*.svg"
