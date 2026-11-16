@@ -85,22 +85,30 @@ cargo bench --bench bench_time --features tls-smol
 cargo bench --bench bench_perf --features tls-smol
 ```
 
-## Build flamegraph
+## Profiling
+
+* with samply
 
 ```bash
-cargo flamegraph --bench bench_graph --features tls-smol
+samply record cargo bench --bench bench_graph --features smol-runtime
+```
+
+* with flamegraph-rs
+
+```bash
+cargo flamegraph --bench bench_graph --features smol-runtime
 ```
 
 ## Test coverage
 
 ```bash
-cargo llvm-cov
+cargo llvm-cov --features tls-smol
 ```
 
 ## Mutation testing
 
 ```bash
-cargo mutants
+cargo mutants --features tls-smol
 ```
 
 ## Quality code
@@ -118,7 +126,7 @@ cargo fmt -- --config format_code_in_doc_comments=true
 ## Fuzzing test
 
 ```bash
-cargo fuzz run fuzz_target_1
+cargo fuzz run fuzz_target_1 --features smol-runtime
 ```
 
 ## Security scanning

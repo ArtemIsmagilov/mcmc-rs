@@ -51,6 +51,9 @@ use hrw_hash::HrwNodes;
 compile_error!(
     "feature \"smol-runtime\" and feature \"tokio-runtime\" cannot be enabled at the same time"
 );
+#[cfg(not(any(feature = "smol-runtime", feature = "tokio-runtime")))]
+compile_error!("enable exactly one of the features - \"smol-runtime\" or \"tokio-runtime\"");
+
 #[cfg(feature = "smol-runtime")]
 mod rt {
     #[cfg(unix)]
@@ -69,6 +72,7 @@ mod rt {
     pub use tokio::net::UnixStream;
     pub use tokio::net::{TcpStream, UdpSocket};
 }
+#[cfg(any(feature = "smol-runtime", feature = "tokio-runtime"))]
 use rt::*;
 
 #[cfg(feature = "tls-smol")]
@@ -501,8 +505,8 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> 
         let (key, flags, bytes, cas_unique) = (
             split.next().unwrap().to_string(),
             split.next().unwrap().parse().unwrap(),
-            split.next().unwrap().trim_end().parse().unwrap(),
-            split.next().map(|x| x.trim_end().parse().unwrap()),
+            split.next().unwrap().trim().parse().unwrap(),
+            split.next().map(|x| x.trim().parse().unwrap()),
         );
         let mut data_block = vec![0; bytes + 2];
         s.read_exact(&mut data_block).await?;
@@ -580,7 +584,7 @@ async fn parse_incr_decr_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     if line == "NOT_FOUND\r\n" {
         return Ok(IncrDecrResult::NotFound);
     }
-    match line.trim_end().parse() {
+    match line.trim().parse() {
         Ok(v) => Ok(IncrDecrResult::Value(v)),
         Err(_) => Err(check_error(line)),
     }
@@ -612,7 +616,7 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
         split.next();
         let (k, v) = (
             split.next().unwrap().to_string(),
-            split.next().unwrap().trim_end().to_string(),
+            split.next().unwrap().trim().to_string(),
         );
         items.insert(k, v);
         data.clear();
@@ -734,7 +738,7 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     ) = (
         false, None, None, None, None, None, None, None, None, None, false, false, false,
     );
-    let mut split = line.trim_end().split(' ');
+    let mut split = line.trim().split(' ');
     let data_len = if line.starts_with("VA") {
         status = MgStatus::WithBody;
         split.next();
@@ -807,7 +811,7 @@ async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     } else {
         return Err(check_error(line));
     };
-    let mut split = line.trim_end().split(' ');
+    let mut split = line.trim().split(' ');
     split.next();
     for flag in split {
         let f = &flag[1..];
@@ -843,7 +847,7 @@ async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     } else {
         return Err(check_error(line));
     };
-    let mut split = line.trim_end().split(' ');
+    let mut split = line.trim().split(' ');
     split.next();
     for flag in split {
         let f = &flag[1..];
@@ -868,7 +872,7 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     let status;
     let (mut opaque, mut ttl, mut cas, mut number, mut key, mut base64_key) =
         (None, None, None, None, None, false);
-    let mut split = line.trim_end().split(' ');
+    let mut split = line.trim().split(' ');
     let data_len = if line.starts_with("VA") {
         split.next();
         status = MaStatus::WithBody;
@@ -4415,7 +4419,7 @@ impl WatchStream {
         if n == 0 {
             Ok(None)
         } else {
-            Ok(Some(line.trim_end().to_string()))
+            Ok(Some(line.trim().to_string()))
         }
     }
 }

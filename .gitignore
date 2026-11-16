@@ -2,3 +2,4 @@
 mutants*
 flamegraph.svg
 perf.data*
+profile.json.gz
