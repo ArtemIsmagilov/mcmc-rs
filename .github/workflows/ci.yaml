@@ -137,6 +137,8 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: flamegraph
+      - name: Run server
+        run: docker compose up md-unix0 -d
       - name: Generate flamegraph
         run: |
           echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
