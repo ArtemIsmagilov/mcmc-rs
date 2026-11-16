@@ -138,7 +138,9 @@ jobs:
         with:
           tool: flamegraph
       - name: Generate flamegraph
-        run: cargo flamegraph --bench bench_prof --features smol-runtime
+        run: |
+          echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
+          cargo flamegraph --bench bench_prof --features smol-runtime
       - name: Upload flamegraph artifact
         uses: actions/upload-artifact@v7
         with:
