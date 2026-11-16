@@ -61,6 +61,6 @@ name = "bench_perf"
 required-features = ["tls-smol"]
 
 [[bench]]
-name = "bench_graph"
+name = "bench_prof"
 harness = false
 required-features = ["smol-runtime"]

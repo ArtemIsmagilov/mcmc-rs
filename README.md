@@ -90,13 +90,13 @@ cargo bench --bench bench_perf --features tls-smol
 * with samply
 
 ```bash
-samply record cargo bench --bench bench_graph --features smol-runtime
+samply record cargo bench --bench bench_prof --features smol-runtime
 ```
 
 * with flamegraph-rs
 
 ```bash
-cargo flamegraph --bench bench_graph --features smol-runtime
+cargo flamegraph --bench bench_prof --features smol-runtime
 ```
 
 ## Test coverage
