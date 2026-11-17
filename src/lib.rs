@@ -10565,4 +10565,18 @@ mod tests {
             );
         })
     }
+
+    #[test]
+    fn test_refresh_certs() {
+        block_on(async {
+            let mut c = Cursor::new(b"refresh_certs\r\nERROR\r\n".to_vec());
+            assert_matches!(
+                refresh_certs_cmd(&mut c).await,
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
+            );
+
+            let mut c = Cursor::new(b"refresh_certs\r\nOK\r\n".to_vec());
+            assert!(refresh_certs_cmd(&mut c).await.is_ok());
+        })
+    }
 }
