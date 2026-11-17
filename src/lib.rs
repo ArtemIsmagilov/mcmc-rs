@@ -1345,6 +1345,10 @@ fn build_verbosity_cmd(arg: VerbosityArg, noreply: bool) -> Vec<u8> {
     format!("verbosity {a}{}\r\n", if noreply { " noreply" } else { "" }).into_bytes()
 }
 
+fn build_refresh_certs_cmd() -> &'static [u8] {
+    b"refresh_certs\r\n"
+}
+
 async fn udp_send_cmd(s: &UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> {
     *r = r.wrapping_add(1);
     let mut msg = Vec::with_capacity(8 + cmd.len());
@@ -1988,6 +1992,16 @@ async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
 ) -> Result<()> {
     s.write_all(&build_verbosity_cmd(arg, noreply)).await?;
     parse_ok_rp(s, noreply).await
+}
+
+async fn refresh_certs_cmd_udp(s: &UdpSocket, r: &mut u16) -> Result<()> {
+    udp_send_cmd(s, r, build_refresh_certs_cmd()).await?;
+    parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
+}
+
+async fn refresh_certs_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
+    s.write_all(build_refresh_certs_cmd()).await?;
+    parse_ok_rp(s, false).await
 }
 
 pub enum Connection {
@@ -4636,6 +4650,41 @@ impl Connection {
             Connection::Udp(s, r) => verbosity_cmd_udp(s, r, arg, noreply).await,
             #[cfg(feature = "_tls")]
             Connection::Tls(s) => verbosity_cmd(s, arg, noreply).await,
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::Connection;
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// for mut c in [
+    ///     Connection::tcp_connect("127.0.0.1:11219").await?,
+    ///     Connection::unix_connect("/tmp/memcached3.sock").await?,
+    ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11220").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
+    ///     )
+    ///     .await?,
+    /// ] {
+    ///     assert!(c.refresh_certs().await.is_ok());
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn refresh_certs(&mut self) -> Result<()> {
+        match self {
+            Connection::Tcp(s) => refresh_certs_cmd(s).await,
+            #[cfg(unix)]
+            Connection::Unix(s) => refresh_certs_cmd(s).await,
+            Connection::Udp(s, r) => refresh_certs_cmd_udp(s, r).await,
+            #[cfg(feature = "_tls")]
+            Connection::Tls(s) => refresh_certs_cmd(s).await,
         }
     }
 }

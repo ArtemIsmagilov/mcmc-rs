@@ -107,3 +107,57 @@ services:
       - "./sets/sasl.txt:/app/sasl.txt:ro"
     ports:
       - "11218:11218"
+
+  md-tls3:
+    image: "memcached:1.6.45-alpine"
+    command:
+      [
+        "-l",
+        "notls:0.0.0.0:11219",
+        "-Z",
+        "-o",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key,ssl_ca_cert=/app/ca.crt,ssl_verify_mode=2",
+      ]
+    volumes:
+      - "./sets/server.crt:/app/server.crt:ro"
+      - "./sets/server.key:/app/server.key:ro"
+      - "./sets/ca.crt:/app/ca.crt:ro"
+    ports:
+      - "11219:11219"
+
+  md-tls4:
+    image: "memcached:1.6.45-alpine"
+    command:
+      [
+        "-s",
+        "/tmp/memcached3.sock",
+        "-a",
+        "0666",
+        "-Z",
+        "-o",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key,ssl_ca_cert=/app/ca.crt,ssl_verify_mode=2",
+      ]
+    volumes:
+      - "./sets/server.crt:/app/server.crt:ro"
+      - "./sets/server.key:/app/server.key:ro"
+      - "./sets/ca.crt:/app/ca.crt:ro"
+      - "/tmp:/tmp"
+
+  md-tls5:
+    image: "memcached:1.6.45-alpine"
+    command:
+      [
+        "-l",
+        "notls:0.0.0.0:11220",
+        "-U",
+        "11220",
+        "-Z",
+        "-o",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key,ssl_ca_cert=/app/ca.crt,ssl_verify_mode=2",
+      ]
+    volumes:
+      - "./sets/server.crt:/app/server.crt:ro"
+      - "./sets/server.key:/app/server.key:ro"
+      - "./sets/ca.crt:/app/ca.crt:ro"
+    ports:
+      - "11220:11220/udp"
