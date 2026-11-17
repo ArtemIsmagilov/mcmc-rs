@@ -51,8 +51,7 @@ fn main() -> mcmc_rs::Result<()> {
             "localhost",
             11216,
             Some("ca.crt"),
-            Some("client.crt"),
-            Some("client.key"),
+            Some(("client.crt", "client.key")),
         )
         .await?;
         let version = conn.version().await?;
