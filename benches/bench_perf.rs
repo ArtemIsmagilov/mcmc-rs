@@ -13,9 +13,15 @@ fn expensive_setup(n: &str) -> Connection {
             "udp" => Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214")
                 .await
                 .unwrap(),
-            "tls" => Connection::tls_connect("localhost", 11216, "ca.crt")
-                .await
-                .unwrap(),
+            "tls" => Connection::tls_connect(
+                "localhost",
+                11216,
+                Some("ca.crt"),
+                Some("client.crt"),
+                Some("client.key"),
+            )
+            .await
+            .unwrap(),
             _ => unreachable!(),
         };
         c.set("key0", 0, 0, false, b"a").await.unwrap();

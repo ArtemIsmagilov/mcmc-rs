@@ -2113,7 +2113,13 @@ impl Connection {
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::tls_connect("localhost", 11216, "ca.crt").await?;
+    /// let mut conn = Connection::tls_connect(
+    ///     "localhost",
+    ///     11216,
+    ///     Some("ca.crt"),
+    ///     Some(("client.crt", "client.key")),
+    /// )
+    /// .await?;
     /// assert_eq!(
     ///     conn.set(b"doc_conn_tls_connect", 0, 0, false, b"value")
     ///         .await?,
@@ -2127,20 +2133,43 @@ impl Connection {
     /// # }).unwrap()
     /// ```
     #[cfg(feature = "_tls")]
-    pub async fn tls_connect(hostname: &str, port: u16, ca_path: &str) -> Result<Self> {
+    pub async fn tls_connect(
+        hostname: &str,
+        port: u16,
+        ca_path: Option<&str>,
+        cert_and_key_paths: Option<(&str, &str)>,
+    ) -> Result<Self> {
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
-        let mut root_store =
-            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        for cert_der in
-            rustls::pki_types::CertificateDer::pem_file_iter(ca_path).map_err(TlsError::from)?
-        {
-            root_store
-                .add(cert_der.map_err(TlsError::from)?)
-                .map_err(TlsError::from)?;
+        let mut root_store = rustls::RootCertStore::empty();
+        if let Some(ca_path) = ca_path {
+            for cert_der in
+                rustls::pki_types::CertificateDer::pem_file_iter(ca_path).map_err(TlsError::from)?
+            {
+                root_store
+                    .add(cert_der.map_err(TlsError::from)?)
+                    .map_err(TlsError::from)?
+            }
+        } else {
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned())
         }
-        let config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+        let config = if let Some((cert_path, key_path)) = cert_and_key_paths {
+            let mut cert_chain = Vec::new();
+            for c in rustls::pki_types::CertificateDer::pem_file_iter(cert_path)
+                .map_err(TlsError::from)?
+            {
+                cert_chain.push(c.map_err(TlsError::from)?);
+            }
+            let key_der = rustls::pki_types::PrivateKeyDer::from_pem_file(key_path)
+                .map_err(TlsError::from)?;
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_client_auth_cert(cert_chain, key_der)
+                .map_err(TlsError::from)?
+        } else {
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        };
         let connector = TlsConnector::from(Arc::new(config));
         let domain = hostname
             .to_owned()
@@ -2161,7 +2190,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let version = c.version().await?;
     ///     assert!(!version.is_empty());
@@ -2192,7 +2228,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert!(c.quit().await.is_ok());
     /// }
@@ -2250,7 +2293,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(c.cache_memlimit(64, false).await?, ());
     /// }
@@ -2279,7 +2329,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_flush_all", 0, 0, false, b"value").await?,
@@ -2316,7 +2373,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_set", 7, 0, false, b"value").await?,
@@ -2417,7 +2481,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_add", false).await?;
     ///     assert_eq!(
@@ -2515,7 +2586,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_replace", false).await?;
     ///     assert_eq!(
@@ -2623,7 +2701,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_append", false).await?;
     ///     assert_eq!(
@@ -2729,7 +2814,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_prepend", false).await?;
     ///     assert_eq!(
@@ -2837,7 +2929,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_cas", false).await?;
     ///     assert_eq!(
@@ -2981,7 +3080,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_delete", 0, 0, false, b"value").await?,
@@ -3025,7 +3131,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_incr", false).await?;
     ///     assert_eq!(
@@ -3077,7 +3190,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_decr", false).await?;
     ///     assert_eq!(
@@ -3129,7 +3249,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.touch(b"doc_conn_touch_missing", 60, false).await?,
@@ -3178,7 +3305,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_get", 0, 0, false, b"value").await?,
@@ -3222,7 +3356,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_gets", 0, 0, false, b"value").await?,
@@ -3266,7 +3407,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_gat", 7, 0, false, b"value").await?,
@@ -3315,7 +3463,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_gats", 7, 0, false, b"value").await?,
@@ -3363,7 +3518,14 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_get_multi_a", 0, 0, false, b"a").await?,
@@ -3440,7 +3602,14 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_gets_multi_a", 0, 0, false, b"a").await?,
@@ -3508,7 +3677,14 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_gat_multi_a", 0, 0, false, b"a").await?,
@@ -3589,7 +3765,14 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_gats_multi_a", 0, 0, false, b"a").await?,
@@ -3662,7 +3845,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let result = c.stats(None).await?;
     ///     assert!(result.contains_key("pid"));
@@ -3697,7 +3887,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert!(c.slabs_automove(SlabsAutomoveArg::Zero).await.is_ok());
     ///     let settings = c.stats(Some(StatsArg::Settings)).await?;
@@ -3728,7 +3925,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
     ///     let settings = c.stats(Some(StatsArg::Settings)).await?;
@@ -3759,7 +3963,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
     ///     assert!(c.lru_crawler_sleep(1_000_000).await.is_ok());
@@ -3794,7 +4005,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.lru_crawler(LruCrawlerArg::Enable).await;
     ///     assert!(c.lru_crawler_tocrawl(1).await.is_ok());
@@ -3829,7 +4047,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     c.lru_crawler_crawl(LruCrawlerCrawlArg::All).await?;
     /// }
@@ -3861,7 +4086,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     c.slabs_reassign(1, 2).await?;
     /// }
@@ -3893,7 +4125,14 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_metadump", 0, 0, false, b"value").await?,
@@ -3928,7 +4167,14 @@ impl Connection {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_mgdump", 0, 0, false, b"value").await?,
@@ -3964,7 +4210,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert!(c.mn().await.is_ok());
     /// }
@@ -3993,7 +4246,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_me", 0, 0, false, b"value").await?,
@@ -4032,8 +4292,22 @@ impl Connection {
     ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     ),
     ///     (
-    ///         Connection::tls_connect("localhost", 11216, "ca.crt").await?,
-    ///         Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///         Connection::tls_connect(
+    ///             "localhost",
+    ///             11216,
+    ///             Some("ca.crt"),
+    ///             Some("client.crt"),
+    ///             Some("client.key"),
+    ///         )
+    ///         .await?,
+    ///         Connection::tls_connect(
+    ///             "localhost",
+    ///             11216,
+    ///             Some("ca.crt"),
+    ///             Some("client.crt"),
+    ///             Some("client.key"),
+    ///         )
+    ///         .await?,
     ///     ),
     /// ] {
     ///     let mut watcher = c1.watch(&[WatchArg::Mutations]).await?;
@@ -4110,7 +4384,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_mg", 7, 0, false, b"hello").await?,
@@ -4165,7 +4446,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_ms", false).await?;
     ///     let item = c
@@ -4221,7 +4509,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(
     ///         c.set(b"doc_conn_md", 0, 0, false, b"value").await?,
@@ -4259,7 +4554,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let _ = c.delete(b"doc_conn_ma", false).await?;
     ///     let item = c
@@ -4316,7 +4618,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     c.lru(LruArg::Mode(LruMode::Flat)).await?;
     /// }
@@ -4345,7 +4654,14 @@ impl Connection {
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11214").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert!(c.verbosity(VerbosityArg::Off, false).await.is_ok());
     ///     assert!(c.verbosity(VerbosityArg::Off, true).await.is_ok());
@@ -4381,8 +4697,22 @@ impl WatchStream {
     ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
     ///     ),
     ///     (
-    ///         Connection::tls_connect("localhost", 11216, "ca.crt").await?,
-    ///         Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///         Connection::tls_connect(
+    ///             "localhost",
+    ///             11216,
+    ///             Some("ca.crt"),
+    ///             Some("client.crt"),
+    ///             Some("client.key"),
+    ///         )
+    ///         .await?,
+    ///         Connection::tls_connect(
+    ///             "localhost",
+    ///             11216,
+    ///             Some("ca.crt"),
+    ///             Some("client.crt"),
+    ///             Some("client.key"),
+    ///         )
+    ///         .await?,
     ///     ),
     /// ] {
     ///     let mut watcher = c1.watch(&[WatchArg::Mutations]).await?;
@@ -7001,7 +7331,14 @@ impl<'a> Pipeline<'a> {
     /// for mut c in [
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    ///     Connection::tls_connect("localhost", 11216, "ca.crt").await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11216,
+    ///         Some("ca.crt"),
+    ///         Some("client.crt"),
+    ///         Some("client.key"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     let result = c
     ///         .pipeline()
@@ -7094,7 +7431,14 @@ impl<'a> Pipeline<'a> {
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::tls_connect("localhost", 11216, "ca.crt").await?;
+    /// let mut conn = Connection::tls_connect(
+    ///     "localhost",
+    ///     11216,
+    ///     Some("ca.crt"),
+    ///     Some("client.crt"),
+    ///     Some("client.key"),
+    /// )
+    /// .await?;
     /// assert_eq!(
     ///     conn.set(b"doc_pipeline_flush_all", 0, 0, false, b"value")
     ///         .await?,

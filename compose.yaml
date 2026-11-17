@@ -61,11 +61,12 @@ services:
         "11216",
         "-Z",
         "-o",
-        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key",
+        "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key,ssl_ca_cert=/app/ca.crt,ssl_verify_mode=2",
       ]
     volumes:
       - "./server.crt:/app/server.crt:ro"
       - "./server.key:/app/server.key:ro"
+      - "./ca.crt:/app/ca.crt:ro"
     ports:
       - "11216:11216"
 

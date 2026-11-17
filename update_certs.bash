@@ -30,3 +30,21 @@ openssl x509 -in server.crt -noout -text | grep -A2 "Subject Alternative Name"
 openssl x509 -in server.crt -noout -text | grep -A1 "Basic Constraints"
 # server.crt: OK
 openssl verify -CAfile ca.crt server.crt
+# Key client
+openssl genrsa -out client.key 4096
+# CSR with CN=memcached-client (имя может быть любым)
+openssl req -new -key client.key -out client.csr \
+  -subj "/CN=memcached-client"
+# Extension file for client (без SAN, только базовые ограничения)
+cat >client.ext <<'EOF'
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=clientAuth
+EOF
+# Sign the client certificate with the existing CA
+openssl x509 -req -in client.csr \
+  -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out client.crt -days 365 -sha256 \
+  -extfile client.ext
+# Verify client cert against CA
+openssl verify -CAfile ca.crt client.crt
