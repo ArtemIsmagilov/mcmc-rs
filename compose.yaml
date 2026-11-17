@@ -14,7 +14,7 @@ services:
     image: "memcached:1.6.45-alpine"
     command: ["-p", "11212", "-S", "-Y", "/app/sasl.txt"]
     volumes:
-      - "./sasl.txt:/app/sasl.txt:ro"
+      - "./sets/sasl.txt:/app/sasl.txt:ro"
     ports:
       - "11212:11212"
 
@@ -50,7 +50,7 @@ services:
     command:
       ["-s", "/tmp/memcached2.sock", "-S", "-Y", "/app/sasl.txt", "-a", "0666"]
     volumes:
-      - "./sasl.txt:/app/sasl.txt:ro"
+      - "./sets/sasl.txt:/app/sasl.txt:ro"
       - "/tmp:/tmp"
 
   md-tls0:
@@ -64,9 +64,9 @@ services:
         "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key,ssl_ca_cert=/app/ca.crt,ssl_verify_mode=2",
       ]
     volumes:
-      - "./server.crt:/app/server.crt:ro"
-      - "./server.key:/app/server.key:ro"
-      - "./ca.crt:/app/ca.crt:ro"
+      - "./sets/server.crt:/app/server.crt:ro"
+      - "./sets/server.key:/app/server.key:ro"
+      - "./sets/ca.crt:/app/ca.crt:ro"
     ports:
       - "11216:11216"
 
@@ -83,8 +83,8 @@ services:
         "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key",
       ]
     volumes:
-      - "./server.crt:/app/server.crt:ro"
-      - "./server.key:/app/server.key:ro"
+      - "./sets/server.crt:/app/server.crt:ro"
+      - "./sets/server.key:/app/server.key:ro"
     ports:
       - "11217:11217"
 
@@ -102,8 +102,8 @@ services:
         "ssl_chain_cert=/app/server.crt,ssl_key=/app/server.key",
       ]
     volumes:
-      - "./server.crt:/app/server.crt:ro"
-      - "./server.key:/app/server.key:ro"
-      - "./sasl.txt:/app/sasl.txt:ro"
+      - "./sets/server.crt:/app/server.crt:ro"
+      - "./sets/server.key:/app/server.key:ro"
+      - "./sets/sasl.txt:/app/sasl.txt:ro"
     ports:
       - "11218:11218"

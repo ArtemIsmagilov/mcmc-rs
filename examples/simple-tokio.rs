@@ -51,8 +51,8 @@ fn main() -> mcmc_rs::Result<()> {
         let mut conn = Connection::tls_connect(
             "localhost",
             11216,
-            Some("ca.crt"),
-            Some(("client.crt", "client.key")),
+            Some("sets/ca.crt"),
+            Some(("sets/client.crt", "sets/client.key")),
         )
         .await?;
         let version = conn.version().await?;

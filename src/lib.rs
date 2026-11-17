@@ -2116,8 +2116,8 @@ impl Connection {
     /// let mut conn = Connection::tls_connect(
     ///     "localhost",
     ///     11216,
-    ///     Some("ca.crt"),
-    ///     Some(("client.crt", "client.key")),
+    ///     Some("sets/ca.crt"),
+    ///     Some(("sets/client.crt", "sets/client.key")),
     /// )
     /// .await?;
     /// assert_eq!(
@@ -2193,8 +2193,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2230,8 +2230,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2262,7 +2262,7 @@ impl Connection {
     ///     Connection::tcp_connect("127.0.0.1:11213").await?,
     ///     Connection::unix_connect("/tmp/memcached1.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11215").await?,
-    ///     Connection::tls_connect("localhost", 11217, Some("ca.crt"), None).await?,
+    ///     Connection::tls_connect("localhost", 11217, Some("sets/ca.crt"), None).await?,
     /// ] {
     ///     assert_eq!(c.shutdown(true).await?, ());
     /// }
@@ -2294,8 +2294,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2329,8 +2329,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2372,8 +2372,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2479,8 +2479,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2583,8 +2583,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2697,8 +2697,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2809,8 +2809,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -2923,8 +2923,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3034,7 +3034,7 @@ impl Connection {
     /// for mut c in [
     ///     Connection::tcp_connect("127.0.0.1:11212").await?,
     ///     Connection::unix_connect("/tmp/memcached2.sock").await?,
-    ///     Connection::tls_connect("localhost", 11218, Some("ca.crt"), None).await?,
+    ///     Connection::tls_connect("localhost", 11218, Some("sets/ca.crt"), None).await?,
     /// ] {
     ///     c.auth(b"a", b"a").await?;
     ///     assert!(!c.version().await?.is_empty());
@@ -3073,8 +3073,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3123,8 +3123,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3181,8 +3181,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3239,8 +3239,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3294,8 +3294,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3344,8 +3344,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3394,8 +3394,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3449,8 +3449,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3503,8 +3503,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3586,8 +3586,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3660,8 +3660,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3747,8 +3747,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3826,8 +3826,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3867,8 +3867,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3904,8 +3904,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3941,8 +3941,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -3982,8 +3982,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4023,8 +4023,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4061,8 +4061,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4099,8 +4099,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4140,8 +4140,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4182,8 +4182,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4217,8 +4217,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4262,15 +4262,15 @@ impl Connection {
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("ca.crt"),
-    ///             Some(("client.crt", "client.key")),
+    ///             Some("sets/ca.crt"),
+    ///             Some(("sets/client.crt", "sets/client.key")),
     ///         )
     ///         .await?,
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("ca.crt"),
-    ///             Some(("client.crt", "client.key")),
+    ///             Some("sets/ca.crt"),
+    ///             Some(("sets/client.crt", "sets/client.key")),
     ///         )
     ///         .await?,
     ///     ),
@@ -4352,8 +4352,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4413,8 +4413,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4475,8 +4475,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4519,8 +4519,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4582,8 +4582,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4617,8 +4617,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -4659,15 +4659,15 @@ impl WatchStream {
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("ca.crt"),
-    ///             Some(("client.crt", "client.key")),
+    ///             Some("sets/ca.crt"),
+    ///             Some(("sets/client.crt", "sets/client.key")),
     ///         )
     ///         .await?,
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("ca.crt"),
-    ///             Some(("client.crt", "client.key")),
+    ///             Some("sets/ca.crt"),
+    ///             Some(("sets/client.crt", "sets/client.key")),
     ///         )
     ///         .await?,
     ///     ),
@@ -7291,8 +7291,8 @@ impl<'a> Pipeline<'a> {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("ca.crt"),
-    ///         Some(("client.crt", "client.key")),
+    ///         Some("sets/ca.crt"),
+    ///         Some(("sets/client.crt", "sets/client.key")),
     ///     )
     ///     .await?,
     /// ] {
@@ -7390,8 +7390,8 @@ impl<'a> Pipeline<'a> {
     /// let mut conn = Connection::tls_connect(
     ///     "localhost",
     ///     11216,
-    ///     Some("ca.crt"),
-    ///     Some(("client.crt", "client.key")),
+    ///     Some("sets/ca.crt"),
+    ///     Some(("sets/client.crt", "sets/client.key")),
     /// )
     /// .await?;
     /// assert_eq!(

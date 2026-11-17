@@ -16,8 +16,8 @@ fn expensive_setup(n: &str) -> Connection {
             "tls" => Connection::tls_connect(
                 "localhost",
                 11216,
-                Some("ca.crt"),
-                Some(("client.crt", "client.key")),
+                Some("sets/ca.crt"),
+                Some(("sets/client.crt", "sets/client.key")),
             )
             .await
             .unwrap(),
