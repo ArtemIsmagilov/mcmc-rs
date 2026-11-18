@@ -8925,6 +8925,27 @@ impl<'a> Pipeline<'a> {
         ));
         self
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{Connection, PipelineResponse};
+    /// # use smol::block_on;
+    /// # block_on(async {
+    /// let mut conn = Connection::default().await?;
+    /// let result = conn.pipeline().refresh_certs().execute().await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(result, [PipelineResponse::Unit(())]);
+    /// # Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn refresh_certs(mut self) -> Self {
+        self.1.push((
+            build_refresh_certs_cmd().to_vec(),
+            PipelineExpect::Ok { noreply: false },
+        ));
+        self
+    }
 }
 
 #[cfg(test)]
@@ -9696,6 +9717,10 @@ mod tests {
                     b"verbosity 0\r\n".to_vec(),
                     PipelineExpect::Ok { noreply: false },
                 ),
+                (
+                    b"refresh_certs\r\n".to_vec(),
+                    PipelineExpect::Ok { noreply: false },
+                ),
             ];
             let rps = b"\
                 VERSION 1.2.3\r\n\
@@ -9726,6 +9751,7 @@ mod tests {
                 HD b c0 k44OG44K544OI Oopaque s0\r\n\
                 HD k44OG44K544OI Oopaque b\r\n\
                 VA 2 Oopaque t0 c0 k44OG44K544OI b\r\n10\r\n\
+                OK\r\n\
                 OK\r\n\
                 OK\r\n\
                 ";
@@ -9845,7 +9871,8 @@ mod tests {
                         base64_key: true
                     }),
                     PipelineResponse::Unit(()),
-                    PipelineResponse::Unit(())
+                    PipelineResponse::Unit(()),
+                    PipelineResponse::Unit(()),
                 ]
             );
 
