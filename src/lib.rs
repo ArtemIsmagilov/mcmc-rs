@@ -47,14 +47,10 @@ use crc32fast::hash as crc32;
 use hashring::HashRing;
 use hrw_hash::HrwNodes;
 
-#[cfg(all(feature = "smol-runtime", feature = "tokio-runtime"))]
-compile_error!(
-    "feature \"smol-runtime\" and feature \"tokio-runtime\" cannot be enabled at the same time"
-);
-#[cfg(not(any(feature = "smol-runtime", feature = "tokio-runtime")))]
-compile_error!("enable exactly one of the features - \"smol-runtime\" or \"tokio-runtime\"");
+#[cfg(not(any(feature = "smol-rt", feature = "tokio-rt")))]
+compile_error!("enable exactly one of the features - \"smol-rt\" or \"tokio-rt\"");
 
-#[cfg(feature = "smol-runtime")]
+#[cfg(feature = "smol-rt")]
 mod rt {
     #[cfg(unix)]
     pub use async_net::unix::UnixStream;
@@ -62,7 +58,7 @@ mod rt {
     pub use futures_lite::io::{BufReader, Cursor};
     pub use futures_lite::prelude::*;
 }
-#[cfg(feature = "tokio-runtime")]
+#[cfg(all(feature = "tokio-rt", not(feature = "smol-rt")))]
 mod rt {
     pub use std::io::Cursor;
     pub use tokio::io::{
@@ -72,37 +68,115 @@ mod rt {
     pub use tokio::net::UnixStream;
     pub use tokio::net::{TcpStream, UdpSocket};
 }
-#[cfg(any(feature = "smol-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "smol-rt", feature = "tokio-rt"))]
 use rt::*;
 
-#[cfg(feature = "tls-smol")]
-mod tls {
+#[cfg(feature = "smol-rustls-tls")]
+mod rustls_tls {
+    pub use futures_rustls::TlsConnector;
+    pub use futures_rustls::client::TlsStream as RustlsTlsStream;
     pub use futures_rustls::rustls;
     pub use futures_rustls::rustls::pki_types::pem::PemObject;
-    pub use futures_rustls::{TlsConnector, client::TlsStream};
 }
-#[cfg(feature = "tls-tokio")]
-mod tls {
+#[cfg(all(feature = "tokio-rustls-tls", not(feature = "smol-rustls-tls")))]
+mod rustls_tls {
+    pub use tokio_rustls::TlsConnector;
+    pub use tokio_rustls::client::TlsStream as RustlsTlsStream;
     pub use tokio_rustls::rustls;
     pub use tokio_rustls::rustls::pki_types::pem::PemObject;
-    pub use tokio_rustls::{TlsConnector, client::TlsStream};
 }
-#[cfg(any(feature = "tls-smol", feature = "tls-tokio"))]
-use tls::*;
+#[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
+use rustls_tls::*;
+
+#[cfg(feature = "smol-native-tls-tls")]
+mod native_tls_tls {
+    pub use async_native_tls::TlsStream as NativeTlsTlsStream;
+}
+#[cfg(all(feature = "tokio-native-tls-tls", not(feature = "smol-native-tls-tls")))]
+mod native_tls_tls {
+    pub use tokio_native_tls::TlsStream as NativeTlsTlsStream;
+}
+
+#[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
+mod danger {
+    use std::sync::Arc;
+
+    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use rustls::{DigitallySignedStruct, Error, SignatureScheme};
+
+    #[derive(Debug)]
+    pub(super) struct NoCertificateVerification(Arc<CryptoProvider>);
+
+    impl NoCertificateVerification {
+        pub(super) fn new() -> Self {
+            let provider = CryptoProvider::get_default()
+                .expect("Please set cryptoprovider")
+                .clone();
+            Self(provider)
+        }
+    }
+
+    impl ServerCertVerifier for NoCertificateVerification {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp: &[u8],
+            _now: UnixTime,
+        ) -> Result<ServerCertVerified, Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, Error> {
+            verify_tls12_signature(
+                message,
+                cert,
+                dss,
+                &self.0.signature_verification_algorithms,
+            )
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, Error> {
+            verify_tls13_signature(
+                message,
+                cert,
+                dss,
+                &self.0.signature_verification_algorithms,
+            )
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            self.0.signature_verification_algorithms.supported_schemes()
+        }
+    }
+}
 
 use thiserror::Error;
 
-#[cfg(feature = "_tls")]
+#[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
 #[derive(Error, Debug)]
-pub enum TlsError {
+pub enum RustlsTlsError {
     #[error("invalid CA certificate: {0}")]
     InvalidCa(#[from] rustls::pki_types::pem::Error),
 
     #[error("TLS error: {0}")]
     Tls(#[from] rustls::Error),
 
-    #[error("invalid server name '{0}': {1}")]
-    InvalidServerName(String, #[source] rustls::pki_types::InvalidDnsNameError),
+    #[error("invalid server name: {0}")]
+    InvalidServerName(#[from] rustls::pki_types::InvalidDnsNameError),
 }
 
 #[derive(Error, Debug)]
@@ -119,9 +193,13 @@ pub enum ProtocolError {
 
 #[derive(Error, Debug)]
 pub enum MemcachedError {
-    #[cfg(feature = "_tls")]
-    #[error("TLS error: {0}")]
-    Tls(#[from] TlsError),
+    #[cfg(any(feature = "smol-native-tls-tls", feature = "tokio-native-tls-tls"))]
+    #[error("NativeTls TLS error: {0}")]
+    NativeTlsError(#[from] native_tls::Error),
+
+    #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
+    #[error("Rustls TLS error: {0}")]
+    RustlsTls(#[from] RustlsTlsError),
 
     #[error("Protocol error: {0}")]
     Protocol(#[from] ProtocolError),
@@ -131,6 +209,9 @@ pub enum MemcachedError {
 
     #[error("Unexpected error: {0}")]
     Unexpected(String),
+
+    #[error("Wrong configuration: {0}")]
+    ClientConfig(String),
 }
 
 pub type Result<T> = std::result::Result<T, MemcachedError>;
@@ -2009,8 +2090,13 @@ pub enum Connection {
     #[cfg(unix)]
     Unix(BufReader<UnixStream>),
     Udp(UdpSocket, u16),
-    #[cfg(feature = "_tls")]
-    Tls(Box<BufReader<TlsStream<TcpStream>>>),
+    #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
+    Tls(Box<BufReader<RustlsTlsStream<TcpStream>>>),
+    #[cfg(all(
+        any(feature = "smol-native-tls-tls", feature = "tokio-native-tls-tls"),
+        not(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))
+    ))]
+    Tls(Box<BufReader<NativeTlsTlsStream<TcpStream>>>),
 }
 impl Connection {
     /// # Example
@@ -2151,7 +2237,8 @@ impl Connection {
         hostname: &str,
         port: u16,
         ca_path: Option<&str>,
-        cert_and_key_paths: Option<(&str, &str)>,
+        cert_key_paths: Option<(&str, &str)>,
+        danger_insecure: bool,
     ) -> Result<Self> {
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let mut root_store = rustls::RootCertStore::empty();
