@@ -2085,6 +2085,53 @@ async fn refresh_certs_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> R
     parse_ok_rp(s, false).await
 }
 
+async fn get_tls_stream_from_rustls(
+    hostname: &str,
+    port: u16,
+    ca_path: Option<&str>,
+    cert_key_paths: Option<(&str, &str)>,
+    danger_insecure: bool,
+) -> Result<RustlsTlsStream<TcpStream>> {
+    let mut root_store = rustls::RootCertStore::empty();
+    if let Some(ca_path) = ca_path {
+        for cert_der in
+            rustls::pki_types::CertificateDer::pem_file_iter(ca_path).map_err(TlsError::from)?
+        {
+            root_store
+                .add(cert_der.map_err(TlsError::from)?)
+                .map_err(TlsError::from)?
+        }
+    } else {
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned())
+    }
+    let config = if let Some((cert_path, key_path)) = cert_and_key_paths {
+        let mut cert_chain = Vec::new();
+        for c in
+            rustls::pki_types::CertificateDer::pem_file_iter(cert_path).map_err(TlsError::from)?
+        {
+            cert_chain.push(c.map_err(TlsError::from)?);
+        }
+        let key_der =
+            rustls::pki_types::PrivateKeyDer::from_pem_file(key_path).map_err(TlsError::from)?;
+        rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_client_auth_cert(cert_chain, key_der)
+            .map_err(TlsError::from)?
+    } else {
+        rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    };
+    let connector = TlsConnector::from(Arc::new(config));
+    let domain = hostname
+        .to_owned()
+        .try_into()
+        .map_err(|e| TlsError::InvalidServerName(hostname.to_owned(), e))?;
+    let tcp_stream = TcpStream::connect((hostname, port)).await?;
+
+    connector.connect(domain, tcp_stream).await?
+}
+
 pub enum Connection {
     Tcp(BufReader<TcpStream>),
     #[cfg(unix)]
@@ -2240,43 +2287,6 @@ impl Connection {
         cert_key_paths: Option<(&str, &str)>,
         danger_insecure: bool,
     ) -> Result<Self> {
-        let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
-        let mut root_store = rustls::RootCertStore::empty();
-        if let Some(ca_path) = ca_path {
-            for cert_der in
-                rustls::pki_types::CertificateDer::pem_file_iter(ca_path).map_err(TlsError::from)?
-            {
-                root_store
-                    .add(cert_der.map_err(TlsError::from)?)
-                    .map_err(TlsError::from)?
-            }
-        } else {
-            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned())
-        }
-        let config = if let Some((cert_path, key_path)) = cert_and_key_paths {
-            let mut cert_chain = Vec::new();
-            for c in rustls::pki_types::CertificateDer::pem_file_iter(cert_path)
-                .map_err(TlsError::from)?
-            {
-                cert_chain.push(c.map_err(TlsError::from)?);
-            }
-            let key_der = rustls::pki_types::PrivateKeyDer::from_pem_file(key_path)
-                .map_err(TlsError::from)?;
-            rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_client_auth_cert(cert_chain, key_der)
-                .map_err(TlsError::from)?
-        } else {
-            rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth()
-        };
-        let connector = TlsConnector::from(Arc::new(config));
-        let domain = hostname
-            .to_owned()
-            .try_into()
-            .map_err(|e| TlsError::InvalidServerName(hostname.to_owned(), e))?;
-        let tls_stream = connector.connect(domain, tcp_stream).await?;
         Ok(Connection::Tls(Box::new(BufReader::new(tls_stream))))
     }
 
