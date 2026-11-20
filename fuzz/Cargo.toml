@@ -15,7 +15,7 @@ smol = "2.0.2"
 path = ".."
 
 [features]
-smol-runtime = ["mcmc-rs/smol-runtime"]
+smol-rt = ["mcmc-rs/smol-rt"]
 
 [[bin]]
 name = "fuzz_target_1"

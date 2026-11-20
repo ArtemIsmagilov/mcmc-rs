@@ -1,23 +1,122 @@
-//! Minimal Rust client for Memcached
+//! Async client for [Memcached](https://memcached.org/).
 //!
-//! This crate provides working with memcached server.
-//! All methods implemented.
-//! Available TCP/Unix/UDP/TLS connections.
+//! `mcmc-rs` implements the Memcached text protocol and supports TCP, Unix
+//! domain sockets, UDP and TLS. Both the [`smol`](https://docs.rs/smol) and
+//! [`tokio`](https://docs.rs/tokio) runtimes are supported; the runtime is
+//! selected at compile time with Cargo features.
 //!
-//! - [Connection] is a Enum that represents a
-//!   connection to memcached server.
-//! - [Pipeline] is a structure that represents a
-//!   pipeline of memcached commands.
-//! - [WatchStream] is a structure that represents a
-//!   stream of watch events.
-//! - [ClientCrc32] is a structure that represents a
-//!   Cluster connections with ModN hashing.
-//! - [ClientHashRing] is a structure that represents a
-//!   Cluster connections with Ring hashing.
-//! - [ClientRendezvous] is a structure that represents a
-//!   Cluster connections with Rendezvous hashing.
+//! # Feature flags
 //!
-//! # Examples
+//! The crate has **no default features**. At minimum, one async runtime must be
+//! enabled:
+//!
+//! | Feature    | Description                                              |
+//! | ---------- | -------------------------------------------------------- |
+//! | `smol-rt`  | Uses `async-net` and `futures-lite` (the smol ecosystem). |
+//! | `tokio-rt` | Uses Tokio networking and I/O traits.                     |
+//!
+//! Exactly one runtime must be selected. Enabling both is not supported.
+//!
+//! ## TLS
+//!
+//! TLS is optional. Each TLS feature enables the runtime it belongs to, so
+//! listing the TLS feature alone is enough:
+//!
+//! | Feature                | Runtime | Backend                              |
+//! | ---------------------- | ------- | ------------------------------------ |
+//! | `smol-rustls-tls`      | smol    | rustls via `futures-rustls`          |
+//! | `tokio-rustls-tls`     | tokio   | rustls via `tokio-rustls`            |
+//! | `smol-native-tls-tls`  | smol    | native-tls via `async-native-tls`    |
+//! | `tokio-native-tls-tls` | tokio   | native-tls via `tokio-native-tls`    |
+//!
+//! Use at most one TLS backend. `Connection::tls_connect` is available only
+//! when one of these features is enabled.
+//!
+//! ### rustls certificate roots
+//!
+//! The rustls backend starts with an empty root store. To verify public
+//! certificates, enable one or both of:
+//!
+//! - `webpki-roots-tls` — use the bundled Mozilla root certificates;
+//! - `rustls-native-certs-tls` — use the operating system trust store.
+//!
+//! Certificates passed through the `ca_path` argument of
+//! `Connection::tls_connect` are always added to the root store. The native-tls
+//! backend uses the platform trust store automatically and does not need these
+//! features.
+//!
+//! ### rustls CryptoProvider
+//!
+//! `mcmc-rs` does not select or install a rustls
+//! [`CryptoProvider`](https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html).
+//! With a rustls backend, choose a provider in your application. The TLS
+//! helper crates may enable `aws-lc-rs` through their default features, but you
+//! should not rely on that. The simplest explicit option is to add the `rustls`
+//! dependency with its default features, which enables the `aws-lc-rs`
+//! provider:
+//!
+//! ```toml
+//! rustls = "0.23"
+//! ```
+//!
+//! Alternatively, install the provider explicitly before creating the first
+//! TLS connection:
+//!
+//! ```ignore
+//! rustls::crypto::aws_lc_rs::default_provider()
+//!     .install_default()
+//!     .expect("failed to install rustls CryptoProvider");
+//! ```
+//!
+//! To use *ring* instead, enable that provider on the `rustls` dependency and
+//! install it:
+//!
+//! ```toml
+//! rustls = { version = "0.23", default-features = false, features = ["ring"] }
+//! ```
+//!
+//! ```ignore
+//! rustls::crypto::ring::default_provider()
+//!     .install_default()
+//!     .expect("failed to install rustls CryptoProvider");
+//! ```
+//!
+//! Selecting the provider explicitly also prepares the code for rustls 0.24,
+//! where this becomes mandatory. The native-tls backends do not use a rustls
+//! `CryptoProvider`.
+//!
+//! ### Insecure TLS
+//!
+//! The `insecure-tls` feature enables `danger_insecure = true` in
+//! `Connection::tls_connect`, which disables certificate and hostname
+//! verification. It is intended for local testing only. Without the feature,
+//! the `danger_insecure` argument has no effect.
+//!
+//! # Choosing features
+//!
+//! ```toml
+//! # smol + rustls with bundled roots
+//! mcmc-rs = { version = "0.12.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
+//!
+//! # tokio + native-tls
+//! mcmc-rs = { version = "0.12.0", features = ["tokio-native-tls-tls"] }
+//!
+//! # smol without TLS
+//! mcmc-rs = { version = "0.12.0", features = ["smol-rt"] }
+//! ```
+//!
+//! # Connections
+//!
+//! [`Connection`] is an enum over the supported transports:
+//!
+//! - `Connection::default` connects to `127.0.0.1:11211` over TCP;
+//! - `Connection::tcp_connect` connects to a TCP address;
+//! - `Connection::unix_connect` connects to a Unix domain socket (Unix only);
+//! - `Connection::udp_connect` creates a UDP connection;
+//! - `Connection::tls_connect` creates a TLS connection (requires a TLS
+//!   feature).
+//!
+//! # Basic usage
 //!
 //! ```
 //! use smol::block_on;
@@ -37,6 +136,53 @@
 //!     })
 //! }
 //! ```
+//!
+//! # Tokio usage
+//!
+//! The same API is used with Tokio when `tokio-rt` (or a Tokio TLS feature) is
+//! enabled:
+//!
+//! ```no_run
+//! use mcmc_rs::Connection;
+//!
+//! fn main() -> mcmc_rs::Result<()> {
+//!     let runtime = tokio::runtime::Runtime::new()?;
+//!     runtime.block_on(async {
+//!         let mut conn = Connection::default().await?;
+//!         conn.set(b"key", 0, 0, false, b"value").await?;
+//!         Ok(())
+//!     })
+//! }
+//! ```
+//!
+//! # TLS usage
+//!
+//! TLS requires one of the TLS features listed above:
+//!
+//! ```ignore
+//! let mut conn = Connection::tls_connect(
+//!     "localhost",
+//!     11216,
+//!     Some("ca.crt"),                     // optional CA certificate
+//!     Some(("client.crt", "client.key")), // optional client certificate
+//!     false,                              // danger_insecure
+//! )
+//! .await?;
+//! ```
+//!
+//! # Pipelines, watchers and clusters
+//!
+//! - [`Pipeline`] batches several commands and executes them in one round trip;
+//! - [`WatchStream`] exposes Memcached watch events;
+//! - [`ClientCrc32`] distributes keys across connections with modulo hashing;
+//! - [`ClientHashRing`] uses a consistent hash ring;
+//! - [`ClientRendezvous`] uses rendezvous (highest random weight) hashing.
+//!
+//! # Errors
+//!
+//! Fallible operations return [`Result`], which is an alias for
+//! `std::result::Result<T, MemcachedError>`. See [`MemcachedError`] for the
+//! list of error kinds.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -48,6 +194,10 @@ use hrw_hash::HrwNodes;
 #[cfg(not(any(feature = "smol-rt", feature = "tokio-rt")))]
 compile_error!("enable exactly one of the features - \"smol-rt\" or \"tokio-rt\"");
 
+// Runtime abstraction. The rest of the crate uses the names re-exported here
+// and does not depend on the concrete runtime. Exactly one runtime is expected;
+// if both are enabled, smol takes priority so that `--all-features` builds and
+// documentation can still be produced.
 #[cfg(feature = "smol-rt")]
 mod rt {
     #[cfg(unix)]
@@ -69,6 +219,9 @@ mod rt {
 #[cfg(any(feature = "smol-rt", feature = "tokio-rt"))]
 use rt::*;
 
+// TLS backend abstraction. The public API is the same for both backends; only
+// the connector and stream types are selected here. If more than one backend
+// is enabled, rustls takes priority over native-tls.
 #[cfg(feature = "smol-rustls-tls")]
 mod rustls_tls {
     pub use futures_rustls::TlsConnector;
@@ -102,6 +255,8 @@ mod native_tls_tls {
 ))]
 use native_tls_tls::*;
 
+// Custom rustls verifier used when `danger_insecure` is requested together with
+// the `insecure-tls` feature. It deliberately accepts every certificate.
 #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
 mod danger {
     use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -2315,6 +2470,15 @@ impl Connection {
         Ok(Connection::Udp(s, fastrand::u16(..)))
     }
 
+    /// # rustls CryptoProvider
+    ///
+    /// With a rustls backend, [`mcmc-rs`](crate) does not select or install a
+    /// `rustls::crypto::CryptoProvider`. Enable a provider feature on the
+    /// `rustls` dependency or call `CryptoProvider::install_default` before
+    /// the first TLS connection. If no provider is available, rustls panics on
+    /// the first TLS connection. This becomes mandatory in rustls 0.24. The
+    /// native-tls backends do not use a rustls `CryptoProvider`.
+    ///
     /// # Example
     ///
     /// ```

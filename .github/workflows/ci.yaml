@@ -14,7 +14,7 @@ jobs:
           docker compose up -d
       - name: Run tests
         run: |
-          cargo test --features tls-smol
+          cargo test --all-features
 
   coverage:
     runs-on: "ubuntu-latest"
@@ -31,7 +31,7 @@ jobs:
           docker compose up -d
       - name: Run tests coverage
         run: |
-          cargo llvm-cov --doctests --features tls-smol
+          cargo llvm-cov --doctests --all-features
 
   bench-time:
     runs-on: "ubuntu-latest"
@@ -44,7 +44,7 @@ jobs:
           docker compose up -d
       - name: Run bench
         run: |
-          cargo bench --bench bench_time --features tls-smol
+          cargo bench --bench bench_time --all-features
 
   quality:
     name: Quality code
@@ -57,8 +57,8 @@ jobs:
         run: |
           cat debtmap-report.md
 
-  format:
-    name: Format code
+  lint:
+    name: Lint code
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -75,28 +75,12 @@ jobs:
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz
+        uses: taiki-e/install-action@cargo-fuzz
       - run: |
-          cargo fuzz run fuzz_target_1 --features smol-runtime --target x86_64-unknown-linux-gnu -- -max_total_time=15
-          cargo fuzz run fuzz_target_2 --features smol-runtime --target x86_64-unknown-linux-gnu -- -max_total_time=15
-          cargo fuzz run fuzz_target_3 --features smol-runtime --target x86_64-unknown-linux-gnu -- -max_total_time=15
-          cargo fuzz run fuzz_target_4 --features smol-runtime --target x86_64-unknown-linux-gnu -- -max_total_time=15
-
-  check-runtimes:
-    runs-on: "ubuntu-latest"
-    name: Run check runtimes.
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v7
-      - name: Run servers
-        run: |
-          docker compose up -d
-      - name: Run checks
-        run: |
-          cargo run --example simple-smol --features tls-smol
-          cargo run --example simple-tokio --features tls-tokio
+          cargo fuzz run fuzz_target_1 --all-features --target x86_64-unknown-linux-gnu -- -max_total_time=15
+          cargo fuzz run fuzz_target_2 --all-features --target x86_64-unknown-linux-gnu -- -max_total_time=15
+          cargo fuzz run fuzz_target_3 --all-features --target x86_64-unknown-linux-gnu -- -max_total_time=15
+          cargo fuzz run fuzz_target_4 --all-features --target x86_64-unknown-linux-gnu -- -max_total_time=15
 
   bench-perf:
     name: Run bench perf
@@ -111,32 +95,29 @@ jobs:
           docker compose up -d
       - name: Run bench
         run: |
-          cargo bench --bench bench_perf --features tls-smol
+          cargo bench --bench bench_perf --all-features
 
-  check-cross:
-    name: Check cross.
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+  check-examples:
+    runs-on: "ubuntu-latest"
+    name: Run check runtimes.
     steps:
       - name: Checkout Source
         uses: actions/checkout@v7
-      - name: Run checks
+      - name: Run servers
         run: |
-          cargo check --features smol-runtime
-          cargo check --features tokio-runtime
-          cargo check --features tls-smol
-          cargo check --features tls-tokio
+          docker compose up -d
+      - name: Run examples
+        run: |
+          cargo run --example simple-smol --features smol-rustls-tls
+          cargo run --example simple-tokio --features tokio-rustls-tls
 
   profiling:
     runs-on: ubuntu-latest
+    name: Show profile
     steps:
       - uses: actions/checkout@v7
       - name: Install flamegraph
-        uses: taiki-e/install-action@v2
-        with:
-          tool: flamegraph
+        uses: taiki-e/install-action@flamegraph
       - name: Run server
         run: docker compose up md-unix0 -d
       - name: Generate flamegraph
@@ -150,12 +131,11 @@ jobs:
 
   hack:
     runs-on: ubuntu-latest
+    name: Check compiling
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
       - name: Install cargo hack
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-hack
+        uses: taiki-e/install-action@cargo-hack
       - name: Check some flags
         run: cargo hack check --feature-powerset --no-dev-deps --mutually-exclusive-features smol-rt,tokio-rt --at-least-one-of smol-rt,tokio-rt
