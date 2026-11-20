@@ -119,7 +119,7 @@ jobs:
       - name: Generate flamegraph
         run: |
           echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
-          cargo flamegraph --bench bench_prof --all-features
+          cargo flamegraph --bench bench_prof --features smol-rt
       - name: Upload flamegraph artifact
         uses: actions/upload-artifact@v7
         with:
