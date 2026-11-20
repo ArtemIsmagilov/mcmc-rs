@@ -10,11 +10,9 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v7
       - name: Run servers
-        run: |
-          docker compose up -d
+        run: docker compose up -d
       - name: Run tests
-        run: |
-          cargo test --all-features
+        run: cargo test --all-features
 
   coverage:
     runs-on: "ubuntu-latest"
@@ -25,13 +23,13 @@ jobs:
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
       - name: Run servers
-        run: |
-          docker compose up -d
+        run: docker compose up -d
       - name: Run tests coverage
-        run: |
-          cargo llvm-cov --doctests --all-features
+        run: cargo llvm-cov --doctests --all-features
 
   bench-time:
     runs-on: "ubuntu-latest"
@@ -40,11 +38,9 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v7
       - name: Run servers
-        run: |
-          docker compose up -d
+        run: docker compose up -d
       - name: Run bench
-        run: |
-          cargo bench --bench bench_time --all-features
+        run: cargo bench --bench bench_time --all-features
 
   quality:
     name: Quality code
@@ -54,8 +50,7 @@ jobs:
       - name: Analyze code
         uses: iepathos/debtmap-action@v1
       - name: View Report
-        run: |
-          cat debtmap-report.md
+        run: cat debtmap-report.md
 
   lint:
     name: Lint code
@@ -75,7 +70,9 @@ jobs:
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
       - run: |
           cargo fuzz run fuzz_target_1 --all-features --target x86_64-unknown-linux-gnu -- -max_total_time=15
           cargo fuzz run fuzz_target_2 --all-features --target x86_64-unknown-linux-gnu -- -max_total_time=15
@@ -91,11 +88,9 @@ jobs:
       - name: Setup gungraun-runner and Valgrind
         uses: gungraun/setup-gungraun@v1
       - name: Run servers
-        run: |
-          docker compose up -d
+        run: docker compose up -d
       - name: Run bench
-        run: |
-          cargo bench --bench bench_perf --all-features
+        run: cargo bench --bench bench_perf --all-features
 
   check-examples:
     runs-on: "ubuntu-latest"
@@ -104,8 +99,7 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v7
       - name: Run servers
-        run: |
-          docker compose up -d
+        run: docker compose up -d
       - name: Run examples
         run: |
           cargo run --example simple-smol --features smol-rustls-tls
@@ -117,7 +111,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install flamegraph
-        uses: taiki-e/install-action@flamegraph
+        uses: taiki-e/install-action@v2
+        with:
+          tool: flamegraph
       - name: Run server
         run: docker compose up md-unix0 -d
       - name: Generate flamegraph
@@ -136,6 +132,8 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v7
       - name: Install cargo hack
-        uses: taiki-e/install-action@cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
       - name: Check some flags
         run: cargo hack check --feature-powerset --no-dev-deps --mutually-exclusive-features smol-rt,tokio-rt --at-least-one-of smol-rt,tokio-rt
