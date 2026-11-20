@@ -74,14 +74,14 @@ use rt::*;
 #[cfg(feature = "smol-rustls-tls")]
 mod rustls_tls {
     pub use futures_rustls::TlsConnector;
-    pub use futures_rustls::client::TlsStream as RustlsTlsStream;
+    pub use futures_rustls::client::TlsStream;
     pub use futures_rustls::rustls;
     pub use futures_rustls::rustls::pki_types::pem::PemObject;
 }
 #[cfg(all(feature = "tokio-rustls-tls", not(feature = "smol-rustls-tls")))]
 mod rustls_tls {
     pub use tokio_rustls::TlsConnector;
-    pub use tokio_rustls::client::TlsStream as RustlsTlsStream;
+    pub use tokio_rustls::client::TlsStream;
     pub use tokio_rustls::rustls;
     pub use tokio_rustls::rustls::pki_types::pem::PemObject;
 }
@@ -90,30 +90,25 @@ use rustls_tls::*;
 
 #[cfg(feature = "smol-native-tls-tls")]
 mod native_tls_tls {
-    pub use async_native_tls::TlsStream as NativeTlsTlsStream;
+    pub use async_native_tls::TlsStream;
 }
 #[cfg(all(feature = "tokio-native-tls-tls", not(feature = "smol-native-tls-tls")))]
 mod native_tls_tls {
-    pub use tokio_native_tls::TlsStream as NativeTlsTlsStream;
+    pub use tokio_native_tls::TlsStream;
 }
 
 #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
 mod danger {
-    use std::sync::Arc;
-
     use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
     use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
     use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
     use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 
     #[derive(Debug)]
-    pub(super) struct NoCertificateVerification(Arc<CryptoProvider>);
+    pub(super) struct NoCertificateVerification(CryptoProvider);
 
     impl NoCertificateVerification {
-        pub(super) fn new() -> Self {
-            let provider = CryptoProvider::get_default()
-                .expect("Please set cryptoprovider")
-                .clone();
+        pub(super) fn new(provider: CryptoProvider) -> Self {
             Self(provider)
         }
     }
@@ -2091,20 +2086,42 @@ async fn get_tls_stream_from_rustls(
     ca_path: Option<&str>,
     cert_key_paths: Option<(&str, &str)>,
     danger_insecure: bool,
-) -> Result<RustlsTlsStream<TcpStream>> {
-    let mut root_store = rustls::RootCertStore::empty();
-    if let Some(ca_path) = ca_path {
-        for cert_der in
-            rustls::pki_types::CertificateDer::pem_file_iter(ca_path).map_err(TlsError::from)?
-        {
-            root_store
-                .add(cert_der.map_err(TlsError::from)?)
-                .map_err(TlsError::from)?
-        }
+) -> Result<TlsStream<TcpStream>> {
+    let builder = rustls::ClientConfig::builder();
+    let builder = if danger_insecure && cfg!(feature = "insecure-tls") {
+        let provider =
+            rustls::crypto::CryptoProvider::get_default().expect("CryptoProvider not found");
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification::new(
+                **provider,
+            )))
     } else {
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned())
-    }
-    let config = if let Some((cert_path, key_path)) = cert_and_key_paths {
+        let mut root_store = rustls::RootCertStore::empty();
+        if let Some(ca_path) = ca_path {
+            for cert_der in rustls::pki_types::CertificateDer::pem_file_iter(ca_path)
+                .map_err(RustlsTlsError::from)?
+            {
+                root_store
+                    .add(cert_der.map_err(RustlsTlsError::from)?)
+                    .map_err(RustlsTlsError::from)?
+            }
+        };
+        #[cfg(feature = "webpki-roots-tls")]
+        {
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned())
+        }
+        #[cfg(feature = "rustls-native-certs-tls")]
+        {
+            for cert in
+                rustls_native_certs::load_native_certs().expect("could not load platform certs")
+            {
+                root_store.add(cert).map_err(RustlsTlsError::from)?;
+            }
+        }
+        builder.with_root_certificates(root_store)
+    };
+    let config = if let Some((cert_path, key_path)) = cert_key_paths {
         let mut cert_chain = Vec::new();
         for c in
             rustls::pki_types::CertificateDer::pem_file_iter(cert_path).map_err(TlsError::from)?
@@ -2123,12 +2140,8 @@ async fn get_tls_stream_from_rustls(
             .with_no_client_auth()
     };
     let connector = TlsConnector::from(Arc::new(config));
-    let domain = hostname
-        .to_owned()
-        .try_into()
-        .map_err(|e| TlsError::InvalidServerName(hostname.to_owned(), e))?;
+    let domain = hostname.to_owned().try_into().map_err(TlsError::from)?;
     let tcp_stream = TcpStream::connect((hostname, port)).await?;
-
     connector.connect(domain, tcp_stream).await?
 }
 
@@ -2137,13 +2150,13 @@ pub enum Connection {
     #[cfg(unix)]
     Unix(BufReader<UnixStream>),
     Udp(UdpSocket, u16),
-    #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
-    Tls(Box<BufReader<RustlsTlsStream<TcpStream>>>),
-    #[cfg(all(
-        any(feature = "smol-native-tls-tls", feature = "tokio-native-tls-tls"),
-        not(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))
+    #[cfg(any(
+        feature = "smol-rustls-tls",
+        feature = "tokio-rustls-tls",
+        feature = "smol-native-tls-tls",
+        feature = "tokio-native-tls-tls"
     ))]
-    Tls(Box<BufReader<NativeTlsTlsStream<TcpStream>>>),
+    Tls(Box<BufReader<TlsStream<TcpStream>>>),
 }
 impl Connection {
     /// # Example

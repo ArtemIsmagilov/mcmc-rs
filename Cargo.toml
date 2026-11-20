@@ -39,7 +39,7 @@ tokio-rt = ["dep:tokio"]
 
 _tls = []
 
-rustls-tls-insecure = ["dep:rustls"]
+insecure-tls = []
 
 webpki-roots-tls = ["dep:webpki-roots"]
 rustls-native-certs-tls = ["dep:rustls-native-certs"]
