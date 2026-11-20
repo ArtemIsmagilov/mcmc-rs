@@ -40,8 +40,6 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-#[cfg(feature = "_tls")]
-use std::sync::Arc;
 
 use crc32fast::hash as crc32;
 use hashring::HashRing;
@@ -90,12 +88,23 @@ use rustls_tls::*;
 
 #[cfg(feature = "smol-native-tls-tls")]
 mod native_tls_tls {
+    pub use async_native_tls::Certificate;
+    pub use async_native_tls::Identity;
+    pub use async_native_tls::TlsConnector;
     pub use async_native_tls::TlsStream;
 }
 #[cfg(all(feature = "tokio-native-tls-tls", not(feature = "smol-native-tls-tls")))]
 mod native_tls_tls {
+    pub use tokio_native_tls::TlsConnector;
     pub use tokio_native_tls::TlsStream;
+    pub use tokio_native_tls::native_tls::Certificate;
+    pub use tokio_native_tls::native_tls::Identity;
 }
+#[cfg(all(
+    any(feature = "smol-native-tls-tls", feature = "tokio-native-tls-tls"),
+    not(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))
+))]
+use native_tls_tls::*;
 
 #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
 mod danger {
@@ -2080,6 +2089,7 @@ async fn refresh_certs_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> R
     parse_ok_rp(s, false).await
 }
 
+#[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
 async fn get_tls_stream_from_rustls(
     hostname: &str,
     port: u16,
@@ -2087,6 +2097,8 @@ async fn get_tls_stream_from_rustls(
     cert_key_paths: Option<(&str, &str)>,
     danger_insecure: bool,
 ) -> Result<TlsStream<TcpStream>> {
+    use std::sync::Arc;
+
     let builder = rustls::ClientConfig::builder();
     let builder = if danger_insecure && cfg!(feature = "insecure-tls") {
         let provider =
@@ -2094,7 +2106,7 @@ async fn get_tls_stream_from_rustls(
         builder
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification::new(
-                **provider,
+                (**provider).clone(),
             )))
     } else {
         let mut root_store = rustls::RootCertStore::empty();
@@ -2123,26 +2135,57 @@ async fn get_tls_stream_from_rustls(
     };
     let config = if let Some((cert_path, key_path)) = cert_key_paths {
         let mut cert_chain = Vec::new();
-        for c in
-            rustls::pki_types::CertificateDer::pem_file_iter(cert_path).map_err(TlsError::from)?
+        for c in rustls::pki_types::CertificateDer::pem_file_iter(cert_path)
+            .map_err(RustlsTlsError::from)?
         {
-            cert_chain.push(c.map_err(TlsError::from)?);
+            cert_chain.push(c.map_err(RustlsTlsError::from)?);
         }
-        let key_der =
-            rustls::pki_types::PrivateKeyDer::from_pem_file(key_path).map_err(TlsError::from)?;
-        rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
+        let key_der = rustls::pki_types::PrivateKeyDer::from_pem_file(key_path)
+            .map_err(RustlsTlsError::from)?;
+        builder
             .with_client_auth_cert(cert_chain, key_der)
-            .map_err(TlsError::from)?
+            .map_err(RustlsTlsError::from)?
     } else {
-        rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth()
+        builder.with_no_client_auth()
     };
+    let domain = hostname
+        .to_owned()
+        .try_into()
+        .map_err(RustlsTlsError::from)?;
     let connector = TlsConnector::from(Arc::new(config));
-    let domain = hostname.to_owned().try_into().map_err(TlsError::from)?;
     let tcp_stream = TcpStream::connect((hostname, port)).await?;
-    connector.connect(domain, tcp_stream).await?
+    Ok(connector.connect(domain, tcp_stream).await?)
+}
+
+//#[cfg(all(
+//    any(feature = "smol-native-tls-tls", feature = "tokio-native-tls-tls"),
+//    not(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))
+//))]
+async fn get_tls_stream_from_native_tls(
+    hostname: &str,
+    port: u16,
+    ca_path: Option<&str>,
+    cert_key_paths: Option<(&str, &str)>,
+    danger_insecure: bool,
+) -> Result<TlsStream<TcpStream>> {
+    use std::fs;
+    let use_sni = hostname.parse::<std::net::IpAddr>().is_err();
+    let mut builder = TlsConnector::new().use_sni(use_sni);
+    if danger_insecure && cfg!(feature = "insecure-tls") {
+        builder = builder
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+    }
+    if let Some(ca_path) = ca_path {
+        builder = Certificate::stack_from_pem(&fs::read(ca_path)?)?
+            .into_iter()
+            .fold(builder, |b, cert| b.add_root_certificate(cert))
+    }
+    if let Some((cert, key)) = cert_key_paths {
+        builder = builder.identity(Identity::from_pkcs8(&fs::read(cert)?, &fs::read(key)?)?)
+    }
+    let tcp_stream = TcpStream::connect((hostname, port)).await?;
+    Ok(builder.connect(hostname, tcp_stream).await?)
 }
 
 pub enum Connection {
@@ -2292,7 +2335,12 @@ impl Connection {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    #[cfg(feature = "_tls")]
+    #[cfg(any(
+        feature = "smol-rustls-tls",
+        feature = "tokio-rustls-tls",
+        feature = "smol-native-tls-tls",
+        feature = "tokio-native-tls-tls"
+    ))]
     pub async fn tls_connect(
         hostname: &str,
         port: u16,
@@ -2300,6 +2348,19 @@ impl Connection {
         cert_key_paths: Option<(&str, &str)>,
         danger_insecure: bool,
     ) -> Result<Self> {
+        #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
+        let tls_stream = {
+            get_tls_stream_from_rustls(hostname, port, ca_path, cert_key_paths, danger_insecure)
+                .await?
+        };
+        #[cfg(all(
+            any(feature = "smol-native-tls-tls", feature = "tokio-native-tls-tls"),
+            not(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))
+        ))]
+        let tls_stream = {
+            get_tls_stream_from_native_tls(hostname, port, ca_path, cert_key_paths, danger_insecure)
+                .await?
+        };
         Ok(Connection::Tls(Box::new(BufReader::new(tls_stream))))
     }
 
