@@ -21,7 +21,7 @@ async-net = { version = "2.0", optional = true }
 futures-lite = { version = "2.6", optional = true }
 tokio = { version = "1.54", optional = true, features = ["net", "io-util"] }
 
-rustls = { version = "0.23", default-feature = false, optional = true }
+rustls = { version = "0.23", default-features = false, optional = true }
 futures-rustls = { version = "0.26", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
 
@@ -37,17 +37,15 @@ tokio-native-tls = { version = "0.3", optional = true }
 smol-rt = ["dep:async-net", "dep:futures-lite"]
 tokio-rt = ["dep:tokio"]
 
-_tls = []
-
 insecure-tls = []
 
 webpki-roots-tls = ["dep:webpki-roots"]
 rustls-native-certs-tls = ["dep:rustls-native-certs"]
 
-#smol-rustls-tls = ["smol-rt", "dep:rustls", "dep:futures-rustls"]
-#tokio-rustls-tls = ["tokio-rt", "dep:rustls", "dep:tokio-rustls"]
+smol-rustls-tls = ["smol-rt", "dep:rustls", "dep:futures-rustls"]
+tokio-rustls-tls = ["tokio-rt", "dep:rustls", "dep:tokio-rustls"]
 
-#smol-native-tls-tls = ["smol-rt", "dep:native-tls", "dep:async-native-tls"]
+smol-native-tls-tls = ["smol-rt", "dep:native-tls", "dep:async-native-tls"]
 tokio-native-tls-tls = ["tokio-rt", "dep:native-tls", "dep:tokio-native-tls"]
 
 [dev-dependencies]
@@ -61,7 +59,7 @@ smol = "2.0"
 debug = true
 
 [package.metadata.docs.rs]
-features = ["tls-smol"]
+all-features = true
 
 [[example]]
 name = "simple-smol"
