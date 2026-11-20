@@ -54,6 +54,9 @@ gungraun = "0.20"
 pretty_assertions = "1.4"
 tokio = { version = "1.54", features = ["full"] }
 smol = "2.0"
+rustls = { version = "0.23", default-features = false, features = [
+  "aws-lc-rs",
+] }
 
 [profile.bench]
 debug = true
