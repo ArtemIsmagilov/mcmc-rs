@@ -42,11 +42,11 @@ insecure-tls = []
 webpki-roots-tls = ["dep:webpki-roots"]
 rustls-native-certs-tls = ["dep:rustls-native-certs"]
 
-smol-rustls-tls = ["smol-rt", "dep:rustls", "dep:futures-rustls"]
-tokio-rustls-tls = ["tokio-rt", "dep:rustls", "dep:tokio-rustls"]
+#smol-rustls-tls = ["smol-rt", "dep:rustls", "dep:futures-rustls"]
+#tokio-rustls-tls = ["tokio-rt", "dep:rustls", "dep:tokio-rustls"]
 
 smol-native-tls-tls = ["smol-rt", "dep:native-tls", "dep:async-native-tls"]
-tokio-native-tls-tls = ["tokio-rt", "dep:native-tls", "dep:tokio-native-tls"]
+#tokio-native-tls-tls = ["tokio-rt", "dep:native-tls", "dep:tokio-native-tls"]
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["async_smol"] }
@@ -63,23 +63,23 @@ all-features = true
 
 [[example]]
 name = "simple-smol"
-required-features = ["tls-smol"]
+required-features = ["smol-rustls-tls"]
 
 [[example]]
 name = "simple-tokio"
-required-features = ["tls-tokio"]
+required-features = ["tokio-rustls-tls"]
 
 [[bench]]
 harness = false
 name = "bench_time"
-required-features = ["tls-smol"]
+required-features = ["smol-rustls-tls"]
 
 [[bench]]
 harness = false
 name = "bench_perf"
-required-features = ["tls-smol"]
+required-features = ["smol-rustls-tls"]
 
 [[bench]]
 name = "bench_prof"
 harness = false
-required-features = ["smol-runtime"]
+required-features = ["smol-rt"]

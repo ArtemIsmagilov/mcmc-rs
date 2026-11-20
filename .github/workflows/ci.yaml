@@ -147,3 +147,15 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: "*.svg"
+
+  hack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+      - name: Install cargo hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+      - name: Check some flags
+        run: cargo hack check --feature-powerset --no-dev-deps --mutually-exclusive-features smol-rt,tokio-rt --at-least-one-of smol-rt,tokio-rt

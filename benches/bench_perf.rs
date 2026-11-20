@@ -18,6 +18,7 @@ fn expensive_setup(n: &str) -> Connection {
                 11216,
                 Some("sets/ca.crt"),
                 Some(("sets/client.crt", "sets/client.key")),
+                false,
             )
             .await
             .unwrap(),

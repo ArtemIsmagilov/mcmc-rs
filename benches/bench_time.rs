@@ -21,6 +21,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                         11216,
                         Some("sets/ca.crt"),
                         Some(("sets/client.crt", "sets/client.key")),
+                        false,
                     )
                     .await
                     .unwrap(),

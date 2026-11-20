@@ -53,6 +53,7 @@ fn main() -> mcmc_rs::Result<()> {
             11216,
             Some("sets/ca.crt"),
             Some(("sets/client.crt", "sets/client.key")),
+            false,
         )
         .await?;
         let version = conn.version().await?;
