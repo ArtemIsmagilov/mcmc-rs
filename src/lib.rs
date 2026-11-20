@@ -9029,7 +9029,7 @@ impl<'a> Pipeline<'a> {
     /// # use mcmc_rs::{Connection, PipelineResponse};
     /// # use smol::block_on;
     /// # block_on(async {
-    /// let mut conn = Connection::default().await?;
+    /// let mut conn = Connection::tcp_connect("127.0.0.1:11219").await?;
     /// let result = conn.pipeline().refresh_certs().execute().await?;
     /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
