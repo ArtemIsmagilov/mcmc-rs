@@ -2327,6 +2327,7 @@ impl Connection {
     ///     11216,
     ///     Some("sets/ca.crt"),
     ///     Some(("sets/client.crt", "sets/client.key")),
+    ///     false,
     /// )
     /// .await?;
     /// assert_eq!(
@@ -2386,6 +2387,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2428,6 +2430,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2463,7 +2466,7 @@ impl Connection {
     ///     Connection::tcp_connect("127.0.0.1:11213").await?,
     ///     Connection::unix_connect("/tmp/memcached1.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11215").await?,
-    ///     Connection::tls_connect("localhost", 11217, Some("sets/ca.crt"), None).await?,
+    ///     Connection::tls_connect("localhost", 11217, Some("sets/ca.crt"), None, false).await?,
     /// ] {
     ///     assert_eq!(c.shutdown(true).await?, ());
     /// }
@@ -2502,6 +2505,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2542,6 +2546,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2590,6 +2595,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2702,6 +2708,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2811,6 +2818,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -2930,6 +2938,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3047,6 +3056,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3166,6 +3176,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3280,7 +3291,7 @@ impl Connection {
     /// for mut c in [
     ///     Connection::tcp_connect("127.0.0.1:11212").await?,
     ///     Connection::unix_connect("/tmp/memcached2.sock").await?,
-    ///     Connection::tls_connect("localhost", 11218, Some("sets/ca.crt"), None).await?,
+    ///     Connection::tls_connect("localhost", 11218, Some("sets/ca.crt"), None, false).await?,
     /// ] {
     ///     c.auth(b"a", b"a").await?;
     ///     assert!(!c.version().await?.is_empty());
@@ -3326,6 +3337,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3381,6 +3393,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3444,6 +3457,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3507,6 +3521,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3567,6 +3582,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3622,6 +3638,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3677,6 +3694,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3737,6 +3755,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3796,6 +3815,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3884,6 +3904,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -3963,6 +3984,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4055,6 +4077,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4139,6 +4162,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4185,6 +4209,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4227,6 +4252,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4269,6 +4295,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4315,6 +4342,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4361,6 +4389,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4404,6 +4433,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4447,6 +4477,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4493,6 +4524,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4540,6 +4572,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4580,6 +4613,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4630,6 +4664,7 @@ impl Connection {
     ///             11216,
     ///             Some("sets/ca.crt"),
     ///             Some(("sets/client.crt", "sets/client.key")),
+    ///             false,
     ///         )
     ///         .await?,
     ///         Connection::tls_connect(
@@ -4637,6 +4672,7 @@ impl Connection {
     ///             11216,
     ///             Some("sets/ca.crt"),
     ///             Some(("sets/client.crt", "sets/client.key")),
+    ///             false,
     ///         )
     ///         .await?,
     ///     ),
@@ -4725,6 +4761,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4791,6 +4828,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4858,6 +4896,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4907,6 +4946,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -4975,6 +5015,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -5015,6 +5056,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -5056,6 +5098,7 @@ impl Connection {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -5102,6 +5145,7 @@ impl WatchStream {
     ///             11216,
     ///             Some("sets/ca.crt"),
     ///             Some(("sets/client.crt", "sets/client.key")),
+    ///             false,
     ///         )
     ///         .await?,
     ///         Connection::tls_connect(
@@ -5109,6 +5153,7 @@ impl WatchStream {
     ///             11216,
     ///             Some("sets/ca.crt"),
     ///             Some(("sets/client.crt", "sets/client.key")),
+    ///             false,
     ///         )
     ///         .await?,
     ///     ),
@@ -7739,6 +7784,7 @@ impl<'a> Pipeline<'a> {
     ///         11216,
     ///         Some("sets/ca.crt"),
     ///         Some(("sets/client.crt", "sets/client.key")),
+    ///         false,
     ///     )
     ///     .await?,
     /// ] {
@@ -7843,6 +7889,7 @@ impl<'a> Pipeline<'a> {
     ///     11216,
     ///     Some("sets/ca.crt"),
     ///     Some(("sets/client.crt", "sets/client.key")),
+    ///     false,
     /// )
     /// .await?;
     /// assert_eq!(
