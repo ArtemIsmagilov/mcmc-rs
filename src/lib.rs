@@ -2170,7 +2170,7 @@ async fn get_tls_stream_from_native_tls(
 ) -> Result<TlsStream<TcpStream>> {
     use std::fs;
     let use_sni = hostname.parse::<std::net::IpAddr>().is_err();
-    let mut builder = TlsConnector::new().use_sni(use_sni);
+    let mut builder = native_tls::TlsConnector::builder().use_sni(use_sni);
     if danger_insecure && cfg!(feature = "insecure-tls") {
         builder = builder
             .danger_accept_invalid_certs(true)
@@ -2184,6 +2184,7 @@ async fn get_tls_stream_from_native_tls(
     if let Some((cert, key)) = cert_key_paths {
         builder = builder.identity(Identity::from_pkcs8(&fs::read(cert)?, &fs::read(key)?)?)
     }
+    let builder = TlsConnector::from(builder.build()?);
     let tcp_stream = TcpStream::connect((hostname, port)).await?;
     Ok(builder.connect(hostname, tcp_stream).await?)
 }
