@@ -185,11 +185,13 @@
 //! list of error kinds.
 
 use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::io::Write;
 
 use crc32fast::hash as crc32;
 use hashring::HashRing;
 use hrw::Rendezvous;
+use rapidhash::quality::RapidHasher;
 
 #[cfg(not(any(feature = "smol-rt", feature = "tokio-rt")))]
 compile_error!("enable exactly one of the features - \"smol-rt\" or \"tokio-rt\"");
@@ -6187,6 +6189,7 @@ impl ClientCrc32 {
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
+        assert!(!conns.is_empty(), "no connections");
         Self(conns)
     }
 }
@@ -6218,13 +6221,17 @@ impl ClientHashRing {
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
+        assert!(!conns.is_empty(), "no connections");
         let mut ring = HashRing::new();
         ring.batch_add((0..conns.len()).collect());
         Self(conns, ring)
     }
 }
 
-pub struct ClientRendezvous(Vec<Connection>, Rendezvous<usize>);
+pub struct ClientRendezvous(
+    Vec<Connection>,
+    Rendezvous<usize, BuildHasherDefault<RapidHasher<'static>>>,
+);
 impl ClientRendezvous {
     /// # Example
     ///
@@ -6251,7 +6258,9 @@ impl ClientRendezvous {
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
-        let hrw = Rendezvous::from_nodes(0..conns.len());
+        assert!(!conns.is_empty(), "no connections");
+        let hasher = BuildHasherDefault::<RapidHasher<'static>>::default();
+        let hrw = Rendezvous::from_nodes_and_hasher(0..conns.len(), hasher);
         Self(conns, hrw)
     }
 }
