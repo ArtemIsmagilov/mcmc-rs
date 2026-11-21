@@ -152,6 +152,49 @@ fn main() -> mcmc_rs::Result<()> {
 
 * There's a lot more in the [examples](examples/)
 
+## Clustering and Sharding
+
+`mcmc-rs` provides three server selectors implementing the `ServerSelector` trait:
+
+| Client             | Strategy                         | Hashing                                 | Best for                                      |
+| ------------------ | -------------------------------- | --------------------------------------- | --------------------------------------------- |
+| `ClientCrc32`      | Modulo (`crc32(key) % N`)        | CRC32                                   | Static node sets, compatibility with legacy clients |
+| `ClientHashRing`   | Consistent hash ring (`O(log V)`) | `rapidhash` (default) or custom hasher  | Large clusters, minimal key remapping on node changes |
+| `ClientRendezvous` | Rendezvous / HRW (`O(N)`)        | `rapidhash` (default) or custom hasher  | Small-to-medium clusters, zero virtual node overhead |
+
+### Customizing hashing (`new`, `with_seed`, `with_hasher`)
+
+Both `ClientHashRing` and `ClientRendezvous` use `rapidhash` with a fixed default seed out of the box, and support custom seeds or any `std::hash::BuildHasher`:
+
+```rust,no_run
+use std::collections::hash_map::DefaultHasher;
+use std::hash::BuildHasherDefault;
+use mcmc_rs::{ClientHashRing, ClientRendezvous, Connection, ServerSelector};
+
+async fn run() -> mcmc_rs::Result<()> {
+let conns = vec![
+    Connection::tcp_connect("127.0.0.1:11211").await?,
+    Connection::tcp_connect("127.0.0.1:11212").await?,
+];
+
+// 1. Default: fast non-cryptographic rapidhash with a fixed seed
+let mut client = ClientRendezvous::new(conns);
+
+// 2. Custom seed: share a secret seed across app replicas to mitigate HashDoS
+//    when cache keys are derived from untrusted user input
+// let mut client = ClientRendezvous::with_seed(conns, 0x9e37_79b9_7f4a_7c15);
+
+// 3. Custom BuildHasher: plug in any std::hash::BuildHasher (SipHash, xxHash, tag-based, etc.)
+// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+// let mut client = ClientHashRing::with_hasher(conns, hasher);
+
+client.set(b"key", 0, 0, false, b"value").await?;
+Ok(())
+}
+```
+
+You can also implement the [`ServerSelector`] trait for your own types to build custom routing strategies (such as weighted nodes or Ketama-compatible rings).
+
 ## Tests
 
 ```bash

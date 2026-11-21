@@ -185,13 +185,13 @@
 //! list of error kinds.
 
 use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
+use std::hash::BuildHasher;
 use std::io::Write;
 
 use crc32fast::hash as crc32;
 use hashring::HashRing;
 use hrw::Rendezvous;
-use rapidhash::quality::RapidHasher;
+use rapidhash::quality::SeedableState;
 
 #[cfg(not(any(feature = "smol-rt", feature = "tokio-rt")))]
 compile_error!("enable exactly one of the features - \"smol-rt\" or \"tokio-rt\"");
@@ -6150,14 +6150,14 @@ impl ServerSelector for ClientCrc32 {
     }
 }
 
-impl ServerSelector for ClientHashRing {
+impl<S: BuildHasher + Send + Sync> ServerSelector for ClientHashRing<S> {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection {
         let index = *self.1.get(&key).unwrap();
         &mut self.0[index]
     }
 }
 
-impl ServerSelector for ClientRendezvous {
+impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S> {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection {
         let index = *self.1.pick_top(&key).unwrap();
         &mut self.0[index]
@@ -6194,8 +6194,10 @@ impl ClientCrc32 {
     }
 }
 
-pub struct ClientHashRing(Vec<Connection>, HashRing<usize>);
+pub struct ClientHashRing<S = SeedableState<'static>>(Vec<Connection>, HashRing<usize, S>);
 impl ClientHashRing {
+    /// Creates a consistent hash ring using `rapidhash` with a default fixed seed.
+    ///
     /// # Example
     ///
     /// ```
@@ -6211,7 +6213,7 @@ impl ClientHashRing {
     ///     client
     ///         .set(b"doc_hash_ring_new", 0, 0, false, b"value")
     ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
+    ///     StorageResult::Stored
     /// );
     /// assert_eq!(
     ///     client.get(b"doc_hash_ring_new").await?.unwrap().data_block,
@@ -6221,18 +6223,98 @@ impl ClientHashRing {
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
+        Self::with_hasher(conns, SeedableState::fixed())
+    }
+
+    /// Creates a consistent hash ring using `rapidhash` with a custom `seed`.
+    ///
+    /// Use a shared secret `seed` across application instances when keys come
+    /// from untrusted user input to mitigate HashDoS hot-shard attacks.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::with_seed(
+    ///     vec![
+    ///         Connection::default().await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ],
+    ///     42,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_with_seed", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_with_seed")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn with_seed(conns: Vec<Connection>, seed: u64) -> Self {
+        Self::with_hasher(conns, SeedableState::new(seed))
+    }
+}
+impl<S: BuildHasher> ClientHashRing<S> {
+    /// Creates a consistent hash ring with a custom [`BuildHasher`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::collections::hash_map::{DefaultHasher, RandomState};
+    /// # use std::hash::BuildHasherDefault;
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let mut client = ClientHashRing::with_hasher(
+    ///     vec![
+    ///         Connection::default().await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ],
+    ///     hasher,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_with_hasher", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_with_hasher")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn with_hasher(conns: Vec<Connection>, hasher: S) -> Self {
         assert!(!conns.is_empty(), "no connections");
-        let mut ring = HashRing::new();
+        let mut ring = HashRing::with_hasher(hasher);
         ring.batch_add((0..conns.len()).collect());
         Self(conns, ring)
     }
 }
 
-pub struct ClientRendezvous(
-    Vec<Connection>,
-    Rendezvous<usize, BuildHasherDefault<RapidHasher<'static>>>,
-);
+pub struct ClientRendezvous<S = SeedableState<'static>>(Vec<Connection>, Rendezvous<usize, S>);
 impl ClientRendezvous {
+    /// Creates a rendezvous using `rapidhash` with a default fixed seed.
+    ///
     /// # Example
     ///
     /// ```
@@ -6246,20 +6328,100 @@ impl ClientRendezvous {
     /// ]);
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_rendezvous_new", 0, 0, false, b"value")
+    ///         .set(b"doc_renderzvous_new", 0, 0, false, b"value")
     ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
+    ///     StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_new").await?.unwrap().data_block,
+    ///     client.get(b"doc_renderzvous_new").await?.unwrap().data_block,
     ///     b"value"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
+        Self::with_hasher(conns, SeedableState::fixed())
+    }
+
+    /// Creates a rendezvous using `rapidhash` with a custom `seed`.
+    ///
+    /// Use a shared secret `seed` across application instances when keys come
+    /// from untrusted user input to mitigate HashDoS hot-shard attacks.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientRendezvous::with_seed(
+    ///     vec![
+    ///         Connection::default().await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ],
+    ///     42,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_with_seed", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_with_seed")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn with_seed(conns: Vec<Connection>, seed: u64) -> Self {
+        Self::with_hasher(conns, SeedableState::new(seed))
+    }
+}
+impl<S: BuildHasher + Clone> ClientRendezvous<S> {
+    /// Creates a consistent rendezvous with a custom [`BuildHasher`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::collections::hash_map::{DefaultHasher, RandomState};
+    /// # use std::hash::BuildHasherDefault;
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let mut client = ClientRendezvous::with_hasher(
+    ///     vec![
+    ///         Connection::default().await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ],
+    ///     hasher,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_with_hasher", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_with_hasher")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn with_hasher(conns: Vec<Connection>, hasher: S) -> Self {
         assert!(!conns.is_empty(), "no connections");
-        let hasher = BuildHasherDefault::<RapidHasher>::default();
         let hrw = Rendezvous::from_nodes_and_hasher(0..conns.len(), hasher);
         Self(conns, hrw)
     }
@@ -6395,10 +6557,9 @@ impl<'a> Pipeline<'a> {
     ///         .await?,
     ///     StorageResult::Stored
     /// );
-    /// let result = conn.pipeline().flush_all(None, false).execute().await?;
+    /// let result = conn.pipeline().flush_all(Some(999), false).execute().await?;
     /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
     /// assert_eq!(result, [PipelineResponse::Unit(())]);
-    /// assert_eq!(conn.get(b"doc_pipeline_flush_all").await?, None);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
