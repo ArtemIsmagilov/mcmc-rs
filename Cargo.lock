@@ -205,7 +205,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e289ae0e3dfb546a0670c572b5001be7a8691044731d666f9187e98124285565"
 dependencies = [
  "pastey",
- "rapidhash 4.5.1",
+ "rapidhash",
  "serde",
  "unty-next",
 ]
@@ -733,13 +733,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
-name = "hrw-hash"
-version = "2.0.3"
+name = "hrw"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb03565b4d40fe68cd5811eb86160dde65f0b7580e5872b2e3d50ee07a4a815c"
-dependencies = [
- "rapidhash 3.1.0",
-]
+checksum = "facc8051ee27a0e1ba79153663c22aa3eed8ae92c8a1584244aa33e5c12a7ed6"
 
 [[package]]
 name = "icu_collections"
@@ -937,7 +934,7 @@ dependencies = [
  "futures-rustls",
  "gungraun",
  "hashring",
- "hrw-hash",
+ "hrw",
  "native-tls",
  "pretty_assertions",
  "rustls",
@@ -1228,12 +1225,6 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
-
-[[package]]
-name = "rapidhash"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efee4b7317469c6c6e7fdeee3d094313af846a97678d6ed971d83a852d730083"
 
 [[package]]
 name = "rapidhash"

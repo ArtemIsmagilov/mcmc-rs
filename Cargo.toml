@@ -15,7 +15,7 @@ fastrand = "2.5"
 
 crc32fast = "1.5"
 hashring = "0.3"
-hrw-hash = "2.0"
+hrw = "0.1"
 
 async-net = { version = "2.0", optional = true }
 futures-lite = { version = "2.6", optional = true }

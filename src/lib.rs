@@ -189,7 +189,7 @@ use std::io::Write;
 
 use crc32fast::hash as crc32;
 use hashring::HashRing;
-use hrw_hash::HrwNodes;
+use hrw::Rendezvous;
 
 #[cfg(not(any(feature = "smol-rt", feature = "tokio-rt")))]
 compile_error!("enable exactly one of the features - \"smol-rt\" or \"tokio-rt\"");
@@ -5398,6 +5398,28 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).get(key).await }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_gets", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gets(b"doc_crc32_gets").await?.unwrap();
+    /// assert_eq!(item.key, "doc_crc32_gets");
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn gets(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5405,6 +5427,29 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).gets(key).await }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_gat", 7, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gat(60, b"doc_crc32_gat").await?.unwrap();
+    /// assert_eq!(item.key, "doc_crc32_gat");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert_eq!(item.cas_unique, None);
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn gat(
         &mut self,
         exptime: i64,
@@ -5413,6 +5458,29 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).gat(exptime, key).await }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_gats", 7, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.gats(60, b"doc_crc32_gats").await?.unwrap();
+    /// assert_eq!(item.key, "doc_crc32_gats");
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// assert!(item.cas_unique.is_some());
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn gats(
         &mut self,
         exptime: i64,
@@ -5458,6 +5526,33 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_add", false).await?;
+    /// assert_eq!(
+    ///     client.add(b"doc_crc32_add", 0, 0, false, b"first").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.add(b"doc_crc32_add", 0, 0, false, b"second").await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_add").await?.unwrap().data_block,
+    ///     b"first"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn add(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5473,6 +5568,43 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_replace", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_replace", 0, 0, false, b"first")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"second")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_replace").await?.unwrap().data_block,
+    ///     b"second"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn replace(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5488,6 +5620,43 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_append", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_append", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_append").await?.unwrap().data_block,
+    ///     b"base-tail"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn append(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5503,6 +5672,43 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_prepend", false).await?;
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::NotStored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_prepend", 0, 0, false, b"base")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_prepend").await?.unwrap().data_block,
+    ///     b"head-base"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn prepend(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5568,6 +5774,38 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, DeleteResult, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_delete", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_crc32_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::Deleted
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_crc32_delete", false).await?,
+    ///     mcmc_rs::DeleteResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client.delete(b"doc_crc32_delete", true).await?,
+    ///     mcmc_rs::DeleteResult::NoReply
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn delete(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5576,6 +5814,37 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).delete(key, noreply).await }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_incr", false).await?;
+    /// assert_eq!(
+    ///     client.incr(b"doc_crc32_incr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_incr", 0, 0, false, b"10").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_crc32_incr", 5, false).await?,
+    ///     mcmc_rs::IncrDecrResult::Value(15)
+    /// );
+    /// assert_eq!(
+    ///     client.incr(b"doc_crc32_incr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn incr(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5589,6 +5858,37 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_decr", false).await?;
+    /// assert_eq!(
+    ///     client.decr(b"doc_crc32_decr", 1, false).await?,
+    ///     mcmc_rs::IncrDecrResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_decr", 0, 0, false, b"10").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.decr(b"doc_crc32_decr", 5, false).await?,
+    ///     mcmc_rs::IncrDecrResult::Value(5)
+    /// );
+    /// assert_eq!(
+    ///     client.decr(b"doc_crc32_decr", 1, true).await?,
+    ///     mcmc_rs::IncrDecrResult::NoReply
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn decr(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5602,6 +5902,38 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, TouchResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client.touch(b"doc_crc32_touch_missing", 60, false).await?,
+    ///     mcmc_rs::TouchResult::NotFound
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_crc32_touch", 0, 0, false, b"value")
+    ///         .await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_crc32_touch", 60, false).await?,
+    ///     mcmc_rs::TouchResult::Touched
+    /// );
+    /// assert_eq!(
+    ///     client.touch(b"doc_crc32_touch", 60, true).await?,
+    ///     mcmc_rs::TouchResult::NoReply
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn touch(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5615,6 +5947,28 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_me", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let info = client.me(b"doc_crc32_me").await?.unwrap();
+    /// assert!(info.starts_with("doc_crc32_me "));
+    /// assert!(info.contains("size="));
+    /// assert_eq!(client.me(b"doc_crc32_me_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn me(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5652,6 +6006,44 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).mg(key, flags).await }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, MsFlag, MsMode, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_ms", false).await?;
+    /// let item = client
+    ///     .ms(
+    ///         b"doc_crc32_ms",
+    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
+    ///         b"hello",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ms"));
+    /// assert_eq!(item.size, Some(5));
+    /// assert!(item.cas.is_some());
+    /// let item = client
+    ///     .ms(
+    ///         b"doc_crc32_ms",
+    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
+    ///         b"again",
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
+    /// assert_eq!(
+    ///     client.get(b"doc_crc32_ms").await?.unwrap().data_block,
+    ///     b"hello"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn ms(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5665,6 +6057,30 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, MdFlag, MdStatus, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(
+    ///     client.set(b"doc_crc32_md", 0, 0, false, b"value").await?,
+    ///     mcmc_rs::StorageResult::Stored
+    /// );
+    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_md"));
+    /// assert_eq!(client.get(b"doc_crc32_md").await?, None);
+    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn md(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5673,6 +6089,49 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).md(key, flags).await }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// let _ = client.delete(b"doc_crc32_ma", false).await?;
+    /// let item = client
+    ///     .ma(
+    ///         b"doc_crc32_ma",
+    ///         &[
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(5),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(5));
+    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ma"));
+    /// let item = client
+    ///     .ma(
+    ///         b"doc_crc32_ma",
+    ///         &[
+    ///             MaFlag::DeltaApply(7),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
+    /// assert_eq!(item.number, Some(12));
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn ma(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5698,7 +6157,7 @@ impl ServerSelector for ClientHashRing {
 
 impl ServerSelector for ClientRendezvous {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection {
-        let index = *self.1.sorted(&key).next().unwrap();
+        let index = *self.1.pick_top(&key).unwrap();
         &mut self.0[index]
     }
 }
@@ -5765,7 +6224,7 @@ impl ClientHashRing {
     }
 }
 
-pub struct ClientRendezvous(Vec<Connection>, HrwNodes<usize>);
+pub struct ClientRendezvous(Vec<Connection>, Rendezvous<usize>);
 impl ClientRendezvous {
     /// # Example
     ///
@@ -5792,7 +6251,7 @@ impl ClientRendezvous {
     /// # }).unwrap()
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
-        let hrw = HrwNodes::new(0..conns.len());
+        let hrw = Rendezvous::from_nodes(0..conns.len());
         Self(conns, hrw)
     }
 }
