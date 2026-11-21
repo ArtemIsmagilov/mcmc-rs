@@ -6259,7 +6259,7 @@ impl ClientRendezvous {
     /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
         assert!(!conns.is_empty(), "no connections");
-        let hasher = BuildHasherDefault::<RapidHasher<'static>>::default();
+        let hasher = BuildHasherDefault::<RapidHasher>::default();
         let hrw = Rendezvous::from_nodes_and_hasher(0..conns.len(), hasher);
         Self(conns, hrw)
     }
