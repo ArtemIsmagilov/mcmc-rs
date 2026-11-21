@@ -468,6 +468,7 @@ pub enum StatsArg {
     Sizes,
     Slabs,
     Conns,
+    Proxy,
 }
 
 pub enum SlabsAutomoveArg {
@@ -1322,6 +1323,7 @@ fn build_stats_cmd(arg: Option<StatsArg>) -> &'static [u8] {
             StatsArg::Sizes => b"stats sizes\r\n",
             StatsArg::Slabs => b"stats slabs\r\n",
             StatsArg::Conns => b"stats conns\r\n",
+            StatsArg::Proxy => b"stats proxy\r\n",
         },
         None => b"stats\r\n",
     }
@@ -9927,6 +9929,12 @@ mod tests {
             let mut c = Cursor::new(b"stats conns\r\nERROR\r\n".to_vec());
             assert_matches!(
                 stats_cmd(&mut c, Some(StatsArg::Conns)).await,
+                Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
+            );
+
+            let mut c = Cursor::new(b"stats proxy\r\nERROR\r\n".to_vec());
+            assert_matches!(
+                stats_cmd(&mut c, Some(StatsArg::Proxy)).await,
                 Err(MemcachedError::Protocol(ProtocolError::UnknownCommand))
             )
         })

@@ -217,6 +217,12 @@ cargo fuzz run fuzz_target_1 --features smol-rt
 opengrep scan --config auto
 ```
 
+## Compile some configs
+
+```bash
+cargo hack check --feature-powerset --no-dev-deps --mutually-exclusive-features smol-rt,tokio-rt --at-least-one-of smol-rt,tokio-rt
+```
+
 ## Links
 
 * [Minimal C client](https://github.com/dormando/mcmc)
