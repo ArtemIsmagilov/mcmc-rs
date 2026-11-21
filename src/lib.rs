@@ -6152,15 +6152,19 @@ impl ServerSelector for ClientCrc32 {
 
 impl<S: BuildHasher + Send + Sync> ServerSelector for ClientHashRing<S> {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection {
-        let index = *self.1.get(&key).unwrap();
-        &mut self.0[index]
+        let node = self.ring.get(&key).expect("hash ring is empty");
+        self.conns
+            .get_mut(node)
+            .expect("missing connection for node")
     }
 }
 
 impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S> {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection {
-        let index = *self.1.pick_top(&key).unwrap();
-        &mut self.0[index]
+        let node = self.hrw.pick_top(&key).expect("rendezvous is empty");
+        self.conns
+            .get_mut(node)
+            .expect("missing connection for node")
     }
 }
 
@@ -6194,7 +6198,11 @@ impl ClientCrc32 {
     }
 }
 
-pub struct ClientHashRing<S = SeedableState<'static>>(Vec<Connection>, HashRing<usize, S>);
+pub struct ClientHashRing<S = SeedableState<'static>> {
+    conns: HashMap<String, Connection>,
+    ring: HashRing<String, S>,
+}
+
 impl ClientHashRing {
     /// Creates a consistent hash ring using `rapidhash` with a default fixed seed.
     ///
@@ -6205,9 +6213,9 @@ impl ClientHashRing {
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
     /// ]);
     /// assert_eq!(
     ///     client
@@ -6222,14 +6230,15 @@ impl ClientHashRing {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    pub fn new(conns: Vec<Connection>) -> Self {
-        Self::with_hasher(conns, SeedableState::fixed())
+    pub fn new<I, K>(nodes: I) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection)>,
+        K: Into<String>,
+    {
+        Self::with_hasher(nodes, SeedableState::fixed())
     }
 
     /// Creates a consistent hash ring using `rapidhash` with a custom `seed`.
-    ///
-    /// Use a shared secret `seed` across application instances when keys come
-    /// from untrusted user input to mitigate HashDoS hot-shard attacks.
     ///
     /// # Example
     ///
@@ -6239,9 +6248,9 @@ impl ClientHashRing {
     /// #
     /// # block_on(async {
     /// let mut client = ClientHashRing::with_seed(
-    ///     vec![
-    ///         Connection::default().await?,
-    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
     ///     ],
     ///     42,
     /// );
@@ -6262,17 +6271,22 @@ impl ClientHashRing {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    pub fn with_seed(conns: Vec<Connection>, seed: u64) -> Self {
-        Self::with_hasher(conns, SeedableState::new(seed))
+    pub fn with_seed<I, K>(nodes: I, seed: u64) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection)>,
+        K: Into<String>,
+    {
+        Self::with_hasher(nodes, SeedableState::new(seed))
     }
 }
+
 impl<S: BuildHasher> ClientHashRing<S> {
     /// Creates a consistent hash ring with a custom [`BuildHasher`].
     ///
     /// # Example
     ///
     /// ```
-    /// # use std::collections::hash_map::{DefaultHasher, RandomState};
+    /// # use std::collections::hash_map::DefaultHasher;
     /// # use std::hash::BuildHasherDefault;
     /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
@@ -6280,9 +6294,9 @@ impl<S: BuildHasher> ClientHashRing<S> {
     /// # block_on(async {
     /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
     /// let mut client = ClientHashRing::with_hasher(
-    ///     vec![
-    ///         Connection::default().await?,
-    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
     ///     ],
     ///     hasher,
     /// );
@@ -6303,17 +6317,90 @@ impl<S: BuildHasher> ClientHashRing<S> {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    pub fn with_hasher(conns: Vec<Connection>, hasher: S) -> Self {
-        assert!(!conns.is_empty(), "no connections");
+    pub fn with_hasher<I, K>(nodes: I, hasher: S) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection)>,
+        K: Into<String>,
+    {
+        let mut conns = HashMap::new();
         let mut ring = HashRing::with_hasher(hasher);
-        ring.batch_add((0..conns.len()).collect());
-        Self(conns, ring)
+        for (name, conn) in nodes {
+            let name = name.into();
+            if conns.insert(name.clone(), conn).is_none() {
+                ring.add(name);
+            }
+        }
+        assert!(!conns.is_empty(), "no connections");
+        Self { conns, ring }
+    }
+
+    /// Adds a server to the ring, or replaces its connection if `name` already exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([("node1", Connection::default().await?)]);
+    /// assert!(client
+    ///     .add_server("node2", Connection::unix_connect("/tmp/memcached0.sock").await?)
+    ///     .is_none());
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_add_server", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn add_server(&mut self, name: impl Into<String>, conn: Connection) -> Option<Connection> {
+        let name = name.into();
+        let prev = self.conns.insert(name.clone(), conn);
+        if prev.is_none() {
+            self.ring.add(name);
+        }
+        prev
+    }
+
+    /// Removes a server from the ring by name and returns its connection.
+    /// Returns `None` if not found or if it is the last remaining server.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// assert!(client.remove_server("node2").is_some());
+    /// assert!(client.remove_server("node1").is_none());
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn remove_server(&mut self, name: &str) -> Option<Connection> {
+        if self.conns.len() <= 1 {
+            return None;
+        }
+        let conn = self.conns.remove(name)?;
+        self.ring.remove(&name.to_owned());
+        Some(conn)
     }
 }
 
-pub struct ClientRendezvous<S = SeedableState<'static>>(Vec<Connection>, Rendezvous<usize, S>);
+pub struct ClientRendezvous<S = SeedableState<'static>> {
+    conns: HashMap<String, Connection>,
+    hrw: Rendezvous<String, S>,
+}
+
 impl ClientRendezvous {
-    /// Creates a rendezvous using `rapidhash` with a default fixed seed.
+    /// Creates a rendezvous (HRW) client using `rapidhash` with a default fixed seed.
     ///
     /// # Example
     ///
@@ -6322,31 +6409,32 @@ impl ClientRendezvous {
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// let mut client = ClientRendezvous::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
     /// ]);
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_renderzvous_new", 0, 0, false, b"value")
+    ///         .set(b"doc_rendezvous_new", 0, 0, false, b"value")
     ///         .await?,
     ///     StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.get(b"doc_renderzvous_new").await?.unwrap().data_block,
+    ///     client.get(b"doc_rendezvous_new").await?.unwrap().data_block,
     ///     b"value"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    pub fn new(conns: Vec<Connection>) -> Self {
-        Self::with_hasher(conns, SeedableState::fixed())
+    pub fn new<I, K>(nodes: I) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection)>,
+        K: Into<String>,
+    {
+        Self::with_hasher(nodes, SeedableState::fixed())
     }
 
-    /// Creates a rendezvous using `rapidhash` with a custom `seed`.
-    ///
-    /// Use a shared secret `seed` across application instances when keys come
-    /// from untrusted user input to mitigate HashDoS hot-shard attacks.
+    /// Creates a rendezvous (HRW) client using `rapidhash` with a custom `seed`.
     ///
     /// # Example
     ///
@@ -6356,9 +6444,9 @@ impl ClientRendezvous {
     /// #
     /// # block_on(async {
     /// let mut client = ClientRendezvous::with_seed(
-    ///     vec![
-    ///         Connection::default().await?,
-    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
     ///     ],
     ///     42,
     /// );
@@ -6379,17 +6467,22 @@ impl ClientRendezvous {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    pub fn with_seed(conns: Vec<Connection>, seed: u64) -> Self {
-        Self::with_hasher(conns, SeedableState::new(seed))
+    pub fn with_seed<I, K>(nodes: I, seed: u64) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection)>,
+        K: Into<String>,
+    {
+        Self::with_hasher(nodes, SeedableState::new(seed))
     }
 }
+
 impl<S: BuildHasher + Clone> ClientRendezvous<S> {
-    /// Creates a consistent rendezvous with a custom [`BuildHasher`].
+    /// Creates a rendezvous (HRW) client with a custom [`BuildHasher`].
     ///
     /// # Example
     ///
     /// ```
-    /// # use std::collections::hash_map::{DefaultHasher, RandomState};
+    /// # use std::collections::hash_map::DefaultHasher;
     /// # use std::hash::BuildHasherDefault;
     /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
@@ -6397,9 +6490,9 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
     /// # block_on(async {
     /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
     /// let mut client = ClientRendezvous::with_hasher(
-    ///     vec![
-    ///         Connection::default().await?,
-    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
     ///     ],
     ///     hasher,
     /// );
@@ -6420,10 +6513,81 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
-    pub fn with_hasher(conns: Vec<Connection>, hasher: S) -> Self {
+    pub fn with_hasher<I, K>(nodes: I, hasher: S) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection)>,
+        K: Into<String>,
+    {
+        let mut conns = HashMap::new();
+        let mut names = Vec::new();
+        for (name, conn) in nodes {
+            let name = name.into();
+            if conns.insert(name.clone(), conn).is_none() {
+                names.push(name);
+            }
+        }
         assert!(!conns.is_empty(), "no connections");
-        let hrw = Rendezvous::from_nodes_and_hasher(0..conns.len(), hasher);
-        Self(conns, hrw)
+        let hrw = Rendezvous::from_nodes_and_hasher(names, hasher);
+        Self { conns, hrw }
+    }
+
+    /// Adds a server, or replaces its connection if `name` already exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientRendezvous::new([("node1", Connection::default().await?)]);
+    /// assert!(client
+    ///     .add_server("node2", Connection::unix_connect("/tmp/memcached0.sock").await?)
+    ///     .is_none());
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_add_server", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn add_server(&mut self, name: impl Into<String>, conn: Connection) -> Option<Connection> {
+        let name = name.into();
+        let prev = self.conns.insert(name.clone(), conn);
+        if prev.is_none() {
+            self.hrw.add_node(name);
+        }
+        prev
+    }
+
+    /// Removes a server by name and returns its connection.
+    /// Returns `None` if not found or if it is the last remaining server.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientRendezvous, Connection};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientRendezvous::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// assert!(client.remove_server("node2").is_some());
+    /// assert!(client.remove_server("node1").is_none());
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn remove_server(&mut self, name: &str) -> Option<Connection> {
+        if self.conns.len() <= 1 {
+            return None;
+        }
+        let conn = self.conns.remove(name)?;
+        self.hrw.remove_node(&name.to_owned());
+        Some(conn)
     }
 }
 
