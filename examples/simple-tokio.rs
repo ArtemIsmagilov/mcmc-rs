@@ -1,6 +1,6 @@
 use tokio::runtime::Runtime;
 
-use mcmc_rs::{ClientCrc32, Connection, WatchArg};
+use mcmc_rs::{ClientCrc32, Connection, ServerSelector, WatchArg};
 
 fn main() -> mcmc_rs::Result<()> {
     let rt = Runtime::new()?;

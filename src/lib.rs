@@ -5371,6 +5371,26 @@ impl WatchStream {
 pub trait ServerSelector: Send + Sync {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection;
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// assert_eq!(
+    ///     client.set(b"doc_selector_get", 0, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_selector_get").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// assert_eq!(client.get(b"doc_selector_get_missing").await?, None);
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn get(
         &mut self,
         key: impl AsRef<[u8]> + Send,
@@ -5384,6 +5404,282 @@ pub trait ServerSelector: Send + Sync {
     ) -> impl Future<Output = Result<Option<Item>>> + Send {
         async move { self.select_server(key.as_ref()).gets(key).await }
     }
+
+    fn gat(
+        &mut self,
+        exptime: i64,
+        key: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<Option<Item>>> + Send {
+        async move { self.select_server(key.as_ref()).gat(exptime, key).await }
+    }
+
+    fn gats(
+        &mut self,
+        exptime: i64,
+        key: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<Option<Item>>> + Send {
+        async move { self.select_server(key.as_ref()).gats(exptime, key).await }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// assert_eq!(
+    ///     client.set(b"doc_selector_set", 7, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.set(b"doc_selector_set_noreply", 7, 0, true, b"value").await?,
+    ///     StorageResult::NoReply
+    /// );
+    /// let item = client.get(b"doc_selector_set").await?.unwrap();
+    /// assert_eq!(item.flags, 7);
+    /// assert_eq!(item.data_block, b"value");
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    fn set(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<StorageResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .set(key, flags, exptime, noreply, data_block)
+                .await
+        }
+    }
+
+    fn add(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<StorageResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .add(key, flags, exptime, noreply, data_block)
+                .await
+        }
+    }
+
+    fn replace(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<StorageResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .replace(key, flags, exptime, noreply, data_block)
+                .await
+        }
+    }
+
+    fn append(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<StorageResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .append(key, flags, exptime, noreply, data_block)
+                .await
+        }
+    }
+
+    fn prepend(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<StorageResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .prepend(key, flags, exptime, noreply, data_block)
+                .await
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// client.set(b"doc_selector_cas", 0, 0, false, b"base").await?;
+    /// let cas = client
+    ///     .gets(b"doc_selector_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_selector_cas", 0, 0, cas, false, b"new")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .cas(b"doc_selector_cas", 0, 0, cas, false, b"stale")
+    ///         .await?,
+    ///     StorageResult::Exists
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_selector_cas").await?.unwrap().data_block,
+    ///     b"new"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    fn cas(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: u32,
+        exptime: i64,
+        cas_unique: u64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<StorageResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .cas(key, flags, exptime, cas_unique, noreply, data_block)
+                .await
+        }
+    }
+
+    fn delete(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        noreply: bool,
+    ) -> impl Future<Output = Result<DeleteResult>> + Send {
+        async move { self.select_server(key.as_ref()).delete(key, noreply).await }
+    }
+
+    fn incr(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        value: u64,
+        noreply: bool,
+    ) -> impl Future<Output = Result<IncrDecrResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .incr(key, value, noreply)
+                .await
+        }
+    }
+
+    fn decr(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        value: u64,
+        noreply: bool,
+    ) -> impl Future<Output = Result<IncrDecrResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .decr(key, value, noreply)
+                .await
+        }
+    }
+
+    fn touch(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        exptime: i64,
+        noreply: bool,
+    ) -> impl Future<Output = Result<TouchResult>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .touch(key, exptime, noreply)
+                .await
+        }
+    }
+
+    fn me(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<Option<String>>> + Send {
+        async move { self.select_server(key.as_ref()).me(key).await }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientCrc32, Connection, MgFlag, MgStatus, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// client.set(b"doc_selector_mg", 7, 0, false, b"hello").await?;
+    /// let item = client
+    ///     .mg(
+    ///         b"doc_selector_mg",
+    ///         &[MgFlag::ReturnKey, MgFlag::ReturnFlags, MgFlag::ReturnValue],
+    ///     )
+    ///     .await?;
+    /// assert_eq!(item.status, MgStatus::WithBody);
+    /// assert_eq!(item.key.as_deref(), Some("doc_selector_mg"));
+    /// assert_eq!(item.flags, Some(7));
+    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    fn mg(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: &[MgFlag],
+    ) -> impl Future<Output = Result<MgItem>> + Send {
+        async move { self.select_server(key.as_ref()).mg(key, flags).await }
+    }
+
+    fn ms(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: &[MsFlag],
+        data_block: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<MsItem>> + Send {
+        async move {
+            self.select_server(key.as_ref())
+                .ms(key, flags, data_block)
+                .await
+        }
+    }
+
+    fn md(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: &[MdFlag],
+    ) -> impl Future<Output = Result<MdItem>> + Send {
+        async move { self.select_server(key.as_ref()).md(key, flags).await }
+    }
+
+    fn ma(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+        flags: &[MaFlag],
+    ) -> impl Future<Output = Result<MaItem>> + Send {
+        async move { self.select_server(key.as_ref()).ma(key, flags).await }
+    }
 }
 
 impl ServerSelector for ClientCrc32 {
@@ -5393,12 +5689,26 @@ impl ServerSelector for ClientCrc32 {
     }
 }
 
+impl ServerSelector for ClientHashRing {
+    fn select_server(&mut self, key: &[u8]) -> &mut Connection {
+        let index = *self.1.get(&key).unwrap();
+        &mut self.0[index]
+    }
+}
+
+impl ServerSelector for ClientRendezvous {
+    fn select_server(&mut self, key: &[u8]) -> &mut Connection {
+        let index = *self.1.sorted(&key).next().unwrap();
+        &mut self.0[index]
+    }
+}
+
 pub struct ClientCrc32(Vec<Connection>);
 impl ClientCrc32 {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
+    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5420,819 +5730,6 @@ impl ClientCrc32 {
     pub fn new(conns: Vec<Connection>) -> Self {
         Self(conns)
     }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, Item, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_get", 0, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_get").await?,
-    ///     Some(Item {
-    ///         key: "doc_crc32_get".to_string(),
-    ///         flags: 0,
-    ///         cas_unique: None,
-    ///         data_block: b"value".to_vec()
-    ///     })
-    /// );
-    /// assert_eq!(client.get(b"doc_crc32_get_missing").await?, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .get(key.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_gets", 0, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gets(b"doc_crc32_gets").await?.unwrap();
-    /// assert_eq!(item.key, "doc_crc32_gets");
-    /// assert_eq!(item.data_block, b"value");
-    /// assert!(item.cas_unique.is_some());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .gets(key.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_gat", 7, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gat(60, b"doc_crc32_gat").await?.unwrap();
-    /// assert_eq!(item.key, "doc_crc32_gat");
-    /// assert_eq!(item.flags, 7);
-    /// assert_eq!(item.data_block, b"value");
-    /// assert_eq!(item.cas_unique, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .gat(exptime, key.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_gats", 7, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gats(60, b"doc_crc32_gats").await?.unwrap();
-    /// assert_eq!(item.key, "doc_crc32_gats");
-    /// assert_eq!(item.flags, 7);
-    /// assert_eq!(item.data_block, b"value");
-    /// assert!(item.cas_unique.is_some());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .gats(exptime, key.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, Item, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_set", 7, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_set").await?,
-    ///     Some(Item {
-    ///         key: "doc_crc32_set".to_string(),
-    ///         flags: 7,
-    ///         cas_unique: None,
-    ///         data_block: b"value".to_vec()
-    ///     })
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_crc32_set_noreply", 7, 0, true, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn set(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_add", false).await?;
-    /// assert_eq!(
-    ///     client.add(b"doc_crc32_add", 0, 0, false, b"first").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.add(b"doc_crc32_add", 0, 0, false, b"second").await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_add").await?.unwrap().data_block,
-    ///     b"first"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn add(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_replace", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_crc32_replace", 0, 0, false, b"first")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"second")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_replace").await?.unwrap().data_block,
-    ///     b"second"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn replace(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_append", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_crc32_append", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_append").await?.unwrap().data_block,
-    ///     b"base-tail"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn append(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_prepend", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_crc32_prepend", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_prepend").await?.unwrap().data_block,
-    ///     b"head-base"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn prepend(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_cas", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_crc32_cas", 0, 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_cas", 0, 0, false, b"base").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let cas = client
-    ///     .gets(b"doc_crc32_cas")
-    ///     .await?
-    ///     .unwrap()
-    ///     .cas_unique
-    ///     .unwrap();
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_crc32_cas", 0, 0, cas, false, b"new")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_crc32_cas", 0, 0, cas, false, b"stale")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Exists
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_cas").await?.unwrap().data_block,
-    ///     b"new"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn cas(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        cas_unique: u64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .cas(
-                key.as_ref(),
-                flags,
-                exptime,
-                cas_unique,
-                noreply,
-                data_block.as_ref(),
-            )
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, DeleteResult, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_crc32_delete", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_crc32_delete", false).await?,
-    ///     mcmc_rs::DeleteResult::Deleted
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_crc32_delete", false).await?,
-    ///     mcmc_rs::DeleteResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_crc32_delete", true).await?,
-    ///     mcmc_rs::DeleteResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .delete(key.as_ref(), noreply)
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_incr", false).await?;
-    /// assert_eq!(
-    ///     client.incr(b"doc_crc32_incr", 1, false).await?,
-    ///     mcmc_rs::IncrDecrResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_incr", 0, 0, false, b"10").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.incr(b"doc_crc32_incr", 5, false).await?,
-    ///     mcmc_rs::IncrDecrResult::Value(15)
-    /// );
-    /// assert_eq!(
-    ///     client.incr(b"doc_crc32_incr", 1, true).await?,
-    ///     mcmc_rs::IncrDecrResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn incr(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        value: u64,
-        noreply: bool,
-    ) -> Result<IncrDecrResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .incr(key.as_ref(), value, noreply)
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_decr", false).await?;
-    /// assert_eq!(
-    ///     client.decr(b"doc_crc32_decr", 1, false).await?,
-    ///     mcmc_rs::IncrDecrResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_decr", 0, 0, false, b"10").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.decr(b"doc_crc32_decr", 5, false).await?,
-    ///     mcmc_rs::IncrDecrResult::Value(5)
-    /// );
-    /// assert_eq!(
-    ///     client.decr(b"doc_crc32_decr", 1, true).await?,
-    ///     mcmc_rs::IncrDecrResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn decr(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        value: u64,
-        noreply: bool,
-    ) -> Result<IncrDecrResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .decr(key.as_ref(), value, noreply)
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, TouchResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.touch(b"doc_crc32_touch_missing", 60, false).await?,
-    ///     mcmc_rs::TouchResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_crc32_touch", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.touch(b"doc_crc32_touch", 60, false).await?,
-    ///     mcmc_rs::TouchResult::Touched
-    /// );
-    /// assert_eq!(
-    ///     client.touch(b"doc_crc32_touch", 60, true).await?,
-    ///     mcmc_rs::TouchResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn touch(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        exptime: i64,
-        noreply: bool,
-    ) -> Result<TouchResult> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .touch(key.as_ref(), exptime, noreply)
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_me", 0, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let info = client.me(b"doc_crc32_me").await?.unwrap();
-    /// assert!(info.starts_with("doc_crc32_me "));
-    /// assert!(info.contains("size="));
-    /// assert_eq!(client.me(b"doc_crc32_me_missing").await?, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .me(key.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, MgFlag, MgStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_mg", 7, 0, false, b"hello").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client
-    ///     .mg(
-    ///         b"doc_crc32_mg",
-    ///         &[
-    ///             MgFlag::ReturnKey,
-    ///             MgFlag::ReturnFlags,
-    ///             MgFlag::ReturnSize,
-    ///             MgFlag::ReturnTtl,
-    ///             MgFlag::ReturnValue,
-    ///             MgFlag::ReturnCas,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MgStatus::WithBody);
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_mg"));
-    /// assert_eq!(item.flags, Some(7));
-    /// assert_eq!(item.size, Some(5));
-    /// assert_eq!(item.ttl, Some(-1));
-    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
-    /// assert!(item.cas.is_some());
-    /// let item = client
-    ///     .mg(b"doc_crc32_mg_missing", &[MgFlag::ReturnKey])
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MgStatus::NotFound);
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_mg_missing"));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .mg(key.as_ref(), flags)
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, MsFlag, MsMode, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_ms", false).await?;
-    /// let item = client
-    ///     .ms(
-    ///         b"doc_crc32_ms",
-    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
-    ///         b"hello",
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ms"));
-    /// assert_eq!(item.size, Some(5));
-    /// assert!(item.cas.is_some());
-    /// let item = client
-    ///     .ms(
-    ///         b"doc_crc32_ms",
-    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
-    ///         b"again",
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_ms").await?.unwrap().data_block,
-    ///     b"hello"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn ms(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: &[MsFlag],
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<MsItem> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .ms(key.as_ref(), flags, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, MdFlag, MdStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_md", 0, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
-    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_md"));
-    /// assert_eq!(client.get(b"doc_crc32_md").await?, None);
-    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
-    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .md(key.as_ref(), flags)
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, MaFlag, MaMode, MaStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_crc32_ma", false).await?;
-    /// let item = client
-    ///     .ma(
-    ///         b"doc_crc32_ma",
-    ///         &[
-    ///             MaFlag::AutoCreate(0),
-    ///             MaFlag::InitValue(5),
-    ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::ReturnValue,
-    ///             MaFlag::ReturnKey,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
-    /// assert_eq!(item.number, Some(5));
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ma"));
-    /// let item = client
-    ///     .ma(
-    ///         b"doc_crc32_ma",
-    ///         &[
-    ///             MaFlag::DeltaApply(7),
-    ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::ReturnValue,
-    ///             MaFlag::ReturnKey,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
-    /// assert_eq!(item.number, Some(12));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
-        let size = self.0.len();
-        self.0[crc32(key.as_ref()) as usize % size]
-            .ma(key.as_ref(), flags)
-            .await
-    }
 }
 
 pub struct ClientHashRing(Vec<Connection>, HashRing<usize>);
@@ -6240,7 +5737,7 @@ impl ClientHashRing {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -6266,833 +5763,6 @@ impl ClientHashRing {
         ring.batch_add((0..conns.len()).collect());
         Self(conns, ring)
     }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, Item, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_get", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_hash_ring_get").await?,
-    ///     Some(Item {
-    ///         key: "doc_hash_ring_get".to_string(),
-    ///         flags: 0,
-    ///         cas_unique: None,
-    ///         data_block: b"value".to_vec()
-    ///     })
-    /// );
-    /// assert_eq!(client.get(b"doc_hash_ring_get_missing").await?, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].get(key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_gets", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gets(b"doc_hash_ring_gets").await?.unwrap();
-    /// assert_eq!(item.key, "doc_hash_ring_gets");
-    /// assert_eq!(item.data_block, b"value");
-    /// assert!(item.cas_unique.is_some());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].gets(key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_gat", 7, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gat(60, b"doc_hash_ring_gat").await?.unwrap();
-    /// assert_eq!(item.key, "doc_hash_ring_gat");
-    /// assert_eq!(item.flags, 7);
-    /// assert_eq!(item.data_block, b"value");
-    /// assert_eq!(item.cas_unique, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].gat(exptime, key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_gats", 7, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gats(60, b"doc_hash_ring_gats").await?.unwrap();
-    /// assert_eq!(item.key, "doc_hash_ring_gats");
-    /// assert_eq!(item.flags, 7);
-    /// assert_eq!(item.data_block, b"value");
-    /// assert!(item.cas_unique.is_some());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].gats(exptime, key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, Item, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_set", 7, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_hash_ring_set").await?,
-    ///     Some(Item {
-    ///         key: "doc_hash_ring_set".to_string(),
-    ///         flags: 7,
-    ///         cas_unique: None,
-    ///         data_block: b"value".to_vec()
-    ///     })
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_set_noreply", 7, 0, true, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn set(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i]
-            .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_add", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .add(b"doc_hash_ring_add", 0, 0, false, b"first")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .add(b"doc_hash_ring_add", 0, 0, false, b"second")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_hash_ring_add").await?.unwrap().data_block,
-    ///     b"first"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn add(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i]
-            .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_replace", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .replace(b"doc_hash_ring_replace", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_replace", 0, 0, false, b"first")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .replace(b"doc_hash_ring_replace", 0, 0, false, b"second")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_hash_ring_replace")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"second"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn replace(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i]
-            .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_append", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .append(b"doc_hash_ring_append", 0, 0, false, b"-tail")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_append", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .append(b"doc_hash_ring_append", 0, 0, false, b"-tail")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_hash_ring_append")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"base-tail"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn append(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i]
-            .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_prepend", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .prepend(b"doc_hash_ring_prepend", 0, 0, false, b"head-")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_prepend", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .prepend(b"doc_hash_ring_prepend", 0, 0, false, b"head-")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_hash_ring_prepend")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"head-base"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn prepend(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i]
-            .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_cas", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_hash_ring_cas", 0, 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_cas", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let cas = client
-    ///     .gets(b"doc_hash_ring_cas")
-    ///     .await?
-    ///     .unwrap()
-    ///     .cas_unique
-    ///     .unwrap();
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_hash_ring_cas", 0, 0, cas, false, b"new")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_hash_ring_cas", 0, 0, cas, false, b"stale")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Exists
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_hash_ring_cas").await?.unwrap().data_block,
-    ///     b"new"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn cas(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        cas_unique: u64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i]
-            .cas(
-                key.as_ref(),
-                flags,
-                exptime,
-                cas_unique,
-                noreply,
-                data_block.as_ref(),
-            )
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, DeleteResult, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_delete", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_hash_ring_delete", false).await?,
-    ///     mcmc_rs::DeleteResult::Deleted
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_hash_ring_delete", false).await?,
-    ///     mcmc_rs::DeleteResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_hash_ring_delete", true).await?,
-    ///     mcmc_rs::DeleteResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].delete(key.as_ref(), noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_incr", false).await?;
-    /// assert_eq!(
-    ///     client.incr(b"doc_hash_ring_incr", 1, false).await?,
-    ///     mcmc_rs::IncrDecrResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_incr", 0, 0, false, b"10")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.incr(b"doc_hash_ring_incr", 5, false).await?,
-    ///     mcmc_rs::IncrDecrResult::Value(15)
-    /// );
-    /// assert_eq!(
-    ///     client.incr(b"doc_hash_ring_incr", 1, true).await?,
-    ///     mcmc_rs::IncrDecrResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn incr(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        value: u64,
-        noreply: bool,
-    ) -> Result<IncrDecrResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].incr(key.as_ref(), value, noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_decr", false).await?;
-    /// assert_eq!(
-    ///     client.decr(b"doc_hash_ring_decr", 1, false).await?,
-    ///     mcmc_rs::IncrDecrResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_decr", 0, 0, false, b"10")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.decr(b"doc_hash_ring_decr", 5, false).await?,
-    ///     mcmc_rs::IncrDecrResult::Value(5)
-    /// );
-    /// assert_eq!(
-    ///     client.decr(b"doc_hash_ring_decr", 1, true).await?,
-    ///     mcmc_rs::IncrDecrResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn decr(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        value: u64,
-        noreply: bool,
-    ) -> Result<IncrDecrResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].decr(key.as_ref(), value, noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, TouchResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .touch(b"doc_hash_ring_touch_missing", 60, false)
-    ///         .await?,
-    ///     mcmc_rs::TouchResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_touch", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.touch(b"doc_hash_ring_touch", 60, false).await?,
-    ///     mcmc_rs::TouchResult::Touched
-    /// );
-    /// assert_eq!(
-    ///     client.touch(b"doc_hash_ring_touch", 60, true).await?,
-    ///     mcmc_rs::TouchResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn touch(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        exptime: i64,
-        noreply: bool,
-    ) -> Result<TouchResult> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].touch(key.as_ref(), exptime, noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_me", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let info = client.me(b"doc_hash_ring_me").await?.unwrap();
-    /// assert!(info.starts_with("doc_hash_ring_me "));
-    /// assert!(info.contains("size="));
-    /// assert_eq!(client.me(b"doc_hash_ring_me_missing").await?, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].me(key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, MgFlag, MgStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_mg", 7, 0, false, b"hello")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client
-    ///     .mg(
-    ///         b"doc_hash_ring_mg",
-    ///         &[
-    ///             MgFlag::ReturnKey,
-    ///             MgFlag::ReturnFlags,
-    ///             MgFlag::ReturnSize,
-    ///             MgFlag::ReturnTtl,
-    ///             MgFlag::ReturnValue,
-    ///             MgFlag::ReturnCas,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MgStatus::WithBody);
-    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_mg"));
-    /// assert_eq!(item.flags, Some(7));
-    /// assert_eq!(item.size, Some(5));
-    /// assert_eq!(item.ttl, Some(-1));
-    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
-    /// assert!(item.cas.is_some());
-    /// let item = client
-    ///     .mg(b"doc_hash_ring_mg_missing", &[MgFlag::ReturnKey])
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MgStatus::NotFound);
-    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_mg_missing"));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].mg(key.as_ref(), flags).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, MsFlag, MsMode, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_ms", false).await?;
-    /// let item = client
-    ///     .ms(
-    ///         b"doc_hash_ring_ms",
-    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
-    ///         b"hello",
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
-    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_ms"));
-    /// assert_eq!(item.size, Some(5));
-    /// assert!(item.cas.is_some());
-    /// let item = client
-    ///     .ms(
-    ///         b"doc_hash_ring_ms",
-    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
-    ///         b"again",
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
-    /// assert_eq!(
-    ///     client.get(b"doc_hash_ring_ms").await?.unwrap().data_block,
-    ///     b"hello"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn ms(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: &[MsFlag],
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<MsItem> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].ms(key.as_ref(), flags, data_block.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, MdFlag, MdStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_md", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.md(b"doc_hash_ring_md", &[MdFlag::ReturnKey]).await?;
-    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
-    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_md"));
-    /// assert_eq!(client.get(b"doc_hash_ring_md").await?, None);
-    /// let item = client.md(b"doc_hash_ring_md", &[MdFlag::ReturnKey]).await?;
-    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].md(key.as_ref(), flags).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, MaFlag, MaMode, MaStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_hash_ring_ma", false).await?;
-    /// let item = client
-    ///     .ma(
-    ///         b"doc_hash_ring_ma",
-    ///         &[
-    ///             MaFlag::AutoCreate(0),
-    ///             MaFlag::InitValue(5),
-    ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::ReturnValue,
-    ///             MaFlag::ReturnKey,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
-    /// assert_eq!(item.number, Some(5));
-    /// assert_eq!(item.key.as_deref(), Some("doc_hash_ring_ma"));
-    /// let item = client
-    ///     .ma(
-    ///         b"doc_hash_ring_ma",
-    ///         &[
-    ///             MaFlag::DeltaApply(7),
-    ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::ReturnValue,
-    ///             MaFlag::ReturnKey,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
-    /// assert_eq!(item.number, Some(12));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
-        let i = *self.1.get(&key.as_ref()).unwrap();
-        self.0[i].ma(key.as_ref(), flags).await
-    }
 }
 
 pub struct ClientRendezvous(Vec<Connection>, HrwNodes<usize>);
@@ -7100,7 +5770,7 @@ impl ClientRendezvous {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -7124,837 +5794,6 @@ impl ClientRendezvous {
     pub fn new(conns: Vec<Connection>) -> Self {
         let hrw = HrwNodes::new(0..conns.len());
         Self(conns, hrw)
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, Item, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_get", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_get").await?,
-    ///     Some(Item {
-    ///         key: "doc_rendezvous_get".to_string(),
-    ///         flags: 0,
-    ///         cas_unique: None,
-    ///         data_block: b"value".to_vec()
-    ///     })
-    /// );
-    /// assert_eq!(client.get(b"doc_rendezvous_get_missing").await?, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn get(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].get(key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_gets", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gets(b"doc_rendezvous_gets").await?.unwrap();
-    /// assert_eq!(item.key, "doc_rendezvous_gets");
-    /// assert_eq!(item.data_block, b"value");
-    /// assert!(item.cas_unique.is_some());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gets(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].gets(key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_gat", 7, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gat(60, b"doc_rendezvous_gat").await?.unwrap();
-    /// assert_eq!(item.key, "doc_rendezvous_gat");
-    /// assert_eq!(item.flags, 7);
-    /// assert_eq!(item.data_block, b"value");
-    /// assert_eq!(item.cas_unique, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gat(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].gat(exptime, key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_gats", 7, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client.gats(60, b"doc_rendezvous_gats").await?.unwrap();
-    /// assert_eq!(item.key, "doc_rendezvous_gats");
-    /// assert_eq!(item.flags, 7);
-    /// assert_eq!(item.data_block, b"value");
-    /// assert!(item.cas_unique.is_some());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn gats(&mut self, exptime: i64, key: impl AsRef<[u8]>) -> Result<Option<Item>> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].gats(exptime, key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, Item, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_set", 7, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_set").await?,
-    ///     Some(Item {
-    ///         key: "doc_rendezvous_set".to_string(),
-    ///         flags: 7,
-    ///         cas_unique: None,
-    ///         data_block: b"value".to_vec()
-    ///     })
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_set_noreply", 7, 0, true, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn set(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i]
-            .set(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_add", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .add(b"doc_rendezvous_add", 0, 0, false, b"first")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .add(b"doc_rendezvous_add", 0, 0, false, b"second")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_add").await?.unwrap().data_block,
-    ///     b"first"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn add(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i]
-            .add(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_replace", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .replace(b"doc_rendezvous_replace", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_replace", 0, 0, false, b"first")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .replace(b"doc_rendezvous_replace", 0, 0, false, b"second")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_rendezvous_replace")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"second"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn replace(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i]
-            .replace(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_append", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .append(b"doc_rendezvous_append", 0, 0, false, b"-tail")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_append", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .append(b"doc_rendezvous_append", 0, 0, false, b"-tail")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_rendezvous_append")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"base-tail"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn append(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i]
-            .append(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_prepend", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .prepend(b"doc_rendezvous_prepend", 0, 0, false, b"head-")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotStored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_prepend", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .prepend(b"doc_rendezvous_prepend", 0, 0, false, b"head-")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_rendezvous_prepend")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"head-base"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn prepend(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i]
-            .prepend(key.as_ref(), flags, exptime, noreply, data_block.as_ref())
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_cas", false).await?;
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_rendezvous_cas", 0, 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_cas", 0, 0, false, b"base")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let cas = client
-    ///     .gets(b"doc_rendezvous_cas")
-    ///     .await?
-    ///     .unwrap()
-    ///     .cas_unique
-    ///     .unwrap();
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_rendezvous_cas", 0, 0, cas, false, b"new")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .cas(b"doc_rendezvous_cas", 0, 0, cas, false, b"stale")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Exists
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_cas").await?.unwrap().data_block,
-    ///     b"new"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn cas(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: u32,
-        exptime: i64,
-        cas_unique: u64,
-        noreply: bool,
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<StorageResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i]
-            .cas(
-                key.as_ref(),
-                flags,
-                exptime,
-                cas_unique,
-                noreply,
-                data_block.as_ref(),
-            )
-            .await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, DeleteResult, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_delete", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_rendezvous_delete", false).await?,
-    ///     mcmc_rs::DeleteResult::Deleted
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_rendezvous_delete", false).await?,
-    ///     mcmc_rs::DeleteResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client.delete(b"doc_rendezvous_delete", true).await?,
-    ///     mcmc_rs::DeleteResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn delete(&mut self, key: impl AsRef<[u8]>, noreply: bool) -> Result<DeleteResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].delete(key.as_ref(), noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_incr", false).await?;
-    /// assert_eq!(
-    ///     client.incr(b"doc_rendezvous_incr", 1, false).await?,
-    ///     mcmc_rs::IncrDecrResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_incr", 0, 0, false, b"10")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.incr(b"doc_rendezvous_incr", 5, false).await?,
-    ///     mcmc_rs::IncrDecrResult::Value(15)
-    /// );
-    /// assert_eq!(
-    ///     client.incr(b"doc_rendezvous_incr", 1, true).await?,
-    ///     mcmc_rs::IncrDecrResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn incr(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        value: u64,
-        noreply: bool,
-    ) -> Result<IncrDecrResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].incr(key.as_ref(), value, noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_decr", false).await?;
-    /// assert_eq!(
-    ///     client.decr(b"doc_rendezvous_decr", 1, false).await?,
-    ///     mcmc_rs::IncrDecrResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_decr", 0, 0, false, b"10")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.decr(b"doc_rendezvous_decr", 5, false).await?,
-    ///     mcmc_rs::IncrDecrResult::Value(5)
-    /// );
-    /// assert_eq!(
-    ///     client.decr(b"doc_rendezvous_decr", 1, true).await?,
-    ///     mcmc_rs::IncrDecrResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn decr(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        value: u64,
-        noreply: bool,
-    ) -> Result<IncrDecrResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].decr(key.as_ref(), value, noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, TouchResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .touch(b"doc_rendezvous_touch_missing", 60, false)
-    ///         .await?,
-    ///     mcmc_rs::TouchResult::NotFound
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_touch", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.touch(b"doc_rendezvous_touch", 60, false).await?,
-    ///     mcmc_rs::TouchResult::Touched
-    /// );
-    /// assert_eq!(
-    ///     client.touch(b"doc_rendezvous_touch", 60, true).await?,
-    ///     mcmc_rs::TouchResult::NoReply
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn touch(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        exptime: i64,
-        noreply: bool,
-    ) -> Result<TouchResult> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].touch(key.as_ref(), exptime, noreply).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_me", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let info = client.me(b"doc_rendezvous_me").await?.unwrap();
-    /// assert!(info.starts_with("doc_rendezvous_me "));
-    /// assert!(info.contains("size="));
-    /// assert_eq!(client.me(b"doc_rendezvous_me_missing").await?, None);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn me(&mut self, key: impl AsRef<[u8]>) -> Result<Option<String>> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].me(key.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, MgFlag, MgStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_mg", 7, 0, false, b"hello")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client
-    ///     .mg(
-    ///         b"doc_rendezvous_mg",
-    ///         &[
-    ///             MgFlag::ReturnKey,
-    ///             MgFlag::ReturnFlags,
-    ///             MgFlag::ReturnSize,
-    ///             MgFlag::ReturnTtl,
-    ///             MgFlag::ReturnValue,
-    ///             MgFlag::ReturnCas,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MgStatus::WithBody);
-    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_mg"));
-    /// assert_eq!(item.flags, Some(7));
-    /// assert_eq!(item.size, Some(5));
-    /// assert_eq!(item.ttl, Some(-1));
-    /// assert_eq!(item.data_block.as_deref(), Some(&b"hello"[..]));
-    /// assert!(item.cas.is_some());
-    /// let item = client
-    ///     .mg(b"doc_rendezvous_mg_missing", &[MgFlag::ReturnKey])
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MgStatus::NotFound);
-    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_mg_missing"));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn mg(&mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Result<MgItem> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].mg(key.as_ref(), flags).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, MsFlag, MsMode, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_ms", false).await?;
-    /// let item = client
-    ///     .ms(
-    ///         b"doc_rendezvous_ms",
-    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
-    ///         b"hello",
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
-    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_ms"));
-    /// assert_eq!(item.size, Some(5));
-    /// assert!(item.cas.is_some());
-    /// let item = client
-    ///     .ms(
-    ///         b"doc_rendezvous_ms",
-    ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
-    ///         b"again",
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
-    /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_ms").await?.unwrap().data_block,
-    ///     b"hello"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn ms(
-        &mut self,
-        key: impl AsRef<[u8]>,
-        flags: &[MsFlag],
-        data_block: impl AsRef<[u8]>,
-    ) -> Result<MsItem> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].ms(key.as_ref(), flags, data_block.as_ref()).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, MdFlag, MdStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_md", 0, 0, false, b"value")
-    ///         .await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// let item = client
-    ///     .md(b"doc_rendezvous_md", &[MdFlag::ReturnKey])
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
-    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_md"));
-    /// assert_eq!(client.get(b"doc_rendezvous_md").await?, None);
-    /// let item = client
-    ///     .md(b"doc_rendezvous_md", &[MdFlag::ReturnKey])
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn md(&mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Result<MdItem> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].md(key.as_ref(), flags).await
-    }
-
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, MaFlag, MaMode, MaStatus, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// let _ = client.delete(b"doc_rendezvous_ma", false).await?;
-    /// let item = client
-    ///     .ma(
-    ///         b"doc_rendezvous_ma",
-    ///         &[
-    ///             MaFlag::AutoCreate(0),
-    ///             MaFlag::InitValue(5),
-    ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::ReturnValue,
-    ///             MaFlag::ReturnKey,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
-    /// assert_eq!(item.number, Some(5));
-    /// assert_eq!(item.key.as_deref(), Some("doc_rendezvous_ma"));
-    /// let item = client
-    ///     .ma(
-    ///         b"doc_rendezvous_ma",
-    ///         &[
-    ///             MaFlag::DeltaApply(7),
-    ///             MaFlag::Mode(MaMode::Incr),
-    ///             MaFlag::ReturnValue,
-    ///             MaFlag::ReturnKey,
-    ///         ],
-    ///     )
-    ///     .await?;
-    /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
-    /// assert_eq!(item.number, Some(12));
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
-    pub async fn ma(&mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Result<MaItem> {
-        let i = *self.1.sorted(&key.as_ref()).next().unwrap();
-        self.0[i].ma(key.as_ref(), flags).await
     }
 }
 
