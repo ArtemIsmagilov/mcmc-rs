@@ -5368,6 +5368,31 @@ impl WatchStream {
     }
 }
 
+pub trait ServerSelector: Send + Sync {
+    fn select_server(&mut self, key: &[u8]) -> &mut Connection;
+
+    fn get(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<Option<Item>>> + Send {
+        async move { self.select_server(key.as_ref()).get(key).await }
+    }
+
+    fn gets(
+        &mut self,
+        key: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<Option<Item>>> + Send {
+        async move { self.select_server(key.as_ref()).gets(key).await }
+    }
+}
+
+impl ServerSelector for ClientCrc32 {
+    fn select_server(&mut self, key: &[u8]) -> &mut Connection {
+        let index = crc32(key) as usize % self.0.len();
+        &mut self.0[index]
+    }
+}
+
 pub struct ClientCrc32(Vec<Connection>);
 impl ClientCrc32 {
     /// # Example
