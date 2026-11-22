@@ -96,13 +96,13 @@
 //!
 //! ```toml
 //! # smol + rustls with bundled roots
-//! mcmc-rs = { version = "0.12.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
+//! mcmc-rs = { version = "0.15.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
 //!
 //! # tokio + native-tls
-//! mcmc-rs = { version = "0.12.0", features = ["tokio-native-tls-tls"] }
+//! mcmc-rs = { version = "0.15.0", features = ["tokio-native-tls-tls"] }
 //!
 //! # smol without TLS
-//! mcmc-rs = { version = "0.12.0", features = ["smol-rt"] }
+//! mcmc-rs = { version = "0.15.0", features = ["smol-rt"] }
 //! ```
 //!
 //! # Connections
@@ -115,6 +115,9 @@
 //! - `Connection::udp_connect` creates a UDP connection;
 //! - `Connection::tls_connect` creates a TLS connection (requires a TLS
 //!   feature).
+//!
+//! TCP and TLS connections enable `TCP_NODELAY` automatically to avoid Nagle's
+//! algorithm delaying small protocol messages.
 //!
 //! # Basic usage
 //!
@@ -178,11 +181,33 @@
 //! - [`ClientHashRing`] uses a consistent hash ring;
 //! - [`ClientRendezvous`] uses rendezvous (highest random weight) hashing.
 //!
+//! All sharded clients implement [`ServerSelector`] and provide the multi-key
+//! retrieval methods `get_multi`, `gets_multi`, `gat_multi` and `gats_multi`.
+//! They group keys by their target server, query each server concurrently and
+//! merge the results. The returned order is not guaranteed to match the input
+//! order, and an empty key slice returns an empty vector without sending any
+//! request. [`Connection`] exposes the same multi-key methods for a single
+//! server; they are not supported over UDP and panic if called on a UDP
+//! connection.
+//!
+//! # Key and flag validation
+//!
+//! Command builders validate their input before writing to the socket. A key
+//! must be non-empty, at most 250 bytes long, and must not contain whitespace
+//! or control characters. Meta-flag tokens must not contain whitespace or
+//! control characters. Invalid input produces [`MemcachedError::InvalidInput`]
+//! and nothing is sent to the server.
+//!
+//! [`Connection`] methods return this error directly. [`Pipeline`] builder
+//! methods return `Self`, so validation errors are reported by
+//! [`Pipeline::execute`].
+//!
 //! # Errors
 //!
 //! Fallible operations return [`Result`], which is an alias for
 //! `std::result::Result<T, MemcachedError>`. See [`MemcachedError`] for the
-//! list of error kinds.
+//! list of error kinds. [`MemcachedError::InvalidInput`] reports keys or flags
+//! rejected by client-side validation.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -370,6 +395,7 @@ pub enum MemcachedError {
     #[error("Wrong configuration: {0}")]
     ClientConfig(String),
 
+    /// A key or meta-flag token rejected by client-side validation.
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 }
@@ -4067,6 +4093,11 @@ impl Connection {
         }
     }
 
+    /// Retrieves several keys in a single `get` command.
+    ///
+    /// This is the multi-key form of [`Connection::get`]. It is not supported
+    /// over UDP and panics if called on a UDP connection.
+    ///
     /// # Example
     ///
     /// ```
@@ -4156,6 +4187,11 @@ impl Connection {
         }
     }
 
+    /// Retrieves several keys with their CAS tokens in a single `gets` command.
+    ///
+    /// This is the multi-key form of [`Connection::gets`]. It is not supported
+    /// over UDP and panics if called on a UDP connection.
+    ///
     /// # Example
     ///
     /// ```
@@ -4236,6 +4272,12 @@ impl Connection {
         }
     }
 
+    /// Retrieves several keys and updates their expiration time in a single
+    /// `gat` command.
+    ///
+    /// This is the multi-key form of [`Connection::gat`]. It is not supported
+    /// over UDP and panics if called on a UDP connection.
+    ///
     /// # Example
     ///
     /// ```
@@ -4329,6 +4371,12 @@ impl Connection {
         }
     }
 
+    /// Retrieves several keys with their CAS tokens and updates their
+    /// expiration time in a single `gats` command.
+    ///
+    /// This is the multi-key form of [`Connection::gats`]. It is not supported
+    /// over UDP and panics if called on a UDP connection.
+    ///
     /// # Example
     ///
     /// ```
@@ -4982,6 +5030,12 @@ impl Connection {
         Ok(WatchStream(self))
     }
 
+    /// Starts a new command pipeline.
+    ///
+    /// Commands are buffered and sent together by [`Pipeline::execute`].
+    /// Builder methods validate keys and flags immediately but return `Self`,
+    /// so validation errors are reported by `execute`.
+    ///
     /// # Example
     ///
     /// ```
@@ -5496,9 +5550,22 @@ where
     .await
 }
 
+/// Routes keys to server connections.
+///
+/// The crate provides [`ClientCrc32`], [`ClientHashRing`] and
+/// [`ClientRendezvous`]. Implement this trait to build a custom routing
+/// strategy; both [`ServerSelector::select_server`] and
+/// [`ServerSelector::select_servers`] are required so that single-key and
+/// multi-key operations use the same mapping.
 pub trait ServerSelector: Send + Sync {
+    /// Returns the connection responsible for `key`.
     fn select_server(&mut self, key: &[u8]) -> &mut Connection;
 
+    /// Groups `keys` by their target connection.
+    ///
+    /// Each returned pair contains a connection and the keys routed to it.
+    /// Connections without matching keys may be omitted. Multi-key methods use
+    /// this to issue one command per server.
     fn select_servers<'a>(&mut self, keys: &'a [&'a [u8]])
     -> Vec<(&mut Connection, Vec<&'a [u8]>)>;
 
@@ -6271,6 +6338,12 @@ pub trait ServerSelector: Send + Sync {
         async move { self.select_server(key.as_ref()).ma(key, flags).await }
     }
 
+    /// Retrieves several keys, grouping them by server.
+    ///
+    /// One `get` command is sent to each server that owns at least one of the
+    /// keys, and the results are merged. The returned order is not guaranteed
+    /// to match the input order. An empty key slice returns an empty vector.
+    ///
     /// # Example
     ///
     /// ```
@@ -6313,6 +6386,13 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// Retrieves several keys together with their CAS tokens, grouping them by
+    /// server.
+    ///
+    /// This is the multi-key form of [`Connection::gets`]. The returned order
+    /// is not guaranteed to match the input order, and an empty key slice
+    /// returns an empty vector.
+    ///
     /// # Example
     ///
     /// ```
@@ -6355,6 +6435,13 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// Retrieves several keys and updates their expiration time, grouping them
+    /// by server.
+    ///
+    /// This is the multi-key form of [`Connection::gat`]. The returned order is
+    /// not guaranteed to match the input order, and an empty key slice returns
+    /// an empty vector.
+    ///
     /// # Example
     ///
     /// ```
@@ -6398,6 +6485,13 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// Retrieves several keys with their CAS tokens and updates their
+    /// expiration time, grouping them by server.
+    ///
+    /// This is the multi-key form of [`Connection::gats`]. The returned order
+    /// is not guaranteed to match the input order, and an empty key slice
+    /// returns an empty vector.
+    ///
     /// # Example
     ///
     /// ```
@@ -6946,6 +7040,11 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
     }
 }
 
+/// A batch of commands executed in one round trip.
+///
+/// Builder methods return `Self` and validate their input immediately. The
+/// first validation error is stored in the pipeline and returned by
+/// [`Pipeline::execute`].
 pub struct Pipeline<'a>(&'a mut Connection, Result<Vec<(Vec<u8>, PipelineExpect)>>);
 impl<'a> Pipeline<'a> {
     fn push_cmd(&mut self, cmd: Result<Vec<u8>>, expect: PipelineExpect) {
@@ -6957,6 +7056,12 @@ impl<'a> Pipeline<'a> {
         }
     }
 
+    /// Sends all queued commands and returns one result per command.
+    ///
+    /// If any builder method rejected its input (for example, an empty key),
+    /// the stored [`MemcachedError::InvalidInput`] is returned and no commands
+    /// are sent. An empty pipeline returns an empty vector.
+    ///
     /// # Example
     ///
     /// ```

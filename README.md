@@ -9,7 +9,9 @@
 * Implements the complete Memcached protocol.
 * Available `TCP/Unix/UDP/TLS` connections.
 * Cross-platform support for `Linux/macOS/Windows` .
-* Typed API
+* Typed API.
+* Client-side validation of keys and meta-flag tokens.
+* `TCP_NODELAY` is enabled automatically for TCP and TLS connections.
 
 ---
 
@@ -40,10 +42,10 @@ TLS support is optional and is layered on top of the selected runtime.
 
 ```toml
 # smol, no TLS
-mcmc-rs = { version = "0.12.0", features = ["smol-rt"] }
+mcmc-rs = { version = "0.15.0", features = ["smol-rt"] }
 
 # tokio, no TLS
-mcmc-rs = { version = "0.12.0", features = ["tokio-rt"] }
+mcmc-rs = { version = "0.15.0", features = ["tokio-rt"] }
 ```
 
 ### TLS (optional)
@@ -60,10 +62,10 @@ feature alone is enough. Use at most one TLS backend.
 
 ```toml
 # smol + rustls
-mcmc-rs = { version = "0.12.0", features = ["smol-rustls-tls"] }
+mcmc-rs = { version = "0.15.0", features = ["smol-rustls-tls"] }
 
 # tokio + native-tls
-mcmc-rs = { version = "0.12.0", features = ["tokio-native-tls-tls"] }
+mcmc-rs = { version = "0.15.0", features = ["tokio-native-tls-tls"] }
 ```
 
 `Connection::tls_connect` is available only when a TLS feature is enabled.
@@ -79,7 +81,7 @@ features to verify public certificates:
 | `rustls-native-certs-tls`| Certificates from the operating system trust store |
 
 ```toml
-mcmc-rs = { version = "0.12.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
+mcmc-rs = { version = "0.15.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
 ```
 
 Certificates passed through the `ca_path` argument of `Connection::tls_connect`
@@ -211,7 +213,51 @@ async fn run() -> mcmc_rs::Result<()> {
 }
 ```
 
-You can also implement the `ServerSelector` trait for your own types to build custom routing strategies (such as weighted nodes or Ketama-compatible rings).
+### Multi-key retrieval
+
+All three selectors implement `get_multi`, `gets_multi`, `gat_multi` and
+`gats_multi`. Keys are grouped by their target server, one multi-key command is
+sent to each server concurrently, and the responses are merged into a single
+`Vec<Item>`:
+
+```rust,no_run
+use mcmc_rs::{ClientRendezvous, Connection, ServerSelector};
+
+async fn run() -> mcmc_rs::Result<()> {
+    let mut client = ClientRendezvous::new([
+        ("node1", Connection::tcp_connect("127.0.0.1:11211").await?),
+        ("node2", Connection::tcp_connect("127.0.0.1:11212").await?),
+    ]);
+
+    let items = client.get_multi(&[b"key1", b"key2", b"key3"]).await?;
+    for item in items {
+        println!("{} = {:?}", item.key, item.data_block);
+    }
+    Ok(())
+}
+```
+
+The returned order is not guaranteed to match the input order, because each
+server returns its own items. Sort the result if order matters. An empty key
+slice returns an empty vector without sending anything to the servers.
+
+`Connection` also provides the same multi-key methods for a single server.
+They are not available over UDP and panic if called on a UDP connection.
+
+You can also implement the `ServerSelector` trait for your own types to build custom routing strategies (such as weighted nodes or Ketama-compatible rings). Custom selectors must implement both `select_server` for a single key and `select_servers` for grouping a batch of keys by server.
+
+## Key and flag validation
+
+Keys and meta-flag tokens are validated before anything is written to the
+socket:
+
+* a key must be non-empty, at most 250 bytes long, and must not contain
+  whitespace or control characters;
+* a meta-flag token must not contain whitespace or control characters.
+
+Invalid input returns `MemcachedError::InvalidInput`. `Connection` methods
+return this error directly, while `Pipeline` methods return `Self`, so the
+error is reported later by `Pipeline::execute`.
 
 ## Tests
 
