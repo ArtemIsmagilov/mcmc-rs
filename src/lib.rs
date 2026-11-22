@@ -10275,4 +10275,23 @@ mod tests {
             Err(MemcachedError::InvalidInput(_))
         );
     }
+
+    #[test]
+    fn test_invalid_key_does_not_write_to_stream() {
+        block_on(async {
+            let mut c = Cursor::new(Vec::new());
+            assert_matches!(
+                storage_cmd(&mut c, b"set", b"bad key", 0, 0, None, false, b"value").await,
+                Err(MemcachedError::InvalidInput(_))
+            );
+            assert!(c.get_ref().is_empty());
+
+            let mut c = Cursor::new(Vec::new());
+            assert_matches!(
+                retrieval_cmd(&mut c, b"get", None, &[b"ok_key", b"bad\nkey"]).await,
+                Err(MemcachedError::InvalidInput(_))
+            );
+            assert!(c.get_ref().is_empty());
+        });
+    }
 }
