@@ -332,7 +332,13 @@ opengrep scan --config auto
 ## Compile some configs
 
 ```bash
-cargo hack check --feature-powerset --no-dev-deps --mutually-exclusive-features smol-rt,tokio-rt --at-least-one-of smol-rt,tokio-rt
+cargo hack check \
+          --feature-powerset \
+          --no-dev-deps \
+          --mutually-exclusive-features \
+          smol-rt,tokio-rt \
+          --at-least-one-of \
+          smol-rt,tokio-rt
 ```
 
 ## Links
