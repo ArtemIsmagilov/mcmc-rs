@@ -827,6 +827,9 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> 
                 .map(|x| x.trim().parse().map_err(parse_err))
                 .transpose()?,
         );
+        if bytes > MAX_ITEM_SIZE {
+            return Err(parse_err("item size too large"));
+        }
         let mut data_block = vec![0; bytes + 2];
         s.read_exact(&mut data_block).await?;
         data_block.truncate(bytes);
@@ -1148,14 +1151,16 @@ async fn parse_ms_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     let mut split = line.trim().split(' ');
     split.next();
     for flag in split {
-        let f = &flag[1..];
-        match &flag[..1] {
-            "c" => cas = Some(f.parse().unwrap()),
+        let Some((prefix, f)) = flag.split_at_checked(1) else {
+            return Err(parse_err(&line));
+        };
+        match prefix {
+            "c" => cas = Some(f.parse().map_err(parse_err)?),
             "k" => key = Some(f.to_string()),
             "O" => opaque = Some(f.to_string()),
-            "s" => size = Some(f.parse().unwrap()),
+            "s" => size = Some(f.parse().map_err(parse_err)?),
             "b" => base64_key = true,
-            other => panic!("unexpected ms flag: {other}"),
+            other => return Err(parse_err(format!("unexpected ms flag: {other}"))),
         }
     }
     Ok(MsItem {
@@ -1212,7 +1217,13 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     let data_len = if line.starts_with("VA") {
         split.next();
         status = MaStatus::WithBody;
-        Some(split.next().unwrap().parse().unwrap())
+        Some(
+            split
+                .next()
+                .ok_or_else(|| parse_err(&line))?
+                .parse()
+                .map_err(parse_err)?,
+        )
     } else if line.starts_with("HD") {
         split.next();
         status = MaStatus::WithoutBody;
@@ -1238,17 +1249,20 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
         };
         match prefix {
             "O" => opaque = Some(f.to_string()),
-            "t" => ttl = Some(f.parse().unwrap()),
-            "c" => cas = Some(f.parse().unwrap()),
+            "t" => ttl = Some(f.parse().map_err(parse_err)?),
+            "c" => cas = Some(f.parse().map_err(parse_err)?),
             "k" => key = Some(f.to_string()),
             "b" => base64_key = true,
             other => return Err(parse_err(format!("unexpected ma flag: {other}"))),
         }
     }
-    if let Some(a) = data_len {
-        let mut buf = vec![0; a + 2];
+    if let Some(bytes) = data_len {
+        if bytes > MAX_ITEM_SIZE {
+            return Err(parse_err("item size too large"));
+        }
+        let mut buf = vec![0; bytes + 2];
         s.read_exact(&mut buf).await?;
-        buf.truncate(a);
+        buf.truncate(bytes);
         number = Some(String::from_utf8_lossy(&buf).parse().map_err(parse_err)?);
     }
     Ok(MaItem {

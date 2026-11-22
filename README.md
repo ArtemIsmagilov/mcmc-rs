@@ -315,7 +315,12 @@ cargo fmt -- --config format_code_in_doc_comments=true
 ## Fuzzing test
 
 ```bash
-cargo fuzz run fuzz_target_1 --features smol-rt
+cargo fuzz run fuzz_target_1 \
+          --all-features \
+          --target x86_64-unknown-linux-gnu \
+          -- -max_total_time=30 \
+          -dict=fuzz/memcached.dict \
+          -stale_corpus_timeout=15
 ```
 
 ## Security scanning
