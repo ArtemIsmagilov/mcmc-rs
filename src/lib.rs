@@ -1236,14 +1236,15 @@ fn build_storage_cmd(
     cas_unique: Option<u64>,
     noreply: bool,
     data_block: &[u8],
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
+    validate_key(key)?;
     let mut w = Vec::from(command_name);
     w.push(b' ');
     w.extend(key);
     w.push(b' ');
-    write!(&mut w, "{flags} {exptime} {}", data_block.len()).unwrap();
+    write!(&mut w, "{flags} {exptime} {}", data_block.len())?;
     if let Some(x) = cas_unique {
-        write!(&mut w, " {x}").unwrap()
+        write!(&mut w, " {x}")?
     }
     if noreply {
         w.extend(b" noreply")
@@ -1251,7 +1252,7 @@ fn build_storage_cmd(
     w.extend(b"\r\n");
     w.extend(data_block);
     w.extend(b"\r\n");
-    w
+    Ok(w)
 }
 
 fn build_retrieval_cmd(
@@ -5007,7 +5008,7 @@ impl Connection {
     /// # }).unwrap()
     /// ```
     pub fn pipeline(&mut self) -> Pipeline<'_> {
-        Pipeline(self, Vec::new())
+        Pipeline(self, Ok(Vec::new()))
     }
 
     /// # Example
@@ -7056,10 +7057,10 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn cache_memlimit(mut self, limit: usize, noreply: bool) -> Self {
-        self.1.push((
-            build_cache_memlimit_cmd(limit, noreply).to_vec(),
+        self.push_cmd(
+            Ok(build_cache_memlimit_cmd(limit, noreply).to_vec()),
             PipelineExpect::Ok { noreply },
-        ));
+        );
         self
     }
 
@@ -7136,7 +7137,7 @@ impl<'a> Pipeline<'a> {
         noreply: bool,
         data_block: impl AsRef<[u8]>,
     ) -> Self {
-        self.1.push((
+        self.push_cmd(
             build_storage_cmd(
                 b"set",
                 key.as_ref(),
@@ -7147,7 +7148,7 @@ impl<'a> Pipeline<'a> {
                 data_block.as_ref(),
             ),
             PipelineExpect::Storage { noreply },
-        ));
+        );
         self
     }
 
