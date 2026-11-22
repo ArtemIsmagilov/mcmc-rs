@@ -1556,7 +1556,7 @@ fn build_ms_flags(flags: &[MsFlag]) -> Result<Vec<u8>> {
             MsFlag::ReturnKey => w.extend(b" k"),
             MsFlag::Opaque(token) => {
                 validate_flag(token.as_bytes())?;
-                write!(&mut w, " O{token}").unwrap();
+                write!(&mut w, " O{token}")?;
             }
             MsFlag::ReturnSize => w.extend(b" s"),
             MsFlag::Ttl(token) => write!(&mut w, " T{token}")?,
@@ -1622,15 +1622,15 @@ fn build_md_flags(flags: &[MdFlag]) -> Result<Vec<u8>> {
     for x in flags {
         match x {
             MdFlag::Base64Key => w.extend(b" b"),
-            MdFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
-            MdFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+            MdFlag::CompareCas(token) => write!(&mut w, " C{token}")?,
+            MdFlag::NewCas(token) => write!(&mut w, " E{token}")?,
             MdFlag::Invalidate => w.extend(b" I"),
             MdFlag::ReturnKey => w.extend(b" k"),
             MdFlag::Opaque(token) => {
                 validate_flag(token.as_bytes())?;
                 write!(&mut w, " O{token}")?;
             }
-            MdFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+            MdFlag::UpdateTtl(token) => write!(&mut w, " T{token}")?,
             MdFlag::LeaveKey => w.extend(b" x"),
             MdFlag::ProxyHint(token) => {
                 validate_flag(token.as_bytes())?;
