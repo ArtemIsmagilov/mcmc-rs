@@ -369,6 +369,9 @@ pub enum MemcachedError {
 
     #[error("Wrong configuration: {0}")]
     ClientConfig(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 pub type Result<T> = std::result::Result<T, MemcachedError>;
@@ -384,6 +387,39 @@ fn check_error(line: String) -> MemcachedError {
         return MemcachedError::Protocol(ProtocolError::Server(line.trim().to_owned()));
     };
     MemcachedError::Unexpected(line)
+}
+
+fn validate_key(key: &[u8]) -> Result<()> {
+    if key.is_empty() {
+        return Err(MemcachedError::InvalidInput(
+            "key must not be empty".to_owned(),
+        ));
+    }
+    if key.len() > 250 {
+        return Err(MemcachedError::InvalidInput(
+            "key length must not exceed 250 bytes".to_owned(),
+        ));
+    }
+    if key.iter().any(|&b| b <= 0x20 || b == 0x7f) {
+        return Err(MemcachedError::InvalidInput(
+            "key must not contain whitespace or control characters".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_flag(token: &[u8]) -> Result<()> {
+    if token.is_empty() {
+        return Err(MemcachedError::InvalidInput(
+            "flag token must not be empty".to_owned(),
+        ));
+    }
+    if token.iter().any(|&b| b <= 0x20 || b == 0x7f) {
+        return Err(MemcachedError::InvalidInput(
+            "flag token must not contain whitespace or control characters".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, PartialEq)]
@@ -1218,7 +1254,14 @@ fn build_storage_cmd(
     w
 }
 
-fn build_retrieval_cmd(command_name: &[u8], exptime: Option<i64>, keys: &[&[u8]]) -> Vec<u8> {
+fn build_retrieval_cmd(
+    command_name: &[u8],
+    exptime: Option<i64>,
+    keys: &[&[u8]],
+) -> Result<Vec<u8>> {
+    for &k in keys {
+        validate_key(k)?
+    }
     let mut w = Vec::from(command_name);
     if let Some(x) = exptime {
         write!(&mut w, " {x}").unwrap()
@@ -1228,7 +1271,7 @@ fn build_retrieval_cmd(command_name: &[u8], exptime: Option<i64>, keys: &[&[u8]]
         w.extend(x)
     });
     w.extend(b"\r\n");
-    w
+    Ok(w)
 }
 
 fn build_version_cmd() -> &'static [u8] {
@@ -1267,14 +1310,15 @@ fn build_flush_all_cmd(exptime: Option<i64>, noreply: bool) -> Vec<u8> {
     w
 }
 
-fn build_delete_cmd(key: &[u8], noreply: bool) -> Vec<u8> {
+fn build_delete_cmd(key: &[u8], noreply: bool) -> Result<Vec<u8>> {
+    validate_key(key)?;
     let mut w = Vec::from(b"delete ");
     w.extend(key);
     if noreply {
         w.extend(b" noreply")
     }
     w.extend(b"\r\n");
-    w
+    Ok(w)
 }
 
 fn build_auth_cmd(username: &[u8], password: &[u8]) -> Vec<u8> {
@@ -1292,7 +1336,13 @@ fn build_auth_cmd(username: &[u8], password: &[u8]) -> Vec<u8> {
     w
 }
 
-fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: bool) -> Vec<u8> {
+fn build_incr_decr_cmd(
+    command_name: &[u8],
+    key: &[u8],
+    value: u64,
+    noreply: bool,
+) -> Result<Vec<u8>> {
+    validate_key(key)?;
     let mut w = Vec::from(command_name);
     w.push(b' ');
     w.extend(key);
@@ -1300,21 +1350,20 @@ fn build_incr_decr_cmd(command_name: &[u8], key: &[u8], value: u64, noreply: boo
         &mut w,
         " {value}{}\r\n",
         if noreply { " noreply" } else { "" }
-    )
-    .unwrap();
-    w
+    )?;
+    Ok(w)
 }
 
-fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Vec<u8> {
+fn build_touch_cmd(key: &[u8], exptime: i64, noreply: bool) -> Result<Vec<u8>> {
+    validate_key(key)?;
     let mut w = Vec::from(b"touch ");
     w.extend(key);
     write!(
         &mut w,
         " {exptime}{}\r\n",
         if noreply { " noreply" } else { "" }
-    )
-    .unwrap();
-    w
+    )?;
+    Ok(w)
 }
 
 fn build_stats_cmd(arg: Option<StatsArg>) -> &'static [u8] {
@@ -1412,11 +1461,12 @@ fn build_mn_cmd() -> &'static [u8] {
     b"mn\r\n"
 }
 
-fn build_me_cmd(key: &[u8]) -> Vec<u8> {
+fn build_me_cmd(key: &[u8]) -> Result<Vec<u8>> {
+    validate_key(key)?;
     let mut w = Vec::from(b"me ");
     w.extend(key);
     w.extend(b"\r\n");
-    w
+    Ok(w)
 }
 
 fn build_watch_cmd(arg: &[WatchArg]) -> Vec<u8> {
@@ -1442,7 +1492,8 @@ fn build_mc_cmd(
     key: &[u8],
     flags: &[u8],
     data_block: Option<&[u8]>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
+    validate_key(key)?;
     let mut w = Vec::from(command_name);
     w.push(b' ');
     w.extend(key);
@@ -1456,101 +1507,142 @@ fn build_mc_cmd(
         w.extend(flags);
         w.extend(b"\r\n");
     }
-    w
+    Ok(w)
 }
 
-fn build_ms_flags(flags: &[MsFlag]) -> Vec<u8> {
+fn build_ms_flags(flags: &[MsFlag]) -> Result<Vec<u8>> {
     let mut w = Vec::new();
-    flags.iter().for_each(|x| match x {
-        MsFlag::Base64Key => w.extend(b" b"),
-        MsFlag::ReturnCas => w.extend(b" c"),
-        MsFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
-        MsFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
-        MsFlag::SetFlags(token) => write!(&mut w, " F{token}").unwrap(),
-        MsFlag::Invalidate => w.extend(b" I"),
-        MsFlag::ReturnKey => w.extend(b" k"),
-        MsFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
-        MsFlag::ReturnSize => w.extend(b" s"),
-        MsFlag::Ttl(token) => write!(&mut w, " T{token}").unwrap(),
-        MsFlag::Mode(token) => match token {
-            MsMode::Add => w.extend(b" ME"),
-            MsMode::Append => w.extend(b" MA"),
-            MsMode::Prepend => w.extend(b" MP"),
-            MsMode::Replace => w.extend(b" MR"),
-            MsMode::Set => w.extend(b" MS"),
-        },
-        MsFlag::Autovivify(token) => write!(&mut w, " N{token}").unwrap(),
-        MsFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
-        MsFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
-    });
-    w
+    for x in flags {
+        match x {
+            MsFlag::Base64Key => w.extend(b" b"),
+            MsFlag::ReturnCas => w.extend(b" c"),
+            MsFlag::CompareCas(token) => write!(&mut w, " C{token}")?,
+            MsFlag::NewCas(token) => write!(&mut w, " E{token}")?,
+            MsFlag::SetFlags(token) => write!(&mut w, " F{token}")?,
+            MsFlag::Invalidate => w.extend(b" I"),
+            MsFlag::ReturnKey => w.extend(b" k"),
+            MsFlag::Opaque(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " O{token}").unwrap();
+            }
+            MsFlag::ReturnSize => w.extend(b" s"),
+            MsFlag::Ttl(token) => write!(&mut w, " T{token}")?,
+            MsFlag::Mode(token) => match token {
+                MsMode::Add => w.extend(b" ME"),
+                MsMode::Append => w.extend(b" MA"),
+                MsMode::Prepend => w.extend(b" MP"),
+                MsMode::Replace => w.extend(b" MR"),
+                MsMode::Set => w.extend(b" MS"),
+            },
+            MsFlag::Autovivify(token) => write!(&mut w, " N{token}")?,
+            MsFlag::ProxyHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " P{token}")?;
+            }
+            MsFlag::LocationHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " L{token}")?;
+            }
+        }
+    }
+    Ok(w)
 }
 
-fn build_mg_flags(flags: &[MgFlag]) -> Vec<u8> {
+fn build_mg_flags(flags: &[MgFlag]) -> Result<Vec<u8>> {
     let mut w = Vec::new();
-    flags.iter().for_each(|x| match x {
-        MgFlag::Base64Key => w.extend(b" b"),
-        MgFlag::ReturnCas => w.extend(b" c"),
-        MgFlag::CheckCas(token) => write!(&mut w, " C{token}").unwrap(),
-        MgFlag::ReturnFlags => w.extend(b" f"),
-        MgFlag::ReturnHit => w.extend(b" h"),
-        MgFlag::ReturnKey => w.extend(b" k"),
-        MgFlag::ReturnLastAccess => w.extend(b" l"),
-        MgFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
-        MgFlag::ReturnSize => w.extend(b" s"),
-        MgFlag::ReturnTtl => w.extend(b" t"),
-        MgFlag::UnBump => w.extend(b" u"),
-        MgFlag::ReturnValue => w.extend(b" v"),
-        MgFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
-        MgFlag::Autovivify(token) => write!(&mut w, " N{token}").unwrap(),
-        MgFlag::RecacheTtl(token) => write!(&mut w, " R{token}").unwrap(),
-        MgFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
-        MgFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
-        MgFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
-    });
-    w
+    for x in flags {
+        match x {
+            MgFlag::Base64Key => w.extend(b" b"),
+            MgFlag::ReturnCas => w.extend(b" c"),
+            MgFlag::CheckCas(token) => write!(&mut w, " C{token}")?,
+            MgFlag::ReturnFlags => w.extend(b" f"),
+            MgFlag::ReturnHit => w.extend(b" h"),
+            MgFlag::ReturnKey => w.extend(b" k"),
+            MgFlag::ReturnLastAccess => w.extend(b" l"),
+            MgFlag::Opaque(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " O{token}")?;
+            }
+            MgFlag::ReturnSize => w.extend(b" s"),
+            MgFlag::ReturnTtl => w.extend(b" t"),
+            MgFlag::UnBump => w.extend(b" u"),
+            MgFlag::ReturnValue => w.extend(b" v"),
+            MgFlag::NewCas(token) => write!(&mut w, " E{token}")?,
+            MgFlag::Autovivify(token) => write!(&mut w, " N{token}")?,
+            MgFlag::RecacheTtl(token) => write!(&mut w, " R{token}")?,
+            MgFlag::UpdateTtl(token) => write!(&mut w, " T{token}")?,
+            MgFlag::ProxyHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " P{token}")?;
+            }
+            MgFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
+        }
+    }
+    Ok(w)
 }
 
-fn build_md_flags(flags: &[MdFlag]) -> Vec<u8> {
+fn build_md_flags(flags: &[MdFlag]) -> Result<Vec<u8>> {
     let mut w = Vec::new();
-    flags.iter().for_each(|x| match x {
-        MdFlag::Base64Key => w.extend(b" b"),
-        MdFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
-        MdFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
-        MdFlag::Invalidate => w.extend(b" I"),
-        MdFlag::ReturnKey => w.extend(b" k"),
-        MdFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
-        MdFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
-        MdFlag::LeaveKey => w.extend(b" x"),
-        MdFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
-        MdFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
-    });
-    w
+    for x in flags {
+        match x {
+            MdFlag::Base64Key => w.extend(b" b"),
+            MdFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
+            MdFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+            MdFlag::Invalidate => w.extend(b" I"),
+            MdFlag::ReturnKey => w.extend(b" k"),
+            MdFlag::Opaque(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " O{token}")?;
+            }
+            MdFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+            MdFlag::LeaveKey => w.extend(b" x"),
+            MdFlag::ProxyHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " P{token}")?;
+            }
+            MdFlag::LocationHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " L{token}")?;
+            }
+        }
+    }
+    Ok(w)
 }
 
-fn build_ma_flags(flags: &[MaFlag]) -> Vec<u8> {
+fn build_ma_flags(flags: &[MaFlag]) -> Result<Vec<u8>> {
     let mut w = Vec::new();
-    flags.iter().for_each(|x| match x {
-        MaFlag::Base64Key => w.extend(b" b"),
-        MaFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
-        MaFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
-        MaFlag::AutoCreate(token) => write!(&mut w, " N{token}").unwrap(),
-        MaFlag::InitValue(token) => write!(&mut w, " J{token}").unwrap(),
-        MaFlag::DeltaApply(token) => write!(&mut w, " D{token}").unwrap(),
-        MaFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
-        MaFlag::Mode(token) => match token {
-            MaMode::Incr => w.extend(b" M+"),
-            MaMode::Decr => w.extend(b" M-"),
-        },
-        MaFlag::Opaque(token) => write!(&mut w, " O{token}").unwrap(),
-        MaFlag::ReturnTtl => w.extend(b" t"),
-        MaFlag::ReturnCas => w.extend(b" c"),
-        MaFlag::ReturnValue => w.extend(b" v"),
-        MaFlag::ReturnKey => w.extend(b" k"),
-        MaFlag::ProxyHint(token) => write!(&mut w, " P{token}").unwrap(),
-        MaFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
-    });
-    w
+    for x in flags {
+        match x {
+            MaFlag::Base64Key => w.extend(b" b"),
+            MaFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
+            MaFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
+            MaFlag::AutoCreate(token) => write!(&mut w, " N{token}").unwrap(),
+            MaFlag::InitValue(token) => write!(&mut w, " J{token}").unwrap(),
+            MaFlag::DeltaApply(token) => write!(&mut w, " D{token}").unwrap(),
+            MaFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+            MaFlag::Mode(token) => match token {
+                MaMode::Incr => w.extend(b" M+"),
+                MaMode::Decr => w.extend(b" M-"),
+            },
+            MaFlag::Opaque(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " O{token}")?;
+            }
+            MaFlag::ReturnTtl => w.extend(b" t"),
+            MaFlag::ReturnCas => w.extend(b" c"),
+            MaFlag::ReturnValue => w.extend(b" v"),
+            MaFlag::ReturnKey => w.extend(b" k"),
+            MaFlag::ProxyHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " P{token}")?;
+            }
+            MaFlag::LocationHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " L{token}")?;
+            }
+        }
+    }
+    Ok(w)
 }
 
 fn build_lru_cmd(arg: LruArg) -> Vec<u8> {
@@ -1760,7 +1852,7 @@ async fn delete_cmd_udp(
     key: &[u8],
     noreply: bool,
 ) -> Result<DeleteResult> {
-    udp_send_cmd(s, r, &build_delete_cmd(key, noreply)).await?;
+    udp_send_cmd(s, r, &build_delete_cmd(key, noreply)?).await?;
     if noreply {
         Ok(DeleteResult::NoReply)
     } else {
@@ -1773,7 +1865,7 @@ async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     noreply: bool,
 ) -> Result<DeleteResult> {
-    s.write_all(&build_delete_cmd(key, noreply)).await?;
+    s.write_all(&build_delete_cmd(key, noreply)?).await?;
     parse_delete_rp(s, noreply).await
 }
 
@@ -1797,7 +1889,7 @@ async fn incr_decr_cmd_udp(
     udp_send_cmd(
         s,
         r,
-        &build_incr_decr_cmd(command_name, key, value, noreply),
+        &build_incr_decr_cmd(command_name, key, value, noreply)?,
     )
     .await?;
     if noreply {
@@ -1814,7 +1906,7 @@ pub async fn incr_decr_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     value: u64,
     noreply: bool,
 ) -> Result<IncrDecrResult> {
-    s.write_all(&build_incr_decr_cmd(command_name, key, value, noreply))
+    s.write_all(&build_incr_decr_cmd(command_name, key, value, noreply)?)
         .await?;
     parse_incr_decr_rp(s, noreply).await
 }
@@ -1826,7 +1918,7 @@ async fn touch_cmd_udp(
     exptime: i64,
     noreply: bool,
 ) -> Result<TouchResult> {
-    udp_send_cmd(s, r, &build_touch_cmd(key, exptime, noreply)).await?;
+    udp_send_cmd(s, r, &build_touch_cmd(key, exptime, noreply)?).await?;
     if noreply {
         Ok(TouchResult::NoReply)
     } else {
@@ -1840,7 +1932,8 @@ async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     exptime: i64,
     noreply: bool,
 ) -> Result<TouchResult> {
-    s.write_all(&build_touch_cmd(key, exptime, noreply)).await?;
+    s.write_all(&build_touch_cmd(key, exptime, noreply)?)
+        .await?;
     parse_touch_rp(s, noreply).await
 }
 
@@ -1851,7 +1944,7 @@ async fn retrieval_cmd_udp(
     exptime: Option<i64>,
     keys: &[&[u8]],
 ) -> Result<Vec<Item>> {
-    udp_send_cmd(s, r, &build_retrieval_cmd(command_name, exptime, keys)).await?;
+    udp_send_cmd(s, r, &build_retrieval_cmd(command_name, exptime, keys)?).await?;
     parse_retrieval_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
@@ -1861,7 +1954,7 @@ pub async fn retrieval_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     exptime: Option<i64>,
     keys: &[&[u8]],
 ) -> Result<Vec<Item>> {
-    s.write_all(&build_retrieval_cmd(command_name, exptime, keys))
+    s.write_all(&build_retrieval_cmd(command_name, exptime, keys)?)
         .await?;
     parse_retrieval_rp(s).await
 }
@@ -2000,7 +2093,7 @@ async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
 }
 
 async fn me_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8]) -> Result<Option<String>> {
-    udp_send_cmd(s, r, &build_me_cmd(key)).await?;
+    udp_send_cmd(s, r, &build_me_cmd(key)?).await?;
     parse_me_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
@@ -2008,7 +2101,7 @@ async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
 ) -> Result<Option<String>> {
-    s.write_all(&build_me_cmd(key)).await?;
+    s.write_all(&build_me_cmd(key)?).await?;
     parse_me_rp(s).await
 }
 
@@ -2120,7 +2213,7 @@ async fn ms_cmd_udp(
     udp_send_cmd(
         s,
         r,
-        &build_mc_cmd(b"ms", key, &build_ms_flags(flags), Some(data_block)),
+        &build_mc_cmd(b"ms", key, &build_ms_flags(flags)?, Some(data_block))?,
     )
     .await?;
     parse_ms_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
@@ -2135,9 +2228,9 @@ async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s.write_all(&build_mc_cmd(
         b"ms",
         key,
-        &build_ms_flags(flags),
+        &build_ms_flags(flags)?,
         Some(data_block),
-    ))
+    )?)
     .await?;
     parse_ms_rp(s).await
 }
@@ -2146,7 +2239,7 @@ async fn mg_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8], flags: &[MgFlag]) ->
     udp_send_cmd(
         s,
         r,
-        &build_mc_cmd(b"mg", key, &build_mg_flags(flags), None),
+        &build_mc_cmd(b"mg", key, &build_mg_flags(flags)?, None)?,
     )
     .await?;
     parse_mg_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
@@ -2157,7 +2250,7 @@ async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MgFlag],
 ) -> Result<MgItem> {
-    s.write_all(&build_mc_cmd(b"mg", key, &build_mg_flags(flags), None))
+    s.write_all(&build_mc_cmd(b"mg", key, &build_mg_flags(flags)?, None)?)
         .await?;
     parse_mg_rp(s).await
 }
@@ -2166,7 +2259,7 @@ async fn md_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8], flags: &[MdFlag]) ->
     udp_send_cmd(
         s,
         r,
-        &build_mc_cmd(b"md", key, &build_md_flags(flags), None),
+        &build_mc_cmd(b"md", key, &build_md_flags(flags)?, None)?,
     )
     .await?;
     parse_md_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
@@ -2177,7 +2270,7 @@ async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MdFlag],
 ) -> Result<MdItem> {
-    s.write_all(&build_mc_cmd(b"md", key, &build_md_flags(flags), None))
+    s.write_all(&build_mc_cmd(b"md", key, &build_md_flags(flags)?, None)?)
         .await?;
     parse_md_rp(s).await
 }
@@ -2186,7 +2279,7 @@ async fn ma_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8], flags: &[MaFlag]) ->
     udp_send_cmd(
         s,
         r,
-        &build_mc_cmd(b"ma", key, &build_ma_flags(flags), None),
+        &build_mc_cmd(b"ma", key, &build_ma_flags(flags)?, None)?,
     )
     .await?;
     parse_ma_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
@@ -2197,7 +2290,7 @@ async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     key: &[u8],
     flags: &[MaFlag],
 ) -> Result<MaItem> {
-    s.write_all(&build_mc_cmd(b"ma", key, &build_ma_flags(flags), None))
+    s.write_all(&build_mc_cmd(b"ma", key, &build_ma_flags(flags)?, None)?)
         .await?;
     parse_ma_rp(s).await
 }
@@ -6851,8 +6944,17 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
     }
 }
 
-pub struct Pipeline<'a>(&'a mut Connection, Vec<(Vec<u8>, PipelineExpect)>);
+pub struct Pipeline<'a>(&'a mut Connection, Result<Vec<(Vec<u8>, PipelineExpect)>>);
 impl<'a> Pipeline<'a> {
+    fn push_cmd(&mut self, cmd: Result<Vec<u8>>, expect: PipelineExpect) {
+        if let Ok(cmds) = &mut self.1 {
+            match cmd {
+                Ok(bytes) => cmds.push((bytes, expect)),
+                Err(err) => self.1 = Err(err),
+            }
+        }
+    }
+
     /// # Example
     ///
     /// ```
@@ -6898,13 +7000,14 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub async fn execute(self) -> Result<Vec<Result<PipelineResponse>>> {
-        if self.1.is_empty() {
+        let cmds = self.1?;
+        if cmds.is_empty() {
             return Ok(Vec::new());
         };
         match self.0 {
-            Connection::Tcp(s) => execute_cmd(s, &self.1).await,
+            Connection::Tcp(s) => execute_cmd(s, &cmds).await,
             #[cfg(unix)]
-            Connection::Unix(s) => execute_cmd(s, &self.1).await,
+            Connection::Unix(s) => execute_cmd(s, &cmds).await,
             Connection::Udp(_s, _r) => panic!("pipeline not work with udp!"),
             #[cfg(any(
                 feature = "smol-rustls-tls",
@@ -6912,7 +7015,7 @@ impl<'a> Pipeline<'a> {
                 feature = "smol-native-tls-tls",
                 feature = "tokio-native-tls-tls"
             ))]
-            Connection::Tls(s) => execute_cmd(s, &self.1).await,
+            Connection::Tls(s) => execute_cmd(s, &cmds).await,
         }
     }
 
@@ -6934,8 +7037,7 @@ impl<'a> Pipeline<'a> {
     /// # }).unwrap()
     /// ```
     pub fn version(mut self) -> Self {
-        self.1
-            .push((build_version_cmd().to_vec(), PipelineExpect::Version));
+        self.push_cmd(Ok(build_version_cmd().to_vec()), PipelineExpect::Version);
         self
     }
 
@@ -10143,5 +10245,34 @@ mod tests {
             let mut c = Cursor::new(b"refresh_certs\r\nOK\r\n".to_vec());
             assert!(refresh_certs_cmd(&mut c).await.is_ok());
         })
+    }
+
+    #[test]
+    fn test_validate_key() {
+        assert!(validate_key(b"valid_key:123").is_ok());
+        assert!(validate_key("ключ_utf8".as_bytes()).is_ok());
+        assert!(validate_key(&[b'a'; 250]).is_ok());
+
+        assert_matches!(validate_key(b""), Err(MemcachedError::ClientConfig(_)));
+        assert_matches!(
+            validate_key(&[b'a'; 251]),
+            Err(MemcachedError::InvalidInput(_))
+        );
+        assert_matches!(
+            validate_key(b"bad key"),
+            Err(MemcachedError::InvalidInput(_))
+        );
+        assert_matches!(
+            validate_key(b"bad\r\nkey"),
+            Err(MemcachedError::InvalidInput(_))
+        );
+        assert_matches!(
+            validate_key(b"bad\0key"),
+            Err(MemcachedError::InvalidInput(_))
+        );
+        assert_matches!(
+            validate_key(b"bad\x7fkey"),
+            Err(MemcachedError::InvalidInput(_))
+        );
     }
 }
