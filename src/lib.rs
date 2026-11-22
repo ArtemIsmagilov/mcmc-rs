@@ -448,7 +448,7 @@ fn validate_flag(token: &[u8]) -> Result<()> {
     Ok(())
 }
 
-const MAX_ITEM_SIZE: usize = 128 * 1024 * 1024;
+const MAX_ITEM_SIZE: usize = 128 * 1024 * 1024; // 128 MiB
 
 fn parse_err<T: std::fmt::Display>(msg: T) -> MemcachedError {
     MemcachedError::Unexpected(msg.to_string())
@@ -810,10 +810,22 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> 
         let mut split = line.split(' ');
         split.next();
         let (key, flags, bytes, cas_unique) = (
-            split.next().unwrap().to_string(),
-            split.next().unwrap().parse().unwrap(),
-            split.next().unwrap().trim().parse().unwrap(),
-            split.next().map(|x| x.trim().parse().unwrap()),
+            split.next().ok_or_else(|| parse_err(&line))?.to_string(),
+            split
+                .next()
+                .ok_or_else(|| parse_err(&line))?
+                .parse()
+                .map_err(parse_err)?,
+            split
+                .next()
+                .ok_or_else(|| parse_err(&line))?
+                .trim()
+                .parse()
+                .map_err(parse_err)?,
+            split
+                .next()
+                .map(|x| x.trim().parse().map_err(parse_err))
+                .transpose()?,
         );
         let mut data_block = vec![0; bytes + 2];
         s.read_exact(&mut data_block).await?;
@@ -917,20 +929,24 @@ async fn parse_stats_rp<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
 ) -> Result<HashMap<String, String>> {
     let mut items = HashMap::new();
-    let mut data = String::new();
-    while s.read_line(&mut data).await? > 0 && data.starts_with("STAT") {
-        let mut split = data.split(' ');
+    let mut line = String::new();
+    while s.read_line(&mut line).await? > 0 && line.starts_with("STAT") {
+        let mut split = line.split(' ');
         split.next();
         let (k, v) = (
-            split.next().unwrap().to_string(),
-            split.next().unwrap().trim().to_string(),
+            split.next().ok_or_else(|| parse_err(&line))?.to_string(),
+            split
+                .next()
+                .ok_or_else(|| parse_err(&line))?
+                .trim()
+                .to_string(),
         );
         items.insert(k, v);
-        data.clear();
+        line.clear();
     }
-    match data.as_str() {
+    match line.as_str() {
         "END\r\n" => Ok(items),
-        _ => Err(check_error(data)),
+        _ => Err(check_error(line)),
     }
 }
 
@@ -1049,7 +1065,13 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     let data_len = if line.starts_with("VA") {
         status = MgStatus::WithBody;
         split.next();
-        Some(split.next().unwrap().parse().unwrap())
+        Some(
+            split
+                .next()
+                .ok_or_else(|| parse_err(&line))?
+                .parse()
+                .map_err(parse_err)?,
+        )
     } else if line.starts_with("HD") {
         status = MgStatus::WithoutBody;
         split.next();
@@ -1062,27 +1084,32 @@ async fn parse_mg_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
         return Err(check_error(line));
     };
     for flag in split {
-        let f = &flag[1..];
-        match &flag[..1] {
+        let Some((prefix, f)) = flag.split_at_checked(1) else {
+            return Err(parse_err(&line));
+        };
+        match prefix {
             "b" => base64_key = true,
-            "c" => cas = Some(f.parse().unwrap()),
-            "f" => flags = Some(f.parse().unwrap()),
-            "h" => hit = Some(f.parse().unwrap()),
+            "c" => cas = Some(f.parse().map_err(parse_err)?),
+            "f" => flags = Some(f.parse().map_err(parse_err)?),
+            "h" => hit = Some(f.parse().map_err(parse_err)?),
             "k" => key = Some(f.to_string()),
-            "l" => last_access_ttl = Some(f.parse().unwrap()),
+            "l" => last_access_ttl = Some(f.parse().map_err(parse_err)?),
             "O" => opaque = Some(f.to_string()),
-            "s" => size = Some(f.parse().unwrap()),
-            "t" => ttl = Some(f.parse().unwrap()),
+            "s" => size = Some(f.parse().map_err(parse_err)?),
+            "t" => ttl = Some(f.parse().map_err(parse_err)?),
             "W" => won_recache = true,
             "X" => stale = true,
             "Z" => already_win = true,
-            other => panic!("unexpected mg flag: {other}"),
+            other => return Err(parse_err(format!("unexpected mg flag: {other}"))),
         }
     }
-    if let Some(a) = data_len {
-        let mut buf = vec![0; a + 2];
+    if let Some(bytes) = data_len {
+        if bytes > MAX_ITEM_SIZE {
+            return Err(parse_err("item size too large"));
+        }
+        let mut buf = vec![0; bytes + 2];
         s.read_exact(&mut buf).await?;
-        buf.truncate(a);
+        buf.truncate(bytes);
         data_block = Some(buf);
     }
     Ok(MgItem {
@@ -1157,12 +1184,14 @@ async fn parse_md_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
     let mut split = line.trim().split(' ');
     split.next();
     for flag in split {
-        let f = &flag[1..];
-        match &flag[..1] {
+        let Some((prefix, f)) = flag.split_at_checked(1) else {
+            return Err(parse_err(&line));
+        };
+        match prefix {
             "k" => key = Some(f.to_string()),
             "O" => opaque = Some(f.to_string()),
             "b" => base64_key = true,
-            other => panic!("unexpected md flag: {other}"),
+            other => return Err(parse_err(format!("unexpected md flag: {other}"))),
         }
     }
     Ok(MdItem {
@@ -1204,21 +1233,23 @@ async fn parse_ma_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<
         return Err(check_error(line));
     };
     for flag in split {
-        let f = &flag[1..];
-        match &flag[..1] {
+        let Some((prefix, f)) = flag.split_at_checked(1) else {
+            return Err(parse_err(&line));
+        };
+        match prefix {
             "O" => opaque = Some(f.to_string()),
             "t" => ttl = Some(f.parse().unwrap()),
             "c" => cas = Some(f.parse().unwrap()),
             "k" => key = Some(f.to_string()),
             "b" => base64_key = true,
-            other => panic!("unexpected ma flag: {other}"),
+            other => return Err(parse_err(format!("unexpected ma flag: {other}"))),
         }
     }
     if let Some(a) = data_len {
         let mut buf = vec![0; a + 2];
         s.read_exact(&mut buf).await?;
         buf.truncate(a);
-        number = Some(String::from_utf8(buf).unwrap().parse().unwrap());
+        number = Some(String::from_utf8_lossy(&buf).parse().map_err(parse_err)?);
     }
     Ok(MaItem {
         status,
@@ -1297,7 +1328,7 @@ fn build_retrieval_cmd(
     }
     let mut w = Vec::from(command_name);
     if let Some(x) = exptime {
-        write!(&mut w, " {x}").unwrap()
+        write!(&mut w, " {x}")?
     }
     keys.iter().for_each(|&x| {
         w.push(b' ');
@@ -1531,7 +1562,7 @@ fn build_mc_cmd(
     w.push(b' ');
     w.extend(key);
     if let Some(x) = data_block {
-        write!(&mut w, " {}", x.len()).unwrap();
+        write!(&mut w, " {}", x.len())?;
         w.extend(flags);
         w.extend(b"\r\n");
         w.extend(x);
@@ -1650,12 +1681,12 @@ fn build_ma_flags(flags: &[MaFlag]) -> Result<Vec<u8>> {
     for x in flags {
         match x {
             MaFlag::Base64Key => w.extend(b" b"),
-            MaFlag::CompareCas(token) => write!(&mut w, " C{token}").unwrap(),
-            MaFlag::NewCas(token) => write!(&mut w, " E{token}").unwrap(),
-            MaFlag::AutoCreate(token) => write!(&mut w, " N{token}").unwrap(),
-            MaFlag::InitValue(token) => write!(&mut w, " J{token}").unwrap(),
-            MaFlag::DeltaApply(token) => write!(&mut w, " D{token}").unwrap(),
-            MaFlag::UpdateTtl(token) => write!(&mut w, " T{token}").unwrap(),
+            MaFlag::CompareCas(token) => write!(&mut w, " C{token}")?,
+            MaFlag::NewCas(token) => write!(&mut w, " E{token}")?,
+            MaFlag::AutoCreate(token) => write!(&mut w, " N{token}")?,
+            MaFlag::InitValue(token) => write!(&mut w, " J{token}")?,
+            MaFlag::DeltaApply(token) => write!(&mut w, " D{token}")?,
+            MaFlag::UpdateTtl(token) => write!(&mut w, " T{token}")?,
             MaFlag::Mode(token) => match token {
                 MaMode::Incr => w.extend(b" M+"),
                 MaMode::Decr => w.extend(b" M-"),
@@ -1728,7 +1759,8 @@ async fn udp_send_cmd(s: &UdpSocket, r: &mut u16, cmd: &[u8]) -> Result<()> {
 }
 
 async fn udp_recv_rp(s: &UdpSocket, r: &u16) -> Result<Vec<u8>> {
-    let mut result = HashMap::new();
+    let mut chunks = Vec::new();
+    let mut received = 0;
     let mut buf = [0; 1400];
     loop {
         let n = s.recv(&mut buf).await?;
@@ -1736,19 +1768,35 @@ async fn udp_recv_rp(s: &UdpSocket, r: &u16) -> Result<Vec<u8>> {
             return Err(MemcachedError::Unexpected("Invalid UDP header".to_string()));
         }
         let request_id = u16::from_be_bytes([buf[0], buf[1]]);
-        let sequence_number = u16::from_be_bytes([buf[2], buf[3]]);
-        let total_number_datagrams = u16::from_be_bytes([buf[4], buf[5]]);
         if *r != request_id {
             continue;
         }
-        result.insert(sequence_number, buf[8..n].to_vec());
-        if total_number_datagrams == result.len() as u16 {
-            break;
+        let sequence_number = u16::from_be_bytes([buf[2], buf[3]]) as usize;
+        let total_number_datagrams = u16::from_be_bytes([buf[4], buf[5]]) as usize;
+        if total_number_datagrams == 0
+            || total_number_datagrams > 1024
+            || sequence_number >= total_number_datagrams
+        {
+            return Err(MemcachedError::Unexpected(
+                "Invalid UDP datagram sequence".to_owned(),
+            ));
+        }
+        if chunks.is_empty() {
+            chunks.resize(total_number_datagrams, None);
+        } else if chunks.len() != total_number_datagrams {
+            return Err(MemcachedError::Unexpected(
+                "Inconsistent UDP datagram count".to_owned(),
+            ));
+        }
+        if chunks[sequence_number].is_none() {
+            chunks[sequence_number] = Some(buf[8..n].to_vec());
+            received += 1;
+            if received == total_number_datagrams {
+                break;
+            }
         }
     }
-    Ok((0..result.len() as u16)
-        .flat_map(|x| result.remove(&x).unwrap())
-        .collect())
+    Ok(chunks.into_iter().flatten().flatten().collect())
 }
 
 async fn version_cmd_udp(s: &UdpSocket, r: &mut u16) -> Result<String> {
