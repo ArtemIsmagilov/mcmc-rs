@@ -2309,6 +2309,7 @@ async fn get_tls_stream_from_rustls(
         .map_err(RustlsTlsError::from)?;
     let connector = TlsConnector::from(Arc::new(config));
     let tcp_stream = TcpStream::connect((hostname, port)).await?;
+    tcp_stream.set_nodelay(true)?;
     Ok(connector.connect(domain, tcp_stream).await?)
 }
 
@@ -2350,6 +2351,7 @@ async fn get_tls_stream_from_native_tls(
     #[cfg(feature = "tokio-native-tls-tls")]
     let connector = TlsConnector::from(builder.build()?);
     let tcp_stream = TcpStream::connect((hostname, port)).await?;
+    tcp_stream.set_nodelay(true)?;
     Ok(connector.connect(hostname, tcp_stream).await?)
 }
 
@@ -2387,9 +2389,9 @@ impl Connection {
     /// # }).unwrap()
     /// ```
     pub async fn default() -> Result<Self> {
-        Ok(Connection::Tcp(BufReader::new(
-            TcpStream::connect("127.0.0.1:11211").await?,
-        )))
+        let stream = TcpStream::connect("127.0.0.1:11211").await?;
+        stream.set_nodelay(true)?;
+        Ok(Connection::Tcp(BufReader::new(stream)))
     }
 
     /// # Example
@@ -2413,6 +2415,8 @@ impl Connection {
     /// # }).unwrap()
     /// ```
     pub async fn tcp_connect(addr: &str) -> Result<Self> {
+        let stream = TcpStream::connect(addr).await?;
+        stream.set_nodelay(true)?;
         Ok(Connection::Tcp(BufReader::new(
             TcpStream::connect(addr).await?,
         )))
