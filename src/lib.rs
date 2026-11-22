@@ -448,6 +448,12 @@ fn validate_flag(token: &[u8]) -> Result<()> {
     Ok(())
 }
 
+const MAX_ITEM_SIZE: usize = 128 * 1024 * 1024;
+
+fn parse_err<T: std::fmt::Display>(msg: T) -> MemcachedError {
+    MemcachedError::Unexpected(msg.to_string())
+}
+
 #[derive(Debug, PartialEq)]
 pub enum StorageResult {
     Stored,
@@ -627,7 +633,7 @@ pub enum PipelineResponse {
     SlabsReassignResult(SlabsReassignResult),
 }
 
-enum PipelineExpect {
+pub enum PipelineExpect {
     RetrievalOne,
     RetrievalMulti,
     Storage { noreply: bool },
@@ -1759,7 +1765,7 @@ async fn quit_cmd_udp(s: &UdpSocket, r: &mut u16) -> Result<()> {
     udp_send_cmd(s, r, build_quit_cmd()).await
 }
 
-async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
+pub async fn quit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
     Ok(s.write_all(build_quit_cmd()).await?)
 }
 
@@ -1767,7 +1773,7 @@ async fn shutdown_cmd_udp(s: &UdpSocket, r: &mut u16, graceful: bool) -> Result<
     udp_send_cmd(s, r, build_shutdown_cmd(graceful)).await
 }
 
-async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn shutdown_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     graceful: bool,
 ) -> Result<()> {
@@ -1788,7 +1794,7 @@ async fn cache_memlimit_cmd_udp(
     }
 }
 
-async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn cache_memlimit_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     limit: usize,
     noreply: bool,
@@ -1812,7 +1818,7 @@ async fn flush_all_cmd_udp(
     }
 }
 
-async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn flush_all_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     exptime: Option<i64>,
     noreply: bool,
@@ -1890,7 +1896,7 @@ async fn delete_cmd_udp(
     }
 }
 
-async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     noreply: bool,
@@ -1899,7 +1905,7 @@ async fn delete_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_delete_rp(s, noreply).await
 }
 
-async fn auth_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn auth_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     username: &[u8],
     password: &[u8],
@@ -1956,7 +1962,7 @@ async fn touch_cmd_udp(
     }
 }
 
-async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn touch_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     exptime: i64,
@@ -1998,7 +2004,7 @@ async fn stats_cmd_udp(
     parse_stats_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn stats_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: Option<StatsArg>,
 ) -> Result<HashMap<String, String>> {
@@ -2011,7 +2017,7 @@ async fn slabs_automove_cmd_udp(s: &UdpSocket, r: &mut u16, arg: SlabsAutomoveAr
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn slabs_automove_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: SlabsAutomoveArg,
 ) -> Result<()> {
@@ -2024,7 +2030,7 @@ async fn lru_crawler_cmd_udp(s: &UdpSocket, r: &mut u16, arg: LruCrawlerArg) -> 
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn lru_crawler_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerArg,
 ) -> Result<()> {
@@ -2037,7 +2043,7 @@ async fn lru_crawler_sleep_cmd_udp(s: &UdpSocket, r: &mut u16, microseconds: usi
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn lru_crawler_sleep_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     microseconds: usize,
 ) -> Result<()> {
@@ -2051,7 +2057,7 @@ async fn lru_crawler_tocrawl_cmd_udp(s: &UdpSocket, r: &mut u16, arg: u32) -> Re
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn lru_crawler_tocrawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: u32,
 ) -> Result<()> {
@@ -2068,7 +2074,7 @@ async fn lru_crawler_crawl_cmd_udp(
     parse_lru_crawler_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn lru_crawler_crawl_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerCrawlArg<'_>,
 ) -> Result<LruCrawlerResult> {
@@ -2086,7 +2092,7 @@ async fn slabs_reassign_cmd_udp(
     parse_slabs_reassign_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     source_class: isize,
     dest_class: isize,
@@ -2096,7 +2102,7 @@ async fn slabs_reassign_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_slabs_reassign_rp(s).await
 }
 
-async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMetadumpArg<'_>,
 ) -> Result<LruCrawlerDumpResult> {
@@ -2104,7 +2110,7 @@ async fn lru_crawler_metadump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_lru_crawler_metadump_rp(s).await
 }
 
-async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn lru_crawler_mgdump_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: LruCrawlerMgdumpArg<'_>,
 ) -> Result<LruCrawlerDumpResult> {
@@ -2117,7 +2123,7 @@ async fn mn_cmd_udp(s: &UdpSocket, r: &mut u16) -> Result<()> {
     parse_mn_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
+pub async fn mn_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
     s.write_all(build_mn_cmd()).await?;
     parse_mn_rp(s).await
 }
@@ -2127,7 +2133,7 @@ async fn me_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8]) -> Result<Option<Str
     parse_me_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
 ) -> Result<Option<String>> {
@@ -2135,7 +2141,7 @@ async fn me_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     parse_me_rp(s).await
 }
 
-async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn execute_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     cmds: &[(Vec<u8>, PipelineExpect)],
 ) -> Result<Vec<Result<PipelineResponse>>> {
@@ -2249,7 +2255,7 @@ async fn ms_cmd_udp(
     parse_ms_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn ms_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MsFlag],
@@ -2275,7 +2281,7 @@ async fn mg_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8], flags: &[MgFlag]) ->
     parse_mg_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn mg_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MgFlag],
@@ -2295,7 +2301,7 @@ async fn md_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8], flags: &[MdFlag]) ->
     parse_md_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn md_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MdFlag],
@@ -2315,7 +2321,7 @@ async fn ma_cmd_udp(s: &UdpSocket, r: &mut u16, key: &[u8], flags: &[MaFlag]) ->
     parse_ma_rp(&mut Cursor::new(udp_recv_rp(s, r).await?)).await
 }
 
-async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn ma_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     key: &[u8],
     flags: &[MaFlag],
@@ -2330,7 +2336,7 @@ async fn lru_cmd_udp(s: &UdpSocket, r: &mut u16, arg: LruArg) -> Result<()> {
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> Result<()> {
+pub async fn lru_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S, arg: LruArg) -> Result<()> {
     s.write_all(&build_lru_cmd(arg)).await?;
     parse_ok_rp(s, false).await
 }
@@ -2348,7 +2354,7 @@ async fn verbosity_cmd_udp(
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), noreply).await
 }
 
-async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
+pub async fn verbosity_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(
     s: &mut S,
     arg: VerbosityArg,
     noreply: bool,
@@ -2362,7 +2368,7 @@ async fn refresh_certs_cmd_udp(s: &UdpSocket, r: &mut u16) -> Result<()> {
     parse_ok_rp(&mut Cursor::new(udp_recv_rp(s, r).await?), false).await
 }
 
-async fn refresh_certs_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
+pub async fn refresh_certs_cmd<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> Result<()> {
     s.write_all(build_refresh_certs_cmd()).await?;
     parse_ok_rp(s, false).await
 }

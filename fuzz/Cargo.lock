@@ -294,13 +294,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
-name = "hrw-hash"
-version = "2.0.3"
+name = "hrw"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb03565b4d40fe68cd5811eb86160dde65f0b7580e5872b2e3d50ee07a4a815c"
-dependencies = [
- "rapidhash",
-]
+checksum = "facc8051ee27a0e1ba79153663c22aa3eed8ae92c8a1584244aa33e5c12a7ed6"
 
 [[package]]
 name = "jobserver"
@@ -336,14 +333,15 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "mcmc-rs"
-version = "0.11.0"
+version = "0.16.0"
 dependencies = [
  "async-net",
  "crc32fast",
  "fastrand",
  "futures-lite",
  "hashring",
- "hrw-hash",
+ "hrw",
+ "rapidhash",
  "thiserror",
 ]
 
@@ -419,9 +417,12 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rapidhash"
-version = "3.1.0"
+version = "4.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efee4b7317469c6c6e7fdeee3d094313af846a97678d6ed971d83a852d730083"
+checksum = "5da7e78a036ce858e8d55b7e7dc8ba3a88b78350fd2155d3591bbd966b58589e"
+dependencies = [
+ "rustversion",
+]
 
 [[package]]
 name = "rustix"
@@ -435,6 +436,12 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys",
 ]
+
+[[package]]
+name = "rustversion"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "shlex"

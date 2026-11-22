@@ -1,6 +1,8 @@
 use smol::block_on;
 
-use mcmc_rs::{ClientCrc32, Connection, ServerSelector, WatchArg};
+use mcmc_rs::{
+    ClientCrc32, ClientHashRing, ClientRendezvous, Connection, ServerSelector, WatchArg,
+};
 
 fn main() -> mcmc_rs::Result<()> {
     block_on(async {
@@ -13,6 +15,20 @@ fn main() -> mcmc_rs::Result<()> {
         let mut client = ClientCrc32::new(vec![
             Connection::default().await?,
             Connection::tcp_connect("127.0.0.1:11213").await?,
+        ]);
+        client.set(b"key", 0, 0, false, b"value").await?;
+        let item = client.get(b"key").await?;
+        println!("{item:#?}");
+        let mut client = ClientHashRing::new([
+            ("node1", Connection::default().await?),
+            ("node2", Connection::tcp_connect("127.0.0.1:11213").await?),
+        ]);
+        client.set(b"key", 0, 0, false, b"value").await?;
+        let item = client.get(b"key").await?;
+        println!("{item:#?}");
+        let mut client = ClientRendezvous::new([
+            ("node1", Connection::default().await?),
+            ("node2", Connection::tcp_connect("127.0.0.1:11213").await?),
         ]);
         client.set(b"key", 0, 0, false, b"value").await?;
         let item = client.get(b"key").await?;
