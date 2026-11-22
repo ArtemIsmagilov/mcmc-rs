@@ -5370,8 +5370,38 @@ impl WatchStream {
     }
 }
 
+async fn try_join_all<F, T>(futs: Vec<F>) -> Result<Vec<T>>
+where
+    F: Future<Output = Result<T>>,
+{
+    let mut futs: Vec<_> = futs.into_iter().map(Box::pin).collect();
+    let mut results: Vec<Option<T>> = (0..futs.len()).map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut all_done = true;
+        for (i, fut) in futs.iter_mut().enumerate() {
+            if results[i].is_none() {
+                match fut.as_mut().poll(cx) {
+                    std::task::Poll::Ready(Ok(val)) => results[i] = Some(val),
+                    std::task::Poll::Ready(Err(err)) => return std::task::Poll::Ready(Err(err)),
+                    std::task::Poll::Pending => all_done = false,
+                }
+            }
+        }
+        if all_done {
+            let out = std::mem::take(&mut results).into_iter().flatten().collect();
+            std::task::Poll::Ready(Ok(out))
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await
+}
+
 pub trait ServerSelector: Send + Sync {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection;
+
+    fn select_servers<'a>(&mut self, keys: &'a [&'a [u8]])
+    -> Vec<(&mut Connection, Vec<&'a [u8]>)>;
 
     /// # Example
     ///
@@ -6141,12 +6171,154 @@ pub trait ServerSelector: Send + Sync {
     ) -> impl Future<Output = Result<MaItem>> + Send {
         async move { self.select_server(key.as_ref()).ma(key, flags).await }
     }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_selector_get_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_selector_get_multi_b", 0, 0, false, b"b").await?;
+    /// let mut items = client
+    ///     .get_multi(&[b"doc_selector_get_multi_a", b"doc_selector_get_multi_b"])
+    ///     .await?;
+    /// items.sort_by(|a, b| a.key.cmp(&b.key));
+    /// assert_eq!(items.len(), 2);
+    /// assert_eq!(items[0].data_block, b"a");
+    /// assert_eq!(items[1].data_block, b"b");
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    fn get_multi(
+        &mut self,
+        keys: &[impl AsRef<[u8]> + Sync],
+    ) -> impl Future<Output = Result<Vec<Item>>> + Send {
+        async move {
+            if keys.is_empty() {
+                return Ok(Vec::new());
+            }
+            let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
+            let groups = self.select_servers(&key_refs);
+            let futs = groups
+                .into_iter()
+                .map(|(conn, shard_keys)| async move { conn.get_multi(&shard_keys).await })
+                .collect();
+            let chunks = try_join_all(futs).await?;
+            Ok(chunks.into_iter().flatten().collect())
+        }
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_selector_gets_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_selector_gets_multi_b", 0, 0, false, b"b").await?;
+    /// let mut items = client
+    ///     .gets_multi(&[b"doc_selector_gets_multi_a", b"doc_selector_gets_multi_b"])
+    ///     .await?;
+    /// items.sort_by(|a, b| a.key.cmp(&b.key));
+    /// assert_eq!(items.len(), 2);
+    /// assert_eq!(items[0].data_block, b"a");
+    /// assert_eq!(items[1].data_block, b"b");
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    fn gets_multi(
+        &mut self,
+        keys: &[impl AsRef<[u8]> + Sync],
+    ) -> impl Future<Output = Result<Vec<Item>>> + Send {
+        async move {
+            if keys.is_empty() {
+                return Ok(Vec::new());
+            }
+            let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
+            let groups = self.select_servers(&key_refs);
+            let futs = groups
+                .into_iter()
+                .map(|(conn, shard_keys)| async move { conn.gets_multi(&shard_keys).await })
+                .collect();
+            let chunks = try_join_all(futs).await?;
+            Ok(chunks.into_iter().flatten().collect())
+        }
+    }
+
+    fn gat_multi(
+        &mut self,
+        exptime: i64,
+        keys: &[impl AsRef<[u8]> + Sync],
+    ) -> impl Future<Output = Result<Vec<Item>>> + Send {
+        async move {
+            if keys.is_empty() {
+                return Ok(Vec::new());
+            }
+            let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
+            let groups = self.select_servers(&key_refs);
+            let futs = groups
+                .into_iter()
+                .map(|(conn, shard_keys)| async move { conn.gat_multi(exptime, &shard_keys).await })
+                .collect();
+            let chunks = try_join_all(futs).await?;
+            Ok(chunks.into_iter().flatten().collect())
+        }
+    }
+
+    fn gats_multi(
+        &mut self,
+        exptime: i64,
+        keys: &[impl AsRef<[u8]> + Sync],
+    ) -> impl Future<Output = Result<Vec<Item>>> + Send {
+        async move {
+            if keys.is_empty() {
+                return Ok(Vec::new());
+            }
+            let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
+            let groups = self.select_servers(&key_refs);
+            let futs = groups
+                .into_iter()
+                .map(
+                    |(conn, shard_keys)| async move { conn.gats_multi(exptime, &shard_keys).await },
+                )
+                .collect();
+            let chunks = try_join_all(futs).await?;
+            Ok(chunks.into_iter().flatten().collect())
+        }
+    }
 }
 
 impl ServerSelector for ClientCrc32 {
     fn select_server(&mut self, key: &[u8]) -> &mut Connection {
         let index = crc32(key) as usize % self.0.len();
         &mut self.0[index]
+    }
+
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Vec<(&mut Connection, Vec<&'a [u8]>)> {
+        let mut grouped: HashMap<usize, Vec<&'a [u8]>> = HashMap::new();
+        for &key in keys {
+            let index = crc32(key) as usize % self.0.len();
+            grouped.entry(index).or_default().push(key);
+        }
+        self.0
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(i, conn)| grouped.remove(&i).map(|shard_keys| (conn, shard_keys)))
+            .collect()
     }
 }
 
@@ -6157,6 +6329,25 @@ impl<S: BuildHasher + Send + Sync> ServerSelector for ClientHashRing<S> {
             .get_mut(node)
             .expect("missing connection for node")
     }
+
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Vec<(&mut Connection, Vec<&'a [u8]>)> {
+        let mut grouped: HashMap<&str, Vec<&'a [u8]>> = HashMap::new();
+        for &key in keys {
+            let node = self.ring.get(&key).expect("hash ring is empty");
+            grouped.entry(node.as_str()).or_default().push(key);
+        }
+        self.conns
+            .iter_mut()
+            .filter_map(|(name, conn)| {
+                grouped
+                    .remove(name.as_str())
+                    .map(|shard_keys| (conn, shard_keys))
+            })
+            .collect()
+    }
 }
 
 impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S> {
@@ -6165,6 +6356,25 @@ impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S
         self.conns
             .get_mut(node)
             .expect("missing connection for node")
+    }
+
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Vec<(&mut Connection, Vec<&'a [u8]>)> {
+        let mut grouped: HashMap<&str, Vec<&'a [u8]>> = HashMap::new();
+        for &key in keys {
+            let node = self.hrw.pick_top(&key).expect("rendezvous is empty");
+            grouped.entry(node.as_str()).or_default().push(key);
+        }
+        self.conns
+            .iter_mut()
+            .filter_map(|(name, conn)| {
+                grouped
+                    .remove(name.as_str())
+                    .map(|shard_keys| (conn, shard_keys))
+            })
+            .collect()
     }
 }
 
