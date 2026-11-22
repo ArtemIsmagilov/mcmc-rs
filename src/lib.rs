@@ -6260,6 +6260,29 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_selector_gat_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_selector_gat_multi_b", 0, 0, false, b"b").await?;
+    /// let mut items = client
+    ///     .gat_multi(0, &[b"doc_selector_gat_multi_a", b"doc_selector_gat_multi_b"])
+    ///     .await?;
+    /// items.sort_by(|a, b| a.key.cmp(&b.key));
+    /// assert_eq!(items.len(), 2);
+    /// assert_eq!(items[0].data_block, b"a");
+    /// assert_eq!(items[1].data_block, b"b");
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn gat_multi(
         &mut self,
         exptime: i64,
@@ -6280,6 +6303,29 @@ pub trait ServerSelector: Send + Sync {
         }
     }
 
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_selector_gats_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_selector_gats_multi_b", 0, 0, false, b"b").await?;
+    /// let mut items = client
+    ///     .gat_multi(0, &[b"doc_selector_gats_multi_a", b"doc_selector_gats_multi_b"])
+    ///     .await?;
+    /// items.sort_by(|a, b| a.key.cmp(&b.key));
+    /// assert_eq!(items.len(), 2);
+    /// assert_eq!(items[0].data_block, b"a");
+    /// assert_eq!(items[1].data_block, b"b");
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     fn gats_multi(
         &mut self,
         exptime: i64,
