@@ -1576,7 +1576,10 @@ fn build_mg_flags(flags: &[MgFlag]) -> Result<Vec<u8>> {
                 validate_flag(token.as_bytes())?;
                 write!(&mut w, " P{token}")?;
             }
-            MgFlag::LocationHint(token) => write!(&mut w, " L{token}").unwrap(),
+            MgFlag::LocationHint(token) => {
+                validate_flag(token.as_bytes())?;
+                write!(&mut w, " L{token}")?;
+            }
         }
     }
     Ok(w)
@@ -2511,9 +2514,7 @@ impl Connection {
     pub async fn tcp_connect(addr: &str) -> Result<Self> {
         let stream = TcpStream::connect(addr).await?;
         stream.set_nodelay(true)?;
-        Ok(Connection::Tcp(BufReader::new(
-            TcpStream::connect(addr).await?,
-        )))
+        Ok(Connection::Tcp(BufReader::new(stream)))
     }
 
     /// # Example
@@ -6411,7 +6412,7 @@ pub trait ServerSelector: Send + Sync {
     /// client.set(b"doc_selector_gats_multi_a", 0, 0, false, b"a").await?;
     /// client.set(b"doc_selector_gats_multi_b", 0, 0, false, b"b").await?;
     /// let mut items = client
-    ///     .gat_multi(0, &[b"doc_selector_gats_multi_a", b"doc_selector_gats_multi_b"])
+    ///     .gats_multi(0, &[b"doc_selector_gats_multi_a", b"doc_selector_gats_multi_b"])
     ///     .await?;
     /// items.sort_by(|a, b| a.key.cmp(&b.key));
     /// assert_eq!(items.len(), 2);
