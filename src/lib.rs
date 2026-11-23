@@ -6642,7 +6642,7 @@ impl<S: BuildHasher> ClientModN<S> {
 
 impl<S: BuildHasher + Send + Sync> ServerSelector for ClientModN<S> {
     fn select_server(&mut self, key: &[u8]) -> Result<&mut Connection> {
-        if self.conns.len() == 0 {
+        if self.conns.is_empty() {
             return Err(no_servers_err());
         }
         let index = (self.hasher.hash_one(key) as usize) % self.conns.len();
@@ -6653,7 +6653,7 @@ impl<S: BuildHasher + Send + Sync> ServerSelector for ClientModN<S> {
         &mut self,
         keys: &'a [&'a [u8]],
     ) -> Result<Vec<(&mut Connection, Vec<&'a [u8]>)>> {
-        if self.conns.len() == 0 {
+        if self.conns.is_empty() {
             return Err(no_servers_err());
         }
         let mut grouped: HashMap<usize, Vec<&'a [u8]>> = HashMap::new();
