@@ -134,6 +134,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
@@ -146,7 +149,5 @@ jobs:
           cargo hack check \
           --feature-powerset \
           --no-dev-deps \
-          --mutually-exclusive-features \
-          smol-rt,tokio-rt \
-          --at-least-one-of \
-          smol-rt,tokio-rt
+          --mutually-exclusive-features smol-rt,tokio-rt \
+          --at-least-one-of smol-rt,tokio-rt
