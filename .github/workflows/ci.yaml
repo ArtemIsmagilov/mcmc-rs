@@ -128,9 +128,12 @@ jobs:
         with:
           path: "*.svg"
 
-  hack:
-    runs-on: ubuntu-latest
-    name: Check compiling
+  hack-cross:
+    name: Compiling cross
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
