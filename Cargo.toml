@@ -13,7 +13,6 @@ categories = ["asynchronous", "caching", "database"]
 thiserror = "2.0"
 fastrand = "2.5"
 
-crc32fast = "1.5"
 hashring = "0.3"
 hrw = "0.1"
 rapidhash = "4.5"

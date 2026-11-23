@@ -1,8 +1,6 @@
 use tokio::runtime::Runtime;
 
-use mcmc_rs::{
-    ClientCrc32, ClientHashRing, ClientRendezvous, Connection, ServerSelector, WatchArg,
-};
+use mcmc_rs::{ClientHashRing, ClientModN, ClientRendezvous, Connection, ServerSelector, WatchArg};
 
 fn main() -> mcmc_rs::Result<()> {
     let rt = Runtime::new()?;
@@ -13,7 +11,7 @@ fn main() -> mcmc_rs::Result<()> {
         let item = conn.get(b"key").await?;
         println!("{item:#?}");
         // Cluster mode
-        let mut client = ClientCrc32::new(vec![
+        let mut client = ClientModN::new(vec![
             Connection::default().await?,
             Connection::tcp_connect("127.0.0.1:11213").await?,
         ]);

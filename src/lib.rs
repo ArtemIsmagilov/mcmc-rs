@@ -213,7 +213,6 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::io::Write;
 
-use crc32fast::hash as crc32;
 use hashring::HashRing;
 use hrw::Rendezvous;
 use rapidhash::quality::SeedableState;
@@ -5618,6 +5617,10 @@ where
     .await
 }
 
+fn no_servers_err() -> MemcachedError {
+    MemcachedError::ClientConfig("no connections".to_owned())
+}
+
 /// Routes keys to server connections.
 ///
 /// The crate provides [`ClientCrc32`], [`ClientHashRing`] and
@@ -5627,15 +5630,17 @@ where
 /// multi-key operations use the same mapping.
 pub trait ServerSelector: Send + Sync {
     /// Returns the connection responsible for `key`.
-    fn select_server(&mut self, key: &[u8]) -> &mut Connection;
+    fn select_server(&mut self, key: &[u8]) -> Result<&mut Connection>;
 
     /// Groups `keys` by their target connection.
     ///
     /// Each returned pair contains a connection and the keys routed to it.
     /// Connections without matching keys may be omitted. Multi-key methods use
     /// this to issue one command per server.
-    fn select_servers<'a>(&mut self, keys: &'a [&'a [u8]])
-    -> Vec<(&mut Connection, Vec<&'a [u8]>)>;
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Result<Vec<(&mut Connection, Vec<&'a [u8]>)>>;
 
     /// # Example
     ///
@@ -5661,7 +5666,7 @@ pub trait ServerSelector: Send + Sync {
         &mut self,
         key: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<Option<Item>>> + Send {
-        async move { self.select_server(key.as_ref()).get(key).await }
+        async move { self.select_server(key.as_ref())?.get(key).await }
     }
 
     /// # Example
@@ -5690,7 +5695,7 @@ pub trait ServerSelector: Send + Sync {
         &mut self,
         key: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<Option<Item>>> + Send {
-        async move { self.select_server(key.as_ref()).gets(key).await }
+        async move { self.select_server(key.as_ref())?.gets(key).await }
     }
 
     /// # Example
@@ -5721,7 +5726,7 @@ pub trait ServerSelector: Send + Sync {
         exptime: i64,
         key: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<Option<Item>>> + Send {
-        async move { self.select_server(key.as_ref()).gat(exptime, key).await }
+        async move { self.select_server(key.as_ref())?.gat(exptime, key).await }
     }
 
     /// # Example
@@ -5752,7 +5757,7 @@ pub trait ServerSelector: Send + Sync {
         exptime: i64,
         key: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<Option<Item>>> + Send {
-        async move { self.select_server(key.as_ref()).gats(exptime, key).await }
+        async move { self.select_server(key.as_ref())?.gats(exptime, key).await }
     }
 
     /// # Example
@@ -5786,7 +5791,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<StorageResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .set(key, flags, exptime, noreply, data_block)
                 .await
         }
@@ -5828,7 +5833,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<StorageResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .add(key, flags, exptime, noreply, data_block)
                 .await
         }
@@ -5880,7 +5885,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<StorageResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .replace(key, flags, exptime, noreply, data_block)
                 .await
         }
@@ -5932,7 +5937,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<StorageResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .append(key, flags, exptime, noreply, data_block)
                 .await
         }
@@ -5984,7 +5989,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<StorageResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .prepend(key, flags, exptime, noreply, data_block)
                 .await
         }
@@ -6034,7 +6039,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<StorageResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .cas(key, flags, exptime, cas_unique, noreply, data_block)
                 .await
         }
@@ -6077,7 +6082,7 @@ pub trait ServerSelector: Send + Sync {
         key: impl AsRef<[u8]> + Send,
         noreply: bool,
     ) -> impl Future<Output = Result<DeleteResult>> + Send {
-        async move { self.select_server(key.as_ref()).delete(key, noreply).await }
+        async move { self.select_server(key.as_ref())?.delete(key, noreply).await }
     }
 
     /// # Example
@@ -6118,7 +6123,7 @@ pub trait ServerSelector: Send + Sync {
         noreply: bool,
     ) -> impl Future<Output = Result<IncrDecrResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .incr(key, value, noreply)
                 .await
         }
@@ -6162,7 +6167,7 @@ pub trait ServerSelector: Send + Sync {
         noreply: bool,
     ) -> impl Future<Output = Result<IncrDecrResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .decr(key, value, noreply)
                 .await
         }
@@ -6207,7 +6212,7 @@ pub trait ServerSelector: Send + Sync {
         noreply: bool,
     ) -> impl Future<Output = Result<TouchResult>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .touch(key, exptime, noreply)
                 .await
         }
@@ -6239,7 +6244,7 @@ pub trait ServerSelector: Send + Sync {
         &mut self,
         key: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<Option<String>>> + Send {
-        async move { self.select_server(key.as_ref()).me(key).await }
+        async move { self.select_server(key.as_ref())?.me(key).await }
     }
 
     /// # Example
@@ -6269,7 +6274,7 @@ pub trait ServerSelector: Send + Sync {
         key: impl AsRef<[u8]> + Send,
         flags: &[MgFlag],
     ) -> impl Future<Output = Result<MgItem>> + Send {
-        async move { self.select_server(key.as_ref()).mg(key, flags).await }
+        async move { self.select_server(key.as_ref())?.mg(key, flags).await }
     }
 
     /// # Example
@@ -6317,7 +6322,7 @@ pub trait ServerSelector: Send + Sync {
         data_block: impl AsRef<[u8]> + Send,
     ) -> impl Future<Output = Result<MsItem>> + Send {
         async move {
-            self.select_server(key.as_ref())
+            self.select_server(key.as_ref())?
                 .ms(key, flags, data_block)
                 .await
         }
@@ -6352,7 +6357,7 @@ pub trait ServerSelector: Send + Sync {
         key: impl AsRef<[u8]> + Send,
         flags: &[MdFlag],
     ) -> impl Future<Output = Result<MdItem>> + Send {
-        async move { self.select_server(key.as_ref()).md(key, flags).await }
+        async move { self.select_server(key.as_ref())?.md(key, flags).await }
     }
 
     /// # Example
@@ -6403,7 +6408,7 @@ pub trait ServerSelector: Send + Sync {
         key: impl AsRef<[u8]> + Send,
         flags: &[MaFlag],
     ) -> impl Future<Output = Result<MaItem>> + Send {
-        async move { self.select_server(key.as_ref()).ma(key, flags).await }
+        async move { self.select_server(key.as_ref())?.ma(key, flags).await }
     }
 
     /// Retrieves several keys, grouping them by server.
@@ -6444,7 +6449,7 @@ pub trait ServerSelector: Send + Sync {
                 return Ok(Vec::new());
             }
             let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
-            let groups = self.select_servers(&key_refs);
+            let groups = self.select_servers(&key_refs)?;
             let futs = groups
                 .into_iter()
                 .map(|(conn, shard_keys)| async move { conn.get_multi(&shard_keys).await })
@@ -6493,7 +6498,7 @@ pub trait ServerSelector: Send + Sync {
                 return Ok(Vec::new());
             }
             let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
-            let groups = self.select_servers(&key_refs);
+            let groups = self.select_servers(&key_refs)?;
             let futs = groups
                 .into_iter()
                 .map(|(conn, shard_keys)| async move { conn.gets_multi(&shard_keys).await })
@@ -6543,7 +6548,7 @@ pub trait ServerSelector: Send + Sync {
                 return Ok(Vec::new());
             }
             let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
-            let groups = self.select_servers(&key_refs);
+            let groups = self.select_servers(&key_refs)?;
             let futs = groups
                 .into_iter()
                 .map(|(conn, shard_keys)| async move { conn.gat_multi(exptime, &shard_keys).await })
@@ -6593,7 +6598,7 @@ pub trait ServerSelector: Send + Sync {
                 return Ok(Vec::new());
             }
             let key_refs: Vec<&[u8]> = keys.iter().map(AsRef::as_ref).collect();
-            let groups = self.select_servers(&key_refs);
+            let groups = self.select_servers(&key_refs)?;
             let futs = groups
                 .into_iter()
                 .map(
@@ -6606,155 +6611,83 @@ pub trait ServerSelector: Send + Sync {
     }
 }
 
-impl ServerSelector for ClientCrc32 {
-    fn select_server(&mut self, key: &[u8]) -> &mut Connection {
-        let index = crc32(key) as usize % self.0.len();
-        &mut self.0[index]
-    }
-
-    fn select_servers<'a>(
-        &mut self,
-        keys: &'a [&'a [u8]],
-    ) -> Vec<(&mut Connection, Vec<&'a [u8]>)> {
-        let mut grouped: HashMap<usize, Vec<&'a [u8]>> = HashMap::new();
-        for &key in keys {
-            let index = crc32(key) as usize % self.0.len();
-            grouped.entry(index).or_default().push(key);
-        }
-        self.0
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(i, conn)| grouped.remove(&i).map(|shard_keys| (conn, shard_keys)))
-            .collect()
-    }
+pub struct ClientModN<S = SeedableState<'static>> {
+    conns: Vec<Connection>,
+    hasher: S,
 }
 
-impl<S: BuildHasher + Send + Sync> ServerSelector for ClientHashRing<S> {
-    fn select_server(&mut self, key: &[u8]) -> &mut Connection {
-        let node = self.ring.get(&key).expect("hash ring is empty");
-        self.conns
-            .get_mut(node)
-            .expect("missing connection for node")
-    }
-
-    fn select_servers<'a>(
-        &mut self,
-        keys: &'a [&'a [u8]],
-    ) -> Vec<(&mut Connection, Vec<&'a [u8]>)> {
-        let mut grouped: HashMap<&str, Vec<&'a [u8]>> = HashMap::new();
-        for &key in keys {
-            let node = self.ring.get(&key).expect("hash ring is empty");
-            grouped.entry(node.as_str()).or_default().push(key);
-        }
-        self.conns
-            .iter_mut()
-            .filter_map(|(name, conn)| {
-                grouped
-                    .remove(name.as_str())
-                    .map(|shard_keys| (conn, shard_keys))
-            })
-            .collect()
-    }
-}
-
-impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S> {
-    fn select_server(&mut self, key: &[u8]) -> &mut Connection {
-        let node = self.hrw.pick_top(&key).expect("rendezvous is empty");
-        self.conns
-            .get_mut(node)
-            .expect("missing connection for node")
-    }
-
-    fn select_servers<'a>(
-        &mut self,
-        keys: &'a [&'a [u8]],
-    ) -> Vec<(&mut Connection, Vec<&'a [u8]>)> {
-        let mut grouped: HashMap<&str, Vec<&'a [u8]>> = HashMap::new();
-        for &key in keys {
-            let node = self.hrw.pick_top(&key).expect("rendezvous is empty");
-            grouped.entry(node.as_str()).or_default().push(key);
-        }
-        self.conns
-            .iter_mut()
-            .filter_map(|(name, conn)| {
-                grouped
-                    .remove(name.as_str())
-                    .map(|shard_keys| (conn, shard_keys))
-            })
-            .collect()
-    }
-}
-
-pub struct ClientCrc32(Vec<Connection>);
-impl ClientCrc32 {
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
-    ///     Connection::default().await?,
-    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
-    /// ]);
-    /// assert_eq!(
-    ///     client.set(b"doc_crc32_new", 0, 0, false, b"value").await?,
-    ///     mcmc_rs::StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_crc32_new").await?.unwrap().data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
+impl ClientModN {
     pub fn new(conns: Vec<Connection>) -> Self {
-        assert!(!conns.is_empty(), "no connections");
-        Self(conns)
+        Self::with_hasher(conns, SeedableState::fixed())
+    }
+
+    pub fn with_seed(conns: Vec<Connection>, seed: u64) -> Self {
+        Self::with_hasher(conns, SeedableState::new(seed))
+    }
+}
+
+impl<S: BuildHasher> ClientModN<S> {
+    pub fn with_hasher(conns: Vec<Connection>, hasher: S) -> Self {
+        Self { conns, hasher }
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.conns.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.conns.is_empty()
     }
 }
 
+impl<S: BuildHasher + Send + Sync> ServerSelector for ClientModN<S> {
+    fn select_server(&mut self, key: &[u8]) -> Result<&mut Connection> {
+        if self.conns.len() == 0 {
+            return Err(no_servers_err());
+        }
+        let index = (self.hasher.hash_one(key) as usize) % self.conns.len();
+        Ok(&mut self.conns[index])
+    }
+
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Result<Vec<(&mut Connection, Vec<&'a [u8]>)>> {
+        if self.conns.len() == 0 {
+            return Err(no_servers_err());
+        }
+        let mut grouped: HashMap<usize, Vec<&'a [u8]>> = HashMap::new();
+        for &key in keys {
+            let index = (self.hasher.hash_one(key) as usize) % self.conns.len();
+            grouped.entry(index).or_default().push(key);
+        }
+        Ok(self
+            .conns
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(i, conn)| grouped.remove(&i).map(|shard_keys| (conn, shard_keys)))
+            .collect())
+    }
+}
+
+const DEFAULT_WEIGHT: usize = 160;
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+struct VNode(String, usize);
+
 pub struct ClientHashRing<S = SeedableState<'static>> {
     conns: HashMap<String, Connection>,
-    ring: HashRing<String, S>,
+    weights: HashMap<String, usize>,
+    ring: HashRing<VNode, S>,
+}
+
+impl Default for ClientHashRing {
+    fn default() -> Self {
+        Self::new(std::iter::empty::<(String, Connection)>())
+    }
 }
 
 impl ClientHashRing {
-    /// Creates a consistent hash ring using `rapidhash` with a default fixed seed.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new([
-    ///     ("node1", Connection::default().await?),
-    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_new", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_hash_ring_new").await?.unwrap().data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn new<I, K>(nodes: I) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6763,39 +6696,6 @@ impl ClientHashRing {
         Self::with_hasher(nodes, SeedableState::fixed())
     }
 
-    /// Creates a consistent hash ring using `rapidhash` with a custom `seed`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::with_seed(
-    ///     [
-    ///         ("node1", Connection::default().await?),
-    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    ///     ],
-    ///     42,
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_with_seed", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_hash_ring_with_seed")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn with_seed<I, K>(nodes: I, seed: u64) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6803,118 +6703,85 @@ impl ClientHashRing {
     {
         Self::with_hasher(nodes, SeedableState::new(seed))
     }
+
+    pub fn with_weights<I, K>(nodes: I) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection, usize)>,
+        K: Into<String>,
+    {
+        Self::with_weights_and_hasher(nodes, SeedableState::fixed())
+    }
 }
 
 impl<S: BuildHasher> ClientHashRing<S> {
-    /// Creates a consistent hash ring with a custom [`BuildHasher`].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::collections::hash_map::DefaultHasher;
-    /// # use std::hash::BuildHasherDefault;
-    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
-    /// let mut client = ClientHashRing::with_hasher(
-    ///     [
-    ///         ("node1", Connection::default().await?),
-    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    ///     ],
-    ///     hasher,
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_with_hasher", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_hash_ring_with_hasher")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn with_hasher<I, K>(nodes: I, hasher: S) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
         K: Into<String>,
     {
-        let mut conns = HashMap::new();
-        let mut ring = HashRing::with_hasher(hasher);
-        for (name, conn) in nodes {
-            let name = name.into();
-            if conns.insert(name.clone(), conn).is_none() {
-                ring.add(name);
-            }
-        }
-        assert!(!conns.is_empty(), "no connections");
-        Self { conns, ring }
+        Self::with_weights_and_hasher(
+            nodes.into_iter().map(|(k, c)| (k, c, DEFAULT_WEIGHT)),
+            hasher,
+        )
     }
 
-    /// Adds a server to the ring, or replaces its connection if `name` already exists.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new([("node1", Connection::default().await?)]);
-    /// assert!(client
-    ///     .add_server("node2", Connection::unix_connect("/tmp/memcached0.sock").await?)
-    ///     .is_none());
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_hash_ring_add_server", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
+    pub fn with_weights_and_hasher<I, K>(nodes: I, hasher: S) -> Self
+    where
+        I: IntoIterator<Item = (K, Connection, usize)>,
+        K: Into<String>,
+    {
+        let mut this = Self {
+            conns: HashMap::new(),
+            weights: HashMap::new(),
+            ring: HashRing::with_hasher(hasher),
+        };
+        for (name, conn, weight) in nodes {
+            this.add_server_with_weight(name, conn, weight);
+        }
+        this
+    }
+
     pub fn add_server(&mut self, name: impl Into<String>, conn: Connection) -> Option<Connection> {
         let name = name.into();
+        let weight = self.weights.get(&name).copied().unwrap_or(DEFAULT_WEIGHT);
+        self.add_server_with_weight(name, conn, weight)
+    }
+
+    pub fn add_server_with_weight(
+        &mut self,
+        name: impl Into<String>,
+        conn: Connection,
+        weight: usize,
+    ) -> Option<Connection> {
+        assert!(weight > 0, "weight must be greater than 0");
+        let name = name.into();
         let prev = self.conns.insert(name.clone(), conn);
-        if prev.is_none() {
-            self.ring.add(name);
+        match self.weights.insert(name.clone(), weight) {
+            Some(old_weight) if old_weight != weight => {
+                for i in 0..old_weight {
+                    self.ring.remove(&VNode(name.clone(), i));
+                }
+                for i in 0..weight {
+                    self.ring.add(VNode(name.clone(), i));
+                }
+            }
+            None => {
+                for i in 0..weight {
+                    self.ring.add(VNode(name.clone(), i));
+                }
+            }
+            Some(_) => {}
         }
         prev
     }
 
-    /// Removes a server from the ring by name and returns its connection.
-    /// Returns `None` if not found or if it is the last remaining server.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientHashRing, Connection};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientHashRing::new([
-    ///     ("node1", Connection::default().await?),
-    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    /// ]);
-    /// assert!(client.remove_server("node2").is_some());
-    /// assert!(client.remove_server("node1").is_none());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn remove_server(&mut self, name: &str) -> Option<Connection> {
-        if self.conns.len() <= 1 {
-            return None;
-        }
         let conn = self.conns.remove(name)?;
-        self.ring.remove(&name.to_owned());
+        if let Some(weight) = self.weights.remove(name) {
+            for i in 0..weight {
+                self.ring.remove(&VNode(name.to_owned(), i));
+            }
+        }
         Some(conn)
     }
 
@@ -6934,8 +6801,38 @@ impl<S: BuildHasher> ClientHashRing<S> {
         self.conns.keys().map(String::as_str)
     }
 
-    pub fn server_for_key(&self, key: &[u8]) -> &str {
-        self.ring.get(&key).expect("hash ring is empty").as_str()
+    pub fn server_for_key(&self, key: &[u8]) -> Option<&str> {
+        self.ring.get(&key).map(|vnode| vnode.0.as_str())
+    }
+}
+
+impl<S: BuildHasher + Send + Sync> ServerSelector for ClientHashRing<S> {
+    fn select_server(&mut self, key: &[u8]) -> Result<&mut Connection> {
+        let node = self.ring.get(&key).ok_or_else(no_servers_err)?;
+        self.conns.get_mut(&node.0).ok_or_else(no_servers_err)
+    }
+
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Result<Vec<(&mut Connection, Vec<&'a [u8]>)>> {
+        if self.conns.is_empty() {
+            return Err(no_servers_err());
+        }
+        let mut grouped: HashMap<&str, Vec<&'a [u8]>> = HashMap::new();
+        for &key in keys {
+            let node = self.ring.get(&key).ok_or_else(no_servers_err)?;
+            grouped.entry(node.0.as_str()).or_default().push(key);
+        }
+        Ok(self
+            .conns
+            .iter_mut()
+            .filter_map(|(name, conn)| {
+                grouped
+                    .remove(name.as_str())
+                    .map(|shard_keys| (conn, shard_keys))
+            })
+            .collect())
     }
 }
 
@@ -6944,33 +6841,13 @@ pub struct ClientRendezvous<S = SeedableState<'static>> {
     hrw: Rendezvous<String, S>,
 }
 
+impl Default for ClientRendezvous {
+    fn default() -> Self {
+        Self::new(std::iter::empty::<(String, Connection)>())
+    }
+}
+
 impl ClientRendezvous {
-    /// Creates a rendezvous (HRW) client using `rapidhash` with a default fixed seed.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new([
-    ///     ("node1", Connection::default().await?),
-    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    /// ]);
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_new", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client.get(b"doc_rendezvous_new").await?.unwrap().data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn new<I, K>(nodes: I) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6979,39 +6856,6 @@ impl ClientRendezvous {
         Self::with_hasher(nodes, SeedableState::fixed())
     }
 
-    /// Creates a rendezvous (HRW) client using `rapidhash` with a custom `seed`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::with_seed(
-    ///     [
-    ///         ("node1", Connection::default().await?),
-    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    ///     ],
-    ///     42,
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_with_seed", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_rendezvous_with_seed")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn with_seed<I, K>(nodes: I, seed: u64) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -7022,42 +6866,6 @@ impl ClientRendezvous {
 }
 
 impl<S: BuildHasher + Clone> ClientRendezvous<S> {
-    /// Creates a rendezvous (HRW) client with a custom [`BuildHasher`].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::collections::hash_map::DefaultHasher;
-    /// # use std::hash::BuildHasherDefault;
-    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
-    /// let mut client = ClientRendezvous::with_hasher(
-    ///     [
-    ///         ("node1", Connection::default().await?),
-    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    ///     ],
-    ///     hasher,
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_with_hasher", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     client
-    ///         .get(b"doc_rendezvous_with_hasher")
-    ///         .await?
-    ///         .unwrap()
-    ///         .data_block,
-    ///     b"value"
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn with_hasher<I, K>(nodes: I, hasher: S) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -7071,33 +6879,10 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
                 names.push(name);
             }
         }
-        assert!(!conns.is_empty(), "no connections");
         let hrw = Rendezvous::from_nodes_and_hasher(names, hasher);
         Self { conns, hrw }
     }
 
-    /// Adds a server, or replaces its connection if `name` already exists.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new([("node1", Connection::default().await?)]);
-    /// assert!(client
-    ///     .add_server("node2", Connection::unix_connect("/tmp/memcached0.sock").await?)
-    ///     .is_none());
-    /// assert_eq!(
-    ///     client
-    ///         .set(b"doc_rendezvous_add_server", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn add_server(&mut self, name: impl Into<String>, conn: Connection) -> Option<Connection> {
         let name = name.into();
         let prev = self.conns.insert(name.clone(), conn);
@@ -7107,29 +6892,7 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
         prev
     }
 
-    /// Removes a server by name and returns its connection.
-    /// Returns `None` if not found or if it is the last remaining server.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use mcmc_rs::{ClientRendezvous, Connection};
-    /// # use smol::block_on;
-    /// #
-    /// # block_on(async {
-    /// let mut client = ClientRendezvous::new([
-    ///     ("node1", Connection::default().await?),
-    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
-    /// ]);
-    /// assert!(client.remove_server("node2").is_some());
-    /// assert!(client.remove_server("node1").is_none());
-    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
-    /// # }).unwrap()
-    /// ```
     pub fn remove_server(&mut self, name: &str) -> Option<Connection> {
-        if self.conns.len() <= 1 {
-            return None;
-        }
         let conn = self.conns.remove(name)?;
         self.hrw.remove_node(&name.to_owned());
         Some(conn)
@@ -7151,11 +6914,38 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
         self.conns.keys().map(String::as_str)
     }
 
-    pub fn server_for_key(&self, key: &[u8]) -> &str {
-        self.hrw
-            .pick_top(&key)
-            .expect("rendezvous is empty")
-            .as_str()
+    pub fn server_for_key(&self, key: &[u8]) -> Option<&str> {
+        self.hrw.pick_top(&key).map(String::as_str)
+    }
+}
+
+impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S> {
+    fn select_server(&mut self, key: &[u8]) -> Result<&mut Connection> {
+        let node = self.hrw.pick_top(&key).ok_or_else(no_servers_err)?;
+        self.conns.get_mut(node).ok_or_else(no_servers_err)
+    }
+
+    fn select_servers<'a>(
+        &mut self,
+        keys: &'a [&'a [u8]],
+    ) -> Result<Vec<(&mut Connection, Vec<&'a [u8]>)>> {
+        if self.conns.is_empty() {
+            return Err(no_servers_err());
+        }
+        let mut grouped: HashMap<&str, Vec<&'a [u8]>> = HashMap::new();
+        for &key in keys {
+            let node = self.hrw.pick_top(&key).ok_or_else(no_servers_err)?;
+            grouped.entry(node.as_str()).or_default().push(key);
+        }
+        Ok(self
+            .conns
+            .iter_mut()
+            .filter_map(|(name, conn)| {
+                grouped
+                    .remove(name.as_str())
+                    .map(|shard_keys| (conn, shard_keys))
+            })
+            .collect())
     }
 }
 
