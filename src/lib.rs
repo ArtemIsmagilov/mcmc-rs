@@ -6713,6 +6713,14 @@ impl ClientCrc32 {
         assert!(!conns.is_empty(), "no connections");
         Self(conns)
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 pub struct ClientHashRing<S = SeedableState<'static>> {
@@ -6908,6 +6916,26 @@ impl<S: BuildHasher> ClientHashRing<S> {
         let conn = self.conns.remove(name)?;
         self.ring.remove(&name.to_owned());
         Some(conn)
+    }
+
+    pub fn len(&self) -> usize {
+        self.conns.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.conns.is_empty()
+    }
+
+    pub fn contains_server(&self, name: &str) -> bool {
+        self.conns.contains_key(name)
+    }
+
+    pub fn servers(&self) -> impl Iterator<Item = &str> {
+        self.conns.keys().map(String::as_str)
+    }
+
+    pub fn server_for_key(&self, key: &[u8]) -> &str {
+        self.ring.get(&key).expect("hash ring is empty").as_str()
     }
 }
 
@@ -7105,6 +7133,29 @@ impl<S: BuildHasher + Clone> ClientRendezvous<S> {
         let conn = self.conns.remove(name)?;
         self.hrw.remove_node(&name.to_owned());
         Some(conn)
+    }
+
+    pub fn len(&self) -> usize {
+        self.conns.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.conns.is_empty()
+    }
+
+    pub fn contains_server(&self, name: &str) -> bool {
+        self.conns.contains_key(name)
+    }
+
+    pub fn servers(&self) -> impl Iterator<Item = &str> {
+        self.conns.keys().map(String::as_str)
+    }
+
+    pub fn server_for_key(&self, key: &[u8]) -> &str {
+        self.hrw
+            .pick_top(&key)
+            .expect("rendezvous is empty")
+            .as_str()
     }
 }
 
