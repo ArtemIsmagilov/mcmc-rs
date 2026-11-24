@@ -1,6 +1,10 @@
 name: CI
 
-on: [pull_request, push]
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
 
 jobs:
   test:
@@ -51,12 +55,12 @@ jobs:
       - name: Cache job
         uses: Swatinem/rust-cache@v2
       - name: Run bench, PR changes
-        run: cargo bench --bench bench_time --all-features
+        run: cargo bench --bench bench_time --all-features --measurement-time 15 --save-baseline changes
       - name: Benchmark Base
         run: |
           git fetch origin ${{ github.base_ref }} --depth=1
           git checkout FETCH_HEAD
-          cargo bench --bench bench_time --all-features
+          cargo bench --bench bench_time --all-features --measurement-time 15 --save-baseline base
           git checkout -
       - name: Compare
         run: critcmp base changes
