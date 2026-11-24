@@ -72,6 +72,10 @@ required-features = ["smol-rustls-tls"]
 name = "simple-tokio"
 required-features = ["tokio-rustls-tls"]
 
+[[example]]
+name = "sharding"
+required-features = ["smol-rt"]
+
 [[bench]]
 harness = false
 name = "bench_time"

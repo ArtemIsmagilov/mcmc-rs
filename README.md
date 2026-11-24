@@ -4,40 +4,25 @@
 [![crates.io](https://img.shields.io/crates/v/mcmc-rs.svg)](https://crates.io/crates/mcmc-rs)
 [![docs.rs](https://img.shields.io/docsrs/mcmc-rs)](https://docs.rs/mcmc-rs)
 
-* This crate provides a comprehensive interface for interacting with Memcached servers.
-* Implements the complete Memcached protocol.
-* Available `TCP/Unix/UDP/TLS` connections.
-* Cross-platform support for `Linux/macOS/Windows` .
-* Typed API.
+An async Memcached client with a typed API and complete text-protocol support.
+
+* TCP, Unix domain sockets, UDP and TLS.
+* `smol` and `tokio` runtimes.
 * Client-side validation of keys and meta-flag tokens.
 * `TCP_NODELAY` is enabled automatically for TCP and TLS connections.
-
----
-
-* [Connection] is a Enum that represents a
-  connection to memcached server.
-* [Pipeline] is a structure that represents a
-  pipeline of memcached commands.
-* [WatchStream] is a structure that represents a
-  stream of watch events.
-* [ClientModN] is a structure that represents a
-  Cluster connections with ModN hashing.
-* [ClientHashRing] is a structure that represents a
-  Cluster connections with weighted Ring hashing.
-* [ClientRendezvous] is a structure that represents a
-  Cluster connections with Rendezvous hashing.
+* Built-in cluster clients: modulo, consistent hash ring and rendezvous hashing.
 
 ## Features
 
-The crate has no default features. You must enable exactly one async runtime;
-TLS support is optional and is layered on top of the selected runtime.
+The crate has no default features. Enable exactly one async runtime; TLS is
+optional and is layered on top of the selected runtime.
 
 ### Async runtime (choose exactly one)
 
-| Feature    | Description                                                    |
-| ---------- | -------------------------------------------------------------- |
+| Feature    | Description                                                                    |
+| ---------- | ------------------------------------------------------------------------------ |
 | `smol-rt`  | [`smol`](https://docs.rs/smol)/[`async-net`](https://docs.rs/async-net) runtime |
-| `tokio-rt` | [`tokio`](https://docs.rs/tokio) runtime                       |
+| `tokio-rt` | [`tokio`](https://docs.rs/tokio) runtime                                        |
 
 ```toml
 # smol, no TLS
@@ -49,15 +34,15 @@ mcmc-rs = { version = "0.17.0", features = ["tokio-rt"] }
 
 ### TLS (optional)
 
-Each TLS feature also enables the runtime it belongs to, so listing the TLS
-feature alone is enough. Use at most one TLS backend.
+Each TLS feature also enables its runtime, so listing the TLS feature alone is
+enough. Use at most one TLS backend.
 
-| Feature                 | Runtime | Backend                                  |
-| ----------------------- | ------- | ---------------------------------------- |
-| `smol-rustls-tls`       | smol    | rustls via `futures-rustls`              |
-| `tokio-rustls-tls`      | tokio   | rustls via `tokio-rustls`                |
-| `smol-native-tls-tls`   | smol    | native-tls via `async-native-tls`        |
-| `tokio-native-tls-tls`  | tokio   | native-tls via `tokio-native-tls`        |
+| Feature                | Runtime | Backend                           |
+| ---------------------- | ------- | --------------------------------- |
+| `smol-rustls-tls`      | smol    | rustls via `futures-rustls`       |
+| `tokio-rustls-tls`     | tokio   | rustls via `tokio-rustls`         |
+| `smol-native-tls-tls`  | smol    | native-tls via `async-native-tls` |
+| `tokio-native-tls-tls` | tokio   | native-tls via `tokio-native-tls` |
 
 ```toml
 # smol + rustls
@@ -74,33 +59,23 @@ mcmc-rs = { version = "0.17.0", features = ["tokio-native-tls-tls"] }
 The rustls backend starts with an empty root store. Enable one or both of these
 features to verify public certificates:
 
-| Feature                  | Description                                      |
-| ------------------------ | ------------------------------------------------ |
-| `webpki-roots-tls`       | Bundled Mozilla root certificates                |
-| `rustls-native-certs-tls`| Certificates from the operating system trust store |
+| Feature                   | Description                                        |
+| ------------------------- | -------------------------------------------------- |
+| `webpki-roots-tls`        | Bundled Mozilla root certificates                  |
+| `rustls-native-certs-tls` | Certificates from the operating system trust store |
 
 ```toml
 mcmc-rs = { version = "0.17.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
 ```
 
-Certificates passed through the `ca_path` argument of `Connection::tls_connect`
-are always added to the root store. The native-tls backend uses the platform
-trust store automatically.
+Certificates passed through `ca_path` to `Connection::tls_connect` are always
+added to the root store. The native-tls backend uses the platform trust store
+automatically.
 
 ### rustls CryptoProvider
 
-`mcmc-rs` does not select or install a rustls `CryptoProvider`. With a rustls
-backend, choose a provider in your application. The TLS helper crates may
-enable `aws-lc-rs` through their default features, but you should not rely on
-that. The simplest explicit option is to add the `rustls` dependency with its
-default features, which enables the `aws-lc-rs` provider:
-
-```toml
-rustls = "0.23"
-```
-
-Alternatively, install the provider explicitly before creating the first TLS
-connection:
+`mcmc-rs` does not install a rustls `CryptoProvider`; install one in your
+application before creating the first TLS connection:
 
 ```rust
 rustls::crypto::aws_lc_rs::default_provider()
@@ -108,30 +83,16 @@ rustls::crypto::aws_lc_rs::default_provider()
     .expect("failed to install rustls CryptoProvider");
 ```
 
-To use *ring* instead, enable that provider on the `rustls` dependency and
-install it:
-
-```toml
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
-```
-
-```rust
-rustls::crypto::ring::default_provider()
-    .install_default()
-    .expect("failed to install rustls CryptoProvider");
-```
-
-Selecting the provider explicitly also prepares the code for rustls 0.24, where
-this becomes mandatory. The native-tls backends do not use a rustls
-`CryptoProvider`.
+The simplest way to enable this provider is to add `rustls = "0.23"` to your
+dependencies. For `ring`, see the crate documentation. The native-tls backends
+do not use a rustls `CryptoProvider`.
 
 ### Insecure TLS
 
-`insecure-tls` allows passing `danger_insecure = true` to
-`Connection::tls_connect`, which disables certificate and hostname
-verification. Use it only for local testing.
+`insecure-tls` allows `danger_insecure = true` in `Connection::tls_connect`,
+disabling certificate and hostname verification. Use it only for local testing.
 
-## Examples
+## Quick start
 
 With `smol-rt` enabled:
 
@@ -151,89 +112,25 @@ fn main() -> mcmc_rs::Result<()> {
 }
 ```
 
-* There's a lot more in the [examples](examples/)
+The same API works with Tokio. See
+[examples](https://github.com/ArtemIsmagilov/mcmc-rs/tree/main/examples) for
+connections, pipelines, watchers, TLS and sharding.
 
-## Client-Side Sharding
+## Client-side sharding
 
-`mcmc-rs` provides three server selectors implementing the `ServerSelector` trait:
+`mcmc-rs` provides three server selectors implementing the `ServerSelector`
+trait:
 
-| Client             | Strategy                          | Hashing                                | Best for                                            |
-| ------------------ | --------------------------------- | -------------------------------------- | --------------------------------------------------- |
-| `ClientModN`       | Modulo (`hash(key) % N`)          | `rapidhash` (default) or custom hasher | Static node lists where every node has equal capacity |
+| Client             | Strategy                          | Hashing                                | Best for                                                  |
+| ------------------ | --------------------------------- | -------------------------------------- | --------------------------------------------------------- |
+| `ClientModN`       | Modulo (`hash(key) % N`)          | `rapidhash` (default) or custom hasher | Static node lists with equal node capacity                |
 | `ClientHashRing`   | Consistent hash ring (`O(log V)`) | `rapidhash` (default) or custom hasher | Large dynamic clusters, weighted nodes, minimal remapping |
-| `ClientRendezvous` | Rendezvous / HRW (`O(N)`)         | `rapidhash` (default) or custom hasher | Small-to-medium dynamic clusters, no virtual nodes |
+| `ClientRendezvous` | Rendezvous / HRW (`O(N)`)         | `rapidhash` (default) or custom hasher | Small-to-medium dynamic clusters, no virtual nodes        |
 
-All three selectors use `rapidhash` with a fixed default seed out of the box and
-support custom seeds or any `std::hash::BuildHasher`. `ClientModN` is built from
-a fixed `Vec<Connection>` and has no per-node names, so adding or removing a
-node remaps most keys. `ClientHashRing` and `ClientRendezvous` identify nodes by
-name and allow adding or removing them at runtime:
-
-```rust,no_run
-use std::collections::hash_map::DefaultHasher;
-use std::hash::BuildHasherDefault;
-
-use mcmc_rs::{ClientHashRing, ClientModN, ClientRendezvous, Connection, ServerSelector};
-
-async fn run() -> mcmc_rs::Result<()> {
-    // 1. Modulo hashing over a fixed connection list
-    let mut modn_client = ClientModN::new(vec![
-        Connection::tcp_connect("127.0.0.1:11211").await?,
-        Connection::tcp_connect("127.0.0.1:11212").await?,
-    ]);
-
-    // 2. Default: fast non-cryptographic rapidhash with a fixed seed
-    let mut client = ClientRendezvous::new([
-        ("127.0.0.1:11211", Connection::tcp_connect("127.0.0.1:11211").await?),
-        ("127.0.0.1:11212", Connection::tcp_connect("127.0.0.1:11212").await?),
-    ]);
-
-    // Add or remove nodes dynamically without shifting existing node hashes
-    client
-        .add_server("127.0.0.1:11213", Connection::tcp_connect("127.0.0.1:11213").await?);
-    let _removed = client.remove_server("127.0.0.1:11212");
-
-    // 3. Custom seed: share a secret seed across app replicas to mitigate HashDoS
-    //    when cache keys are derived from untrusted user input
-    let mut seeded_client = ClientRendezvous::with_seed(
-        [
-            ("node1", Connection::tcp_connect("127.0.0.1:11211").await?),
-            ("node2", Connection::tcp_connect("127.0.0.1:11212").await?),
-        ],
-        0x9e37_79b9_7f4a_7c15,
-    );
-
-    // 4. Custom BuildHasher: plug in any std::hash::BuildHasher (SipHash, xxHash, tag-based, etc.)
-    let hasher = BuildHasherDefault::<DefaultHasher>::default();
-    let mut custom_client = ClientHashRing::with_hasher(
-        [
-            ("node1", Connection::tcp_connect("127.0.0.1:11211").await?),
-            ("node2", Connection::tcp_connect("127.0.0.1:11212").await?),
-        ],
-        hasher,
-    );
-
-    // 5. Weighted nodes: a larger weight receives a larger share of the keys
-    let weighted_client = ClientHashRing::with_weights([
-        ("node1", Connection::tcp_connect("127.0.0.1:11211").await?, 100),
-        ("node2", Connection::tcp_connect("127.0.0.1:11212").await?, 300),
-    ]);
-
-    modn_client.set(b"key", 0, 0, false, b"value").await?;
-    client.set(b"key", 0, 0, false, b"value").await?;
-    seeded_client.set(b"key", 0, 0, false, b"value").await?;
-    custom_client.set(b"key", 0, 0, false, b"value").await?;
-    assert!(weighted_client.server_for_key(b"key").is_some());
-    Ok(())
-}
-```
-
-### Multi-key retrieval
-
-All three selectors implement `get_multi`, `gets_multi`, `gat_multi` and
-`gats_multi`. Keys are grouped by their target server, one multi-key command is
-sent to each server concurrently, and the responses are merged into a single
-`Vec<Item>`:
+All selectors use `rapidhash` with a fixed default seed and support custom seeds
+or any `std::hash::BuildHasher`. `ClientModN` works with a fixed
+`Vec<Connection>`. `ClientHashRing` and `ClientRendezvous` identify nodes by name
+and support adding or removing them at runtime:
 
 ```rust,no_run
 use mcmc_rs::{ClientRendezvous, Connection, ServerSelector};
@@ -241,25 +138,33 @@ use mcmc_rs::{ClientRendezvous, Connection, ServerSelector};
 async fn run() -> mcmc_rs::Result<()> {
     let mut client = ClientRendezvous::new([
         ("node1", Connection::tcp_connect("127.0.0.1:11211").await?),
-        ("node2", Connection::tcp_connect("127.0.0.1:11212").await?),
+        ("node2", Connection::tcp_connect("127.0.0.1:11213").await?),
     ]);
 
-    let items = client.get_multi(&[b"key1", b"key2", b"key3"]).await?;
-    for item in items {
-        println!("{} = {:?}", item.key, item.data_block);
-    }
+    let _removed = client.remove_server("node2");
+    client.set(b"key", 0, 0, false, b"value").await?;
     Ok(())
 }
 ```
 
-The returned order is not guaranteed to match the input order, because each
-server returns its own items. Sort the result if order matters. An empty key
-slice returns an empty vector without sending anything to the servers.
+See
+[examples/sharding.rs](https://github.com/ArtemIsmagilov/mcmc-rs/blob/main/examples/sharding.rs)
+for seeded hashing, custom hashers and weighted nodes.
 
-`Connection` also provides the same multi-key methods for a single server.
-They are not available over UDP and panic if called on a UDP connection.
+### Multi-key retrieval
 
-You can also implement the `ServerSelector` trait for your own types to build custom routing strategies (such as Ketama-compatible rings). Custom selectors must implement both `select_server` for a single key and `select_servers` for grouping a batch of keys by server. Both methods return a `Result` so an empty selector can report `MemcachedError::ClientConfig` instead of panicking.
+All three selectors implement `get_multi`, `gets_multi`, `gat_multi` and
+`gats_multi`. Keys are grouped by target server, one command is sent to each
+server concurrently, and the results are merged into a `Vec<Item>`. The returned
+order is not guaranteed to match the input order. An empty key slice returns an
+empty vector without sending anything.
+
+`Connection` exposes the same methods for a single server. They are not
+available over UDP and panic if called on a UDP connection.
+
+You can implement `ServerSelector` for custom routing strategies. Both
+`select_server` and `select_servers` return a `Result`, so an empty selector can
+report `MemcachedError::ClientConfig` instead of panicking.
 
 ## Key and flag validation
 
@@ -271,90 +176,13 @@ socket:
 * a meta-flag token must not contain whitespace or control characters.
 
 Invalid input returns `MemcachedError::InvalidInput`. `Connection` methods
-return this error directly, while `Pipeline` methods return `Self`, so the
-error is reported later by `Pipeline::execute`.
+return this error directly, while `Pipeline` methods return `Self`, so the error
+is reported later by `Pipeline::execute`.
 
-## Tests
+## Development
 
-```bash
-docker compose up
-cargo test --features smol-rustls-tls
-docker compose down
-```
-
-## Benchmarks
-
-```bash
-cargo bench --bench bench_time --features smol-rustls-tls
-cargo bench --bench bench_perf --features smol-rustls-tls
-```
-
-## Profiling
-
-* with samply
-
-```bash
-samply record cargo bench --bench bench_prof --features smol-rt
-```
-
-* with flamegraph-rs
-
-```bash
-cargo flamegraph --bench bench_prof --features smol-rt
-```
-
-## Test coverage
-
-```bash
-cargo llvm-cov --features smol-rustls-tls
-```
-
-## Mutation testing
-
-```bash
-cargo mutants --features smol-rustls-tls
-```
-
-## Quality code
-
-```bash
-debtmap analyze .
-```
-
-## Formatting doc tests
-
-```bash
-cargo fmt -- --config format_code_in_doc_comments=true
-```
-
-## Fuzzing test
-
-```bash
-cargo fuzz run fuzz_target_1 \
-          --all-features \
-          --target x86_64-unknown-linux-gnu \
-          -- -max_total_time=30 \
-          -dict=fuzz/memcached.dict \
-          -stale_corpus_timeout=15
-```
-
-## Security scanning
-
-```bash
-opengrep scan --config auto
-```
-
-## Compile some configs
-
-```bash
-cargo hack check \
-          --feature-powerset \
-          --no-dev-deps \
-          --mutually-exclusive-features \
-          smol-rt,tokio-rt \
-          --at-least-one-of \
-          smol-rt,tokio-rt
-```
+Tests, benchmarks, profiling, fuzzing and other maintainer commands are in
+[CONTRIBUTING.md](https://github.com/ArtemIsmagilov/mcmc-rs/blob/main/CONTRIBUTING.md).
 
 ## Links
 
