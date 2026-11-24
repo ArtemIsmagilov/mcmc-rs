@@ -90,17 +90,15 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v7
-      - name: Cache job
-        uses: Swatinem/rust-cache@v2
       - name: Install cargo-afl
         run: cargo install cargo-afl
       - run: |
           cd fuzz
-          cargo afl config --build
           cargo afl build
           AFL_EXIT_ON_TIME=15 \
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1 \
-          AFL_SKIP_CPUFREQ=1 AFL_NO_UI=1 \
+          AFL_SKIP_CPUFREQ=1 \
+          AFL_NO_UI=1 \
           cargo afl fuzz \
           -i in \
           -o out \
