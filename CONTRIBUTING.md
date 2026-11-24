@@ -60,7 +60,6 @@ cargo fmt -- --config format_code_in_doc_comments=true
 
 ```bash
 cd fuzz
-cargo afl config --build
 cargo afl build \
   AFL_EXIT_ON_TIME=15 \
   AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1 \
@@ -71,6 +70,13 @@ cargo afl fuzz \
   -x memcached.dict \
   -V 30 \
   target/debug/fuzz_target_1
+```
+
+Looking crash
+
+```bash
+./target/debug/fuzz_target_1 < out/default/crashes/id:000000*
+xxd out/default/crashes/id:000000*
 ```
 
 ## Security scanning
