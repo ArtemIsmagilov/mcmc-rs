@@ -60,6 +60,7 @@ cargo fmt -- --config format_code_in_doc_comments=true
 
 ```bash
 cd fuzz
+cargo afl config --build
 cargo afl build \
   AFL_EXIT_ON_TIME=15 \
   AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1 \
