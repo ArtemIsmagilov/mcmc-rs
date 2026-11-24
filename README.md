@@ -20,10 +20,10 @@
   pipeline of memcached commands.
 * [WatchStream] is a structure that represents a
   stream of watch events.
-* [ClientCrc32] is a structure that represents a
+* [ClientModN] is a structure that represents a
   Cluster connections with ModN hashing.
 * [ClientHashRing] is a structure that represents a
-  Cluster connections with Ring hashing.
+  Cluster connections with weighted Ring hashing.
 * [ClientRendezvous] is a structure that represents a
   Cluster connections with Rendezvous hashing.
 
@@ -41,10 +41,10 @@ TLS support is optional and is layered on top of the selected runtime.
 
 ```toml
 # smol, no TLS
-mcmc-rs = { version = "0.15.0", features = ["smol-rt"] }
+mcmc-rs = { version = "0.17.0", features = ["smol-rt"] }
 
 # tokio, no TLS
-mcmc-rs = { version = "0.15.0", features = ["tokio-rt"] }
+mcmc-rs = { version = "0.17.0", features = ["tokio-rt"] }
 ```
 
 ### TLS (optional)
@@ -61,10 +61,10 @@ feature alone is enough. Use at most one TLS backend.
 
 ```toml
 # smol + rustls
-mcmc-rs = { version = "0.15.0", features = ["smol-rustls-tls"] }
+mcmc-rs = { version = "0.17.0", features = ["smol-rustls-tls"] }
 
 # tokio + native-tls
-mcmc-rs = { version = "0.15.0", features = ["tokio-native-tls-tls"] }
+mcmc-rs = { version = "0.17.0", features = ["tokio-native-tls-tls"] }
 ```
 
 `Connection::tls_connect` is available only when a TLS feature is enabled.
@@ -80,7 +80,7 @@ features to verify public certificates:
 | `rustls-native-certs-tls`| Certificates from the operating system trust store |
 
 ```toml
-mcmc-rs = { version = "0.15.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
+mcmc-rs = { version = "0.17.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
 ```
 
 Certificates passed through the `ca_path` argument of `Connection::tls_connect`
@@ -157,24 +157,32 @@ fn main() -> mcmc_rs::Result<()> {
 
 `mcmc-rs` provides three server selectors implementing the `ServerSelector` trait:
 
-| Client             | Strategy                         | Hashing                                 | Best for                                            |
-| ------------------ | -------------------------------- | --------------------------------------- | --------------------------------------------------- |
-| `ClientCrc32`      | Modulo (`crc32(key) % N`)        | CRC32                                   | Static node lists, compatibility with legacy clients |
-| `ClientHashRing`   | Consistent hash ring (`O(log V)`) | `rapidhash` (default) or custom hasher  | Large dynamic clusters, minimal key remapping       |
-| `ClientRendezvous` | Rendezvous / HRW (`O(N)`)        | `rapidhash` (default) or custom hasher  | Small-to-medium dynamic clusters, zero vnode overhead |
+| Client             | Strategy                          | Hashing                                | Best for                                            |
+| ------------------ | --------------------------------- | -------------------------------------- | --------------------------------------------------- |
+| `ClientModN`       | Modulo (`hash(key) % N`)          | `rapidhash` (default) or custom hasher | Static node lists where every node has equal capacity |
+| `ClientHashRing`   | Consistent hash ring (`O(log V)`) | `rapidhash` (default) or custom hasher | Large dynamic clusters, weighted nodes, minimal remapping |
+| `ClientRendezvous` | Rendezvous / HRW (`O(N)`)         | `rapidhash` (default) or custom hasher | Small-to-medium dynamic clusters, no virtual nodes |
 
-### Hashing options and dynamic membership
-
-`ClientHashRing` and `ClientRendezvous` use `rapidhash` with a fixed default seed out of the box, support custom seeds or any `std::hash::BuildHasher`, and allow adding or removing nodes at runtime by node name:
+All three selectors use `rapidhash` with a fixed default seed out of the box and
+support custom seeds or any `std::hash::BuildHasher`. `ClientModN` is built from
+a fixed `Vec<Connection>` and has no per-node names, so adding or removing a
+node remaps most keys. `ClientHashRing` and `ClientRendezvous` identify nodes by
+name and allow adding or removing them at runtime:
 
 ```rust,no_run
 use std::collections::hash_map::DefaultHasher;
 use std::hash::BuildHasherDefault;
 
-use mcmc_rs::{ClientHashRing, ClientRendezvous, Connection, ServerSelector};
+use mcmc_rs::{ClientHashRing, ClientModN, ClientRendezvous, Connection, ServerSelector};
 
 async fn run() -> mcmc_rs::Result<()> {
-    // 1. Default: fast non-cryptographic rapidhash with a fixed seed
+    // 1. Modulo hashing over a fixed connection list
+    let mut modn_client = ClientModN::new(vec![
+        Connection::tcp_connect("127.0.0.1:11211").await?,
+        Connection::tcp_connect("127.0.0.1:11212").await?,
+    ]);
+
+    // 2. Default: fast non-cryptographic rapidhash with a fixed seed
     let mut client = ClientRendezvous::new([
         ("127.0.0.1:11211", Connection::tcp_connect("127.0.0.1:11211").await?),
         ("127.0.0.1:11212", Connection::tcp_connect("127.0.0.1:11212").await?),
@@ -185,7 +193,7 @@ async fn run() -> mcmc_rs::Result<()> {
         .add_server("127.0.0.1:11213", Connection::tcp_connect("127.0.0.1:11213").await?);
     let _removed = client.remove_server("127.0.0.1:11212");
 
-    // 2. Custom seed: share a secret seed across app replicas to mitigate HashDoS
+    // 3. Custom seed: share a secret seed across app replicas to mitigate HashDoS
     //    when cache keys are derived from untrusted user input
     let mut seeded_client = ClientRendezvous::with_seed(
         [
@@ -195,7 +203,7 @@ async fn run() -> mcmc_rs::Result<()> {
         0x9e37_79b9_7f4a_7c15,
     );
 
-    // 3. Custom BuildHasher: plug in any std::hash::BuildHasher (SipHash, xxHash, tag-based, etc.)
+    // 4. Custom BuildHasher: plug in any std::hash::BuildHasher (SipHash, xxHash, tag-based, etc.)
     let hasher = BuildHasherDefault::<DefaultHasher>::default();
     let mut custom_client = ClientHashRing::with_hasher(
         [
@@ -205,9 +213,17 @@ async fn run() -> mcmc_rs::Result<()> {
         hasher,
     );
 
+    // 5. Weighted nodes: a larger weight receives a larger share of the keys
+    let weighted_client = ClientHashRing::with_weights([
+        ("node1", Connection::tcp_connect("127.0.0.1:11211").await?, 100),
+        ("node2", Connection::tcp_connect("127.0.0.1:11212").await?, 300),
+    ]);
+
+    modn_client.set(b"key", 0, 0, false, b"value").await?;
     client.set(b"key", 0, 0, false, b"value").await?;
     seeded_client.set(b"key", 0, 0, false, b"value").await?;
     custom_client.set(b"key", 0, 0, false, b"value").await?;
+    assert!(weighted_client.server_for_key(b"key").is_some());
     Ok(())
 }
 ```
@@ -243,7 +259,7 @@ slice returns an empty vector without sending anything to the servers.
 `Connection` also provides the same multi-key methods for a single server.
 They are not available over UDP and panic if called on a UDP connection.
 
-You can also implement the `ServerSelector` trait for your own types to build custom routing strategies (such as weighted nodes or Ketama-compatible rings). Custom selectors must implement both `select_server` for a single key and `select_servers` for grouping a batch of keys by server.
+You can also implement the `ServerSelector` trait for your own types to build custom routing strategies (such as Ketama-compatible rings). Custom selectors must implement both `select_server` for a single key and `select_servers` for grouping a batch of keys by server. Both methods return a `Result` so an empty selector can report `MemcachedError::ClientConfig` instead of panicking.
 
 ## Key and flag validation
 

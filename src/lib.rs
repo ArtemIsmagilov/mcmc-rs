@@ -96,13 +96,13 @@
 //!
 //! ```toml
 //! # smol + rustls with bundled roots
-//! mcmc-rs = { version = "0.15.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
+//! mcmc-rs = { version = "0.17.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
 //!
 //! # tokio + native-tls
-//! mcmc-rs = { version = "0.15.0", features = ["tokio-native-tls-tls"] }
+//! mcmc-rs = { version = "0.17.0", features = ["tokio-native-tls-tls"] }
 //!
 //! # smol without TLS
-//! mcmc-rs = { version = "0.15.0", features = ["smol-rt"] }
+//! mcmc-rs = { version = "0.17.0", features = ["smol-rt"] }
 //! ```
 //!
 //! # Connections
@@ -177,9 +177,15 @@
 //!
 //! - [`Pipeline`] batches several commands and executes them in one round trip;
 //! - [`WatchStream`] exposes Memcached watch events;
-//! - [`ClientCrc32`] distributes keys across connections with modulo hashing;
-//! - [`ClientHashRing`] uses a consistent hash ring;
+//! - [`ClientModN`] distributes keys across connections with modulo hashing;
+//! - [`ClientHashRing`] uses a consistent hash ring with weighted virtual nodes;
 //! - [`ClientRendezvous`] uses rendezvous (highest random weight) hashing.
+//!
+//! By default the sharded clients hash keys with `rapidhash` and a fixed seed.
+//! Each of them also accepts a custom seed or any [`std::hash::BuildHasher`],
+//! and [`ClientHashRing`] supports per-node weights. A client may be
+//! constructed without connections; routing a key through it then returns
+//! [`MemcachedError::ClientConfig`].
 //!
 //! All sharded clients implement [`ServerSelector`] and provide the multi-key
 //! retrieval methods `get_multi`, `gets_multi`, `gat_multi` and `gats_multi`.
@@ -5623,7 +5629,7 @@ fn no_servers_err() -> MemcachedError {
 
 /// Routes keys to server connections.
 ///
-/// The crate provides [`ClientCrc32`], [`ClientHashRing`] and
+/// The crate provides [`ClientModN`], [`ClientHashRing`] and
 /// [`ClientRendezvous`]. Implement this trait to build a custom routing
 /// strategy; both [`ServerSelector::select_server`] and
 /// [`ServerSelector::select_servers`] are required so that single-key and
@@ -5645,11 +5651,11 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// let mut client = ClientModN::new(vec![Connection::default().await?]);
     /// assert_eq!(
     ///     client.set(b"doc_selector_get", 0, 0, false, b"value").await?,
     ///     StorageResult::Stored
@@ -5672,20 +5678,20 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_gets", 0, 0, false, b"value").await?,
+    ///     client.set(b"doc_modn_gets", 0, 0, false, b"value").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// let item = client.gets(b"doc_crc32_gets").await?.unwrap();
-    /// assert_eq!(item.key, "doc_crc32_gets");
+    /// let item = client.gets(b"doc_modn_gets").await?.unwrap();
+    /// assert_eq!(item.key, "doc_modn_gets");
     /// assert_eq!(item.data_block, b"value");
     /// assert!(item.cas_unique.is_some());
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -5701,20 +5707,20 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_gat", 7, 0, false, b"value").await?,
+    ///     client.set(b"doc_modn_gat", 7, 0, false, b"value").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// let item = client.gat(60, b"doc_crc32_gat").await?.unwrap();
-    /// assert_eq!(item.key, "doc_crc32_gat");
+    /// let item = client.gat(60, b"doc_modn_gat").await?.unwrap();
+    /// assert_eq!(item.key, "doc_modn_gat");
     /// assert_eq!(item.flags, 7);
     /// assert_eq!(item.data_block, b"value");
     /// assert_eq!(item.cas_unique, None);
@@ -5732,20 +5738,20 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_gats", 7, 0, false, b"value").await?,
+    ///     client.set(b"doc_modn_gats", 7, 0, false, b"value").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// let item = client.gats(60, b"doc_crc32_gats").await?.unwrap();
-    /// assert_eq!(item.key, "doc_crc32_gats");
+    /// let item = client.gats(60, b"doc_modn_gats").await?.unwrap();
+    /// assert_eq!(item.key, "doc_modn_gats");
     /// assert_eq!(item.flags, 7);
     /// assert_eq!(item.data_block, b"value");
     /// assert!(item.cas_unique.is_some());
@@ -5763,11 +5769,11 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// let mut client = ClientModN::new(vec![Connection::default().await?]);
     /// assert_eq!(
     ///     client.set(b"doc_selector_set", 7, 0, false, b"value").await?,
     ///     StorageResult::Stored
@@ -5800,25 +5806,25 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_add", false).await?;
+    /// let _ = client.delete(b"doc_modn_add", false).await?;
     /// assert_eq!(
-    ///     client.add(b"doc_crc32_add", 0, 0, false, b"first").await?,
+    ///     client.add(b"doc_modn_add", 0, 0, false, b"first").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.add(b"doc_crc32_add", 0, 0, false, b"second").await?,
+    ///     client.add(b"doc_modn_add", 0, 0, false, b"second").await?,
     ///     mcmc_rs::StorageResult::NotStored
     /// );
     /// assert_eq!(
-    ///     client.get(b"doc_crc32_add").await?.unwrap().data_block,
+    ///     client.get(b"doc_modn_add").await?.unwrap().data_block,
     ///     b"first"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -5842,35 +5848,35 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_replace", false).await?;
+    /// let _ = client.delete(b"doc_modn_replace", false).await?;
     /// assert_eq!(
     ///     client
-    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"value")
+    ///         .replace(b"doc_modn_replace", 0, 0, false, b"value")
     ///         .await?,
     ///     mcmc_rs::StorageResult::NotStored
     /// );
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_crc32_replace", 0, 0, false, b"first")
+    ///         .set(b"doc_modn_replace", 0, 0, false, b"first")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
     ///     client
-    ///         .replace(b"doc_crc32_replace", 0, 0, false, b"second")
+    ///         .replace(b"doc_modn_replace", 0, 0, false, b"second")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.get(b"doc_crc32_replace").await?.unwrap().data_block,
+    ///     client.get(b"doc_modn_replace").await?.unwrap().data_block,
     ///     b"second"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -5894,35 +5900,35 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_append", false).await?;
+    /// let _ = client.delete(b"doc_modn_append", false).await?;
     /// assert_eq!(
     ///     client
-    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
+    ///         .append(b"doc_modn_append", 0, 0, false, b"-tail")
     ///         .await?,
     ///     mcmc_rs::StorageResult::NotStored
     /// );
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_crc32_append", 0, 0, false, b"base")
+    ///         .set(b"doc_modn_append", 0, 0, false, b"base")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
     ///     client
-    ///         .append(b"doc_crc32_append", 0, 0, false, b"-tail")
+    ///         .append(b"doc_modn_append", 0, 0, false, b"-tail")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.get(b"doc_crc32_append").await?.unwrap().data_block,
+    ///     client.get(b"doc_modn_append").await?.unwrap().data_block,
     ///     b"base-tail"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -5946,35 +5952,35 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_prepend", false).await?;
+    /// let _ = client.delete(b"doc_modn_prepend", false).await?;
     /// assert_eq!(
     ///     client
-    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
+    ///         .prepend(b"doc_modn_prepend", 0, 0, false, b"head-")
     ///         .await?,
     ///     mcmc_rs::StorageResult::NotStored
     /// );
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_crc32_prepend", 0, 0, false, b"base")
+    ///         .set(b"doc_modn_prepend", 0, 0, false, b"base")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
     ///     client
-    ///         .prepend(b"doc_crc32_prepend", 0, 0, false, b"head-")
+    ///         .prepend(b"doc_modn_prepend", 0, 0, false, b"head-")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.get(b"doc_crc32_prepend").await?.unwrap().data_block,
+    ///     client.get(b"doc_modn_prepend").await?.unwrap().data_block,
     ///     b"head-base"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -5998,11 +6004,11 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// let mut client = ClientModN::new(vec![Connection::default().await?]);
     /// client.set(b"doc_selector_cas", 0, 0, false, b"base").await?;
     /// let cas = client
     ///     .gets(b"doc_selector_cas")
@@ -6048,30 +6054,30 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, DeleteResult, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, DeleteResult, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_crc32_delete", 0, 0, false, b"value")
+    ///         .set(b"doc_modn_delete", 0, 0, false, b"value")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.delete(b"doc_crc32_delete", false).await?,
+    ///     client.delete(b"doc_modn_delete", false).await?,
     ///     mcmc_rs::DeleteResult::Deleted
     /// );
     /// assert_eq!(
-    ///     client.delete(b"doc_crc32_delete", false).await?,
+    ///     client.delete(b"doc_modn_delete", false).await?,
     ///     mcmc_rs::DeleteResult::NotFound
     /// );
     /// assert_eq!(
-    ///     client.delete(b"doc_crc32_delete", true).await?,
+    ///     client.delete(b"doc_modn_delete", true).await?,
     ///     mcmc_rs::DeleteResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6088,29 +6094,29 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_incr", false).await?;
+    /// let _ = client.delete(b"doc_modn_incr", false).await?;
     /// assert_eq!(
-    ///     client.incr(b"doc_crc32_incr", 1, false).await?,
+    ///     client.incr(b"doc_modn_incr", 1, false).await?,
     ///     mcmc_rs::IncrDecrResult::NotFound
     /// );
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_incr", 0, 0, false, b"10").await?,
+    ///     client.set(b"doc_modn_incr", 0, 0, false, b"10").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.incr(b"doc_crc32_incr", 5, false).await?,
+    ///     client.incr(b"doc_modn_incr", 5, false).await?,
     ///     mcmc_rs::IncrDecrResult::Value(15)
     /// );
     /// assert_eq!(
-    ///     client.incr(b"doc_crc32_incr", 1, true).await?,
+    ///     client.incr(b"doc_modn_incr", 1, true).await?,
     ///     mcmc_rs::IncrDecrResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6132,29 +6138,29 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_decr", false).await?;
+    /// let _ = client.delete(b"doc_modn_decr", false).await?;
     /// assert_eq!(
-    ///     client.decr(b"doc_crc32_decr", 1, false).await?,
+    ///     client.decr(b"doc_modn_decr", 1, false).await?,
     ///     mcmc_rs::IncrDecrResult::NotFound
     /// );
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_decr", 0, 0, false, b"10").await?,
+    ///     client.set(b"doc_modn_decr", 0, 0, false, b"10").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.decr(b"doc_crc32_decr", 5, false).await?,
+    ///     client.decr(b"doc_modn_decr", 5, false).await?,
     ///     mcmc_rs::IncrDecrResult::Value(5)
     /// );
     /// assert_eq!(
-    ///     client.decr(b"doc_crc32_decr", 1, true).await?,
+    ///     client.decr(b"doc_modn_decr", 1, true).await?,
     ///     mcmc_rs::IncrDecrResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6176,30 +6182,30 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, TouchResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, TouchResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
-    ///     client.touch(b"doc_crc32_touch_missing", 60, false).await?,
+    ///     client.touch(b"doc_modn_touch_missing", 60, false).await?,
     ///     mcmc_rs::TouchResult::NotFound
     /// );
     /// assert_eq!(
     ///     client
-    ///         .set(b"doc_crc32_touch", 0, 0, false, b"value")
+    ///         .set(b"doc_modn_touch", 0, 0, false, b"value")
     ///         .await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
     /// assert_eq!(
-    ///     client.touch(b"doc_crc32_touch", 60, false).await?,
+    ///     client.touch(b"doc_modn_touch", 60, false).await?,
     ///     mcmc_rs::TouchResult::Touched
     /// );
     /// assert_eq!(
-    ///     client.touch(b"doc_crc32_touch", 60, true).await?,
+    ///     client.touch(b"doc_modn_touch", 60, true).await?,
     ///     mcmc_rs::TouchResult::NoReply
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6221,22 +6227,22 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_me", 0, 0, false, b"value").await?,
+    ///     client.set(b"doc_modn_me", 0, 0, false, b"value").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// let info = client.me(b"doc_crc32_me").await?.unwrap();
-    /// assert!(info.starts_with("doc_crc32_me "));
+    /// let info = client.me(b"doc_modn_me").await?.unwrap();
+    /// assert!(info.starts_with("doc_modn_me "));
     /// assert!(info.contains("size="));
-    /// assert_eq!(client.me(b"doc_crc32_me_missing").await?, None);
+    /// assert_eq!(client.me(b"doc_modn_me_missing").await?, None);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
     /// ```
@@ -6250,11 +6256,11 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, MgFlag, MgStatus, ServerSelector, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, MgFlag, MgStatus, ServerSelector, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![Connection::default().await?]);
+    /// let mut client = ClientModN::new(vec![Connection::default().await?]);
     /// client.set(b"doc_selector_mg", 7, 0, false, b"hello").await?;
     /// let item = client
     ///     .mg(
@@ -6280,36 +6286,36 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, MsFlag, MsMode, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, MsFlag, MsMode, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_ms", false).await?;
+    /// let _ = client.delete(b"doc_modn_ms", false).await?;
     /// let item = client
     ///     .ms(
-    ///         b"doc_crc32_ms",
+    ///         b"doc_modn_ms",
     ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize, MsFlag::ReturnCas],
     ///         b"hello",
     ///     )
     ///     .await?;
     /// assert_eq!(item.status, mcmc_rs::StorageResult::Stored);
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ms"));
+    /// assert_eq!(item.key.as_deref(), Some("doc_modn_ms"));
     /// assert_eq!(item.size, Some(5));
     /// assert!(item.cas.is_some());
     /// let item = client
     ///     .ms(
-    ///         b"doc_crc32_ms",
+    ///         b"doc_modn_ms",
     ///         &[MsFlag::Mode(MsMode::Add), MsFlag::ReturnKey],
     ///         b"again",
     ///     )
     ///     .await?;
     /// assert_eq!(item.status, mcmc_rs::StorageResult::NotStored);
     /// assert_eq!(
-    ///     client.get(b"doc_crc32_ms").await?.unwrap().data_block,
+    ///     client.get(b"doc_modn_ms").await?.unwrap().data_block,
     ///     b"hello"
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
@@ -6331,23 +6337,23 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, MdFlag, MdStatus, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, MdFlag, MdStatus, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
     /// assert_eq!(
-    ///     client.set(b"doc_crc32_md", 0, 0, false, b"value").await?,
+    ///     client.set(b"doc_modn_md", 0, 0, false, b"value").await?,
     ///     mcmc_rs::StorageResult::Stored
     /// );
-    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
+    /// let item = client.md(b"doc_modn_md", &[MdFlag::ReturnKey]).await?;
     /// assert_eq!(item.status, mcmc_rs::MdStatus::Deleted);
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_md"));
-    /// assert_eq!(client.get(b"doc_crc32_md").await?, None);
-    /// let item = client.md(b"doc_crc32_md", &[MdFlag::ReturnKey]).await?;
+    /// assert_eq!(item.key.as_deref(), Some("doc_modn_md"));
+    /// assert_eq!(client.get(b"doc_modn_md").await?, None);
+    /// let item = client.md(b"doc_modn_md", &[MdFlag::ReturnKey]).await?;
     /// assert_eq!(item.status, mcmc_rs::MdStatus::NotFound);
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -6363,18 +6369,18 @@ pub trait ServerSelector: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{ClientCrc32, Connection, ServerSelector, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, MaFlag, MaMode, MaStatus, StorageResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut client = ClientCrc32::new(vec![
+    /// let mut client = ClientModN::new(vec![
     ///     Connection::default().await?,
     ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
     /// ]);
-    /// let _ = client.delete(b"doc_crc32_ma", false).await?;
+    /// let _ = client.delete(b"doc_modn_ma", false).await?;
     /// let item = client
     ///     .ma(
-    ///         b"doc_crc32_ma",
+    ///         b"doc_modn_ma",
     ///         &[
     ///             MaFlag::AutoCreate(0),
     ///             MaFlag::InitValue(5),
@@ -6386,10 +6392,10 @@ pub trait ServerSelector: Send + Sync {
     ///     .await?;
     /// assert_eq!(item.status, mcmc_rs::MaStatus::WithBody);
     /// assert_eq!(item.number, Some(5));
-    /// assert_eq!(item.key.as_deref(), Some("doc_crc32_ma"));
+    /// assert_eq!(item.key.as_deref(), Some("doc_modn_ma"));
     /// let item = client
     ///     .ma(
-    ///         b"doc_crc32_ma",
+    ///         b"doc_modn_ma",
     ///         &[
     ///             MaFlag::DeltaApply(7),
     ///             MaFlag::Mode(MaMode::Incr),
@@ -6611,22 +6617,124 @@ pub trait ServerSelector: Send + Sync {
     }
 }
 
+/// Distributes keys across connections with modulo hashing.
+///
+/// The target connection is `hasher.hash_one(key) % N`, where the hasher is
+/// `rapidhash` with a fixed seed by default or any [`std::hash::BuildHasher`]
+/// supplied by the caller. Because the bucket is the remainder of the hash,
+/// adding or removing a connection remaps most keys unless `N` stays the same.
+///
+/// Use [`ClientModN::new`], [`ClientModN::with_seed`] or
+/// [`ClientModN::with_hasher`] to build one.
 pub struct ClientModN<S = SeedableState<'static>> {
     conns: Vec<Connection>,
     hasher: S,
 }
 
 impl ClientModN {
+    /// Creates a modulo client using `rapidhash` with a fixed default seed.
+    ///
+    /// An empty connection list is allowed. Routing a key through an empty
+    /// client returns [`MemcachedError::ClientConfig`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientModN::new(vec![
+    ///     Connection::default().await?,
+    ///     Connection::unix_connect("/tmp/memcached0.sock").await?,
+    /// ]);
+    /// assert_eq!(client.len(), 2);
+    /// assert_eq!(
+    ///     client.set(b"doc_modn_new", 0, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_modn_new").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn new(conns: Vec<Connection>) -> Self {
         Self::with_hasher(conns, SeedableState::fixed())
     }
 
+    /// Creates a modulo client using `rapidhash` with a custom `seed`.
+    ///
+    /// Sharing the seed across application replicas keeps key routing identical
+    /// between them. This is useful when cache keys are derived from untrusted
+    /// input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientModN::with_seed(
+    ///     vec![
+    ///         Connection::default().await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ],
+    ///     42,
+    /// );
+    /// assert_eq!(
+    ///     client.set(b"doc_modn_with_seed", 0, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_modn_with_seed").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_seed(conns: Vec<Connection>, seed: u64) -> Self {
         Self::with_hasher(conns, SeedableState::new(seed))
     }
 }
 
 impl<S: BuildHasher> ClientModN<S> {
+    /// Creates a modulo client with a custom [`BuildHasher`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use mcmc_rs::{ClientModN, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let mut client = ClientModN::with_hasher(
+    ///     vec![
+    ///         Connection::default().await?,
+    ///         Connection::unix_connect("/tmp/memcached0.sock").await?,
+    ///     ],
+    ///     hasher,
+    /// );
+    /// assert_eq!(
+    ///     client.set(b"doc_modn_with_hasher", 0, 0, false, b"value").await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_modn_with_hasher")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_hasher(conns: Vec<Connection>, hasher: S) -> Self {
         Self { conns, hasher }
     }
@@ -6675,6 +6783,17 @@ const DEFAULT_WEIGHT: usize = 160;
 #[derive(Hash, PartialEq, Eq, Clone)]
 struct VNode(String, usize);
 
+/// Distributes keys across connections with a consistent hash ring.
+///
+/// Every server is represented by `weight` virtual nodes on the ring. The
+/// default weight is 160, so adding or removing a server remaps
+/// only the keys that belong to that server. Keys are hashed with `rapidhash`
+/// and a fixed seed by default; a custom seed or any [`std::hash::BuildHasher`]
+/// can be supplied instead.
+///
+/// Use [`ClientHashRing::new`], [`ClientHashRing::with_seed`],
+/// [`ClientHashRing::with_weights`], [`ClientHashRing::with_hasher`] or
+/// [`ClientHashRing::with_weights_and_hasher`] to build one.
 pub struct ClientHashRing<S = SeedableState<'static>> {
     conns: HashMap<String, Connection>,
     weights: HashMap<String, usize>,
@@ -6682,12 +6801,53 @@ pub struct ClientHashRing<S = SeedableState<'static>> {
 }
 
 impl Default for ClientHashRing {
+    /// Creates an empty hash ring.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::ClientHashRing;
+    /// let client = ClientHashRing::default();
+    /// assert!(client.is_empty());
+    /// assert_eq!(client.len(), 0);
+    /// ```
     fn default() -> Self {
         Self::new(std::iter::empty::<(String, Connection)>())
     }
 }
 
 impl ClientHashRing {
+    /// Creates a consistent hash ring using `rapidhash` with a fixed default
+    /// seed and the default weight for every server.
+    ///
+    /// An empty node list is allowed. Routing a key through an empty ring
+    /// returns [`MemcachedError::ClientConfig`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// assert_eq!(client.len(), 2);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_new", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_hash_ring_new").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn new<I, K>(nodes: I) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6696,6 +6856,43 @@ impl ClientHashRing {
         Self::with_hasher(nodes, SeedableState::fixed())
     }
 
+    /// Creates a consistent hash ring using `rapidhash` with a custom `seed`
+    /// and the default weight for every server.
+    ///
+    /// Sharing the seed across application replicas keeps key routing identical
+    /// between them.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::with_seed(
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    ///     ],
+    ///     42,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_with_seed", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_with_seed")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_seed<I, K>(nodes: I, seed: u64) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6704,6 +6901,29 @@ impl ClientHashRing {
         Self::with_hasher(nodes, SeedableState::new(seed))
     }
 
+    /// Creates a consistent hash ring with explicit per-server weights using
+    /// `rapidhash` and a fixed default seed.
+    ///
+    /// A larger weight places more virtual nodes on the ring and therefore
+    /// receives a larger share of the keys. Weights must be greater than zero.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let client = ClientHashRing::with_weights([
+    ///     ("node1", Connection::default().await?, 100),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?, 200),
+    /// ]);
+    /// assert_eq!(client.len(), 2);
+    /// let node = client.server_for_key(b"doc_hash_ring_with_weights").unwrap();
+    /// assert!(node == "node1" || node == "node2");
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_weights<I, K>(nodes: I) -> Self
     where
         I: IntoIterator<Item = (K, Connection, usize)>,
@@ -6714,6 +6934,43 @@ impl ClientHashRing {
 }
 
 impl<S: BuildHasher> ClientHashRing<S> {
+    /// Creates a consistent hash ring with a custom [`BuildHasher`] and the
+    /// default weight for every server.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use mcmc_rs::{ClientHashRing, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let mut client = ClientHashRing::with_hasher(
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    ///     ],
+    ///     hasher,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_hash_ring_with_hasher", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_hash_ring_with_hasher")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_hasher<I, K>(nodes: I, hasher: S) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6725,6 +6982,33 @@ impl<S: BuildHasher> ClientHashRing<S> {
         )
     }
 
+    /// Creates a consistent hash ring with explicit per-server weights and a
+    /// custom [`BuildHasher`].
+    ///
+    /// Weights must be greater than zero.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use mcmc_rs::{ClientHashRing, Connection};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let client = ClientHashRing::with_weights_and_hasher(
+    ///     [
+    ///         ("node1", Connection::default().await?, 100),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?, 200),
+    ///     ],
+    ///     hasher,
+    /// );
+    /// assert_eq!(client.len(), 2);
+    /// assert!(client.server_for_key(b"doc_hash_ring_weights_hasher").is_some());
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_weights_and_hasher<I, K>(nodes: I, hasher: S) -> Self
     where
         I: IntoIterator<Item = (K, Connection, usize)>,
@@ -6836,18 +7120,69 @@ impl<S: BuildHasher + Send + Sync> ServerSelector for ClientHashRing<S> {
     }
 }
 
+/// Distributes keys across connections with rendezvous (highest random
+/// weight) hashing.
+///
+/// For each key every server is scored independently and the highest score
+/// wins, so adding or removing a server remaps only the keys owned by that
+/// server. Keys are hashed with `rapidhash` and a fixed seed by default; a
+/// custom seed or any [`std::hash::BuildHasher`] can be supplied instead.
+///
+/// Use [`ClientRendezvous::new`], [`ClientRendezvous::with_seed`] or
+/// [`ClientRendezvous::with_hasher`] to build one.
 pub struct ClientRendezvous<S = SeedableState<'static>> {
     conns: HashMap<String, Connection>,
     hrw: Rendezvous<String, S>,
 }
 
 impl Default for ClientRendezvous {
+    /// Creates an empty rendezvous client.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::ClientRendezvous;
+    /// let client = ClientRendezvous::default();
+    /// assert!(client.is_empty());
+    /// assert_eq!(client.len(), 0);
+    /// ```
     fn default() -> Self {
         Self::new(std::iter::empty::<(String, Connection)>())
     }
 }
 
 impl ClientRendezvous {
+    /// Creates a rendezvous (HRW) client using `rapidhash` with a fixed default
+    /// seed.
+    ///
+    /// An empty node list is allowed. Routing a key through an empty client
+    /// returns [`MemcachedError::ClientConfig`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientRendezvous::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// assert_eq!(client.len(), 2);
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_new", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client.get(b"doc_rendezvous_new").await?.unwrap().data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn new<I, K>(nodes: I) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6856,6 +7191,43 @@ impl ClientRendezvous {
         Self::with_hasher(nodes, SeedableState::fixed())
     }
 
+    /// Creates a rendezvous (HRW) client using `rapidhash` with a custom
+    /// `seed`.
+    ///
+    /// Sharing the seed across application replicas keeps key routing identical
+    /// between them.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientRendezvous::with_seed(
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    ///     ],
+    ///     42,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_with_seed", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_with_seed")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_seed<I, K>(nodes: I, seed: u64) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
@@ -6866,6 +7238,42 @@ impl ClientRendezvous {
 }
 
 impl<S: BuildHasher + Clone> ClientRendezvous<S> {
+    /// Creates a rendezvous (HRW) client with a custom [`BuildHasher`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use mcmc_rs::{ClientRendezvous, Connection, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let mut client = ClientRendezvous::with_hasher(
+    ///     [
+    ///         ("node1", Connection::default().await?),
+    ///         ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    ///     ],
+    ///     hasher,
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .set(b"doc_rendezvous_with_hasher", 0, 0, false, b"value")
+    ///         .await?,
+    ///     StorageResult::Stored
+    /// );
+    /// assert_eq!(
+    ///     client
+    ///         .get(b"doc_rendezvous_with_hasher")
+    ///         .await?
+    ///         .unwrap()
+    ///         .data_block,
+    ///     b"value"
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
     pub fn with_hasher<I, K>(nodes: I, hasher: S) -> Self
     where
         I: IntoIterator<Item = (K, Connection)>,
