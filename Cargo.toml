@@ -87,6 +87,6 @@ name = "bench_perf"
 required-features = ["smol-rustls-tls"]
 
 [[bench]]
-name = "bench_prof"
 harness = false
+name = "bench_prof"
 required-features = ["smol-rt"]

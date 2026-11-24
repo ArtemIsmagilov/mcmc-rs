@@ -90,22 +90,28 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v7
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
-      - name: Install cargo-fuzz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz
       - name: Cache job
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            fuzz
+          cache-directories: |
+            ~/.local/share/afl.rs
+      - name: Install cargo-afl
+        run: cargo install cargo-afl
       - run: |
-          cargo fuzz run fuzz_target_1 \
-          --all-features \
-          --target x86_64-unknown-linux-gnu \
-          -- \
-          -max_total_time=30 \
-          -dict=fuzz/memcached.dict \
-          -stale_corpus_timeout=15
+          cargo afl build
+          AFL_EXIT_ON_TIME=15 \
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1 \
+          AFL_SKIP_CPUFREQ=1 AFL_NO_UI=1 \
+          cargo afl fuzz \
+          -i in \
+          -o out \
+          -x memcached.dict \
+          -V 30 \
+          target/debug/fuzz_target_1
+          [ -z "$(ls -A out/default/crashes 2>/dev/null)" ] || (ls -la out/default/crashes && head -c 256 out/default/crashes/* | xxd && exit 1)
 
   bench-perf:
     name: Run bench perf
