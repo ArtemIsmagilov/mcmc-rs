@@ -820,7 +820,7 @@ async fn parse_retrieval_rp<S: AsyncBufRead + AsyncWrite + Unpin>(s: &mut S) -> 
                 .next()
                 .ok_or_else(|| parse_err(&line))?
                 .parse()
-                .unwrap(), //.map_err(parse_err)?,
+                .map_err(parse_err)?,
             split
                 .next()
                 .ok_or_else(|| parse_err(&line))?
