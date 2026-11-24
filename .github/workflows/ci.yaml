@@ -101,6 +101,7 @@ jobs:
       - name: Install cargo-afl
         run: cargo install cargo-afl
       - run: |
+          cd fuzz
           cargo afl build
           AFL_EXIT_ON_TIME=15 \
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1 \
