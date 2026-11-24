@@ -104,6 +104,7 @@ jobs:
           -i in \
           -o out \
           -x memcached.dict \
+          -V 30 \
           target/debug/fuzz_target_1
           [ -z "$(ls -A out/default/crashes 2>/dev/null)" ] || (ls -la out/default/crashes && head -c 256 out/default/crashes/* | xxd && exit 1)
 
