@@ -48,6 +48,8 @@ tokio-rustls-tls = ["tokio-rt", "dep:rustls", "dep:tokio-rustls"]
 smol-native-tls-tls = ["smol-rt", "dep:native-tls", "dep:async-native-tls"]
 tokio-native-tls-tls = ["tokio-rt", "dep:native-tls", "dep:tokio-native-tls"]
 
+native-tls-vendored = ["native-tls?/vendored"]
+
 [dev-dependencies]
 criterion = { version = "0.8", features = ["async_smol"] }
 gungraun = "0.20"
