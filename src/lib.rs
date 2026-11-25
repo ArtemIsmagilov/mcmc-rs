@@ -369,6 +369,10 @@ pub enum RustlsTlsError {
 
     #[error("invalid server name: {0}")]
     InvalidServerName(#[from] rustls::pki_types::InvalidDnsNameError),
+
+    #[cfg(feature = "rustls-native-certs-tls")]
+    #[error("failed to load platform certificates: {0}")]
+    PlatformCerts(#[from] rustls_native_certs::Error),
 }
 
 #[derive(Error, Debug)]
@@ -2568,9 +2572,13 @@ async fn get_tls_stream_from_rustls(
                 root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
                 #[cfg(feature = "rustls-native-certs-tls")]
                 {
-                    let native_certs = rustls_native_certs::load_native_certs()
-                        .expect("could not load platform certs");
-                    for cert in native_certs {
+                    let result = rustls_native_certs::load_native_certs();
+                    if result.certs.is_empty()
+                        && let Some(err) = result.errors.into_iter().next()
+                    {
+                        return Err(RustlsTlsError::from(err).into());
+                    }
+                    for cert in result.certs {
                         root_store.add(cert).map_err(RustlsTlsError::from)?;
                     }
                 }
