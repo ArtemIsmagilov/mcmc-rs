@@ -232,7 +232,7 @@ jobs:
           --at-least-one-of smol-rt,tokio-rt
 
   bench-alloc:
-    name: Run bench perf
+    name: Alloc code
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
