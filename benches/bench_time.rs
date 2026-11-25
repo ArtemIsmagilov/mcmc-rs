@@ -1,5 +1,5 @@
 use criterion::{Criterion, async_executor::SmolExecutor, criterion_group, criterion_main};
-use mcmc_rs::Connection;
+use mcmc_rs::{Connection, TlsConfig};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -19,9 +19,8 @@ fn criterion_benchmark(c: &mut Criterion) {
                     "tls" => Connection::tls_connect(
                         "localhost",
                         11216,
-                        Some("sets/ca.crt"),
-                        Some(("sets/client.crt", "sets/client.key")),
-                        false,
+                        TlsConfig::with_additional_ca("sets/ca.crt")
+                            .with_client_identity("sets/client.crt", "sets/client.key"),
                     )
                     .await
                     .unwrap(),

@@ -194,3 +194,36 @@ jobs:
           --no-dev-deps \
           --mutually-exclusive-features smol-rt,tokio-rt \
           --at-least-one-of smol-rt,tokio-rt
+
+  hack-build-alpine:
+    name: Build on Alpine (musl)
+    runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+    steps:
+      - name: Install Alpine dependencies
+        run: |
+          apk add --no-cache \
+            musl-dev \
+            gcc \
+            pkgconfig \
+            openssl-dev \
+            openssl-libs-static \
+            git \
+            curl \
+            tar \
+            xz
+      - name: Checkout source
+        uses: actions/checkout@v7
+      - name: Install cargo hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+      - name: Cache job
+        uses: Swatinem/rust-cache@v2
+      - name: Build each feature on musl
+        run: |
+          cargo hack build \
+          --each-feature \
+          --no-dev-deps \
+          --at-least-one-of smol-rt,tokio-rt

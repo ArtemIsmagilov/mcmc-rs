@@ -1,7 +1,7 @@
 use gungraun::prelude::*;
 use std::hint::black_box;
 
-use mcmc_rs::{Connection, Item};
+use mcmc_rs::{Connection, Item, TlsConfig};
 
 fn expensive_setup(n: &str) -> Connection {
     smol::block_on(async {
@@ -16,9 +16,8 @@ fn expensive_setup(n: &str) -> Connection {
             "tls" => Connection::tls_connect(
                 "localhost",
                 11216,
-                Some("sets/ca.crt"),
-                Some(("sets/client.crt", "sets/client.key")),
-                false,
+                TlsConfig::with_additional_ca("sets/ca.crt")
+                    .with_client_identity("sets/client.crt", "sets/client.key"),
             )
             .await
             .unwrap(),

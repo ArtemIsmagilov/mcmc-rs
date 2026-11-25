@@ -1,6 +1,8 @@
 use tokio::runtime::Runtime;
 
-use mcmc_rs::{ClientHashRing, ClientModN, ClientRendezvous, Connection, ServerSelector, WatchArg};
+use mcmc_rs::{
+    ClientHashRing, ClientModN, ClientRendezvous, Connection, ServerSelector, TlsConfig, WatchArg,
+};
 
 fn main() -> mcmc_rs::Result<()> {
     let rt = Runtime::new()?;
@@ -65,9 +67,8 @@ fn main() -> mcmc_rs::Result<()> {
         let mut conn = Connection::tls_connect(
             "localhost",
             11216,
-            Some("sets/ca.crt"),
-            Some(("sets/client.crt", "sets/client.key")),
-            false,
+            TlsConfig::with_additional_ca("sets/ca.crt")
+                .with_client_identity("sets/client.crt", "sets/client.key"),
         )
         .await?;
         let version = conn.version().await?;

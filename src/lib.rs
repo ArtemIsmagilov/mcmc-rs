@@ -40,10 +40,11 @@
 //! - `webpki-roots-tls` — use the bundled Mozilla root certificates;
 //! - `rustls-native-certs-tls` — use the operating system trust store.
 //!
-//! Certificates passed through the `ca_path` argument of
-//! `Connection::tls_connect` are always added to the root store. The native-tls
-//! backend uses the platform trust store automatically and does not need these
-//! features.
+//! [`TlsConfig`] selects which roots are trusted:
+//! [`TlsConfig::with_custom_ca_only`] uses only the given PEM file,
+//! [`TlsConfig::with_additional_ca`] adds it to the system roots, and
+//! [`TlsConfig::new`] uses the system roots alone. The native-tls backend uses
+//! the platform trust store automatically and does not need these features.
 //!
 //! ### rustls CryptoProvider
 //!
@@ -87,10 +88,10 @@
 //!
 //! ### Insecure TLS
 //!
-//! The `insecure-tls` feature enables `danger_insecure = true` in
-//! `Connection::tls_connect`, which disables certificate and hostname
-//! verification. It is intended for local testing only. Without the feature,
-//! the `danger_insecure` argument has no effect.
+//! The `insecure-tls` feature enables `TlsConfig::danger_accept_all()`, which
+//! disables certificate and hostname verification. It is intended for local
+//! testing only. Without the feature, the `ServerVerification::DangerAcceptAll`
+//! variant is not available.
 //!
 //! # Choosing features
 //!
@@ -163,12 +164,13 @@
 //! TLS requires one of the TLS features listed above:
 //!
 //! ```ignore
+//! use mcmc_rs::{Connection, TlsConfig};
+//!
 //! let mut conn = Connection::tls_connect(
 //!     "localhost",
 //!     11216,
-//!     Some("ca.crt"),                     // optional CA certificate
-//!     Some(("client.crt", "client.key")), // optional client certificate
-//!     false,                              // danger_insecure
+//!     TlsConfig::with_additional_ca("ca.crt")
+//!         .with_client_identity("client.crt", "client.key"),
 //! )
 //! .await?;
 //! ```
@@ -290,7 +292,7 @@ mod native_tls_tls {
 ))]
 use native_tls_tls::*;
 
-// Custom rustls verifier used when `danger_insecure` is requested together with
+// Custom rustls verifier used for `ServerVerification::DangerAcceptAll` with
 // the `insecure-tls` feature. It deliberately accepts every certificate.
 #[cfg(any(feature = "smol-rustls-tls", feature = "tokio-rustls-tls"))]
 mod danger {
@@ -793,16 +795,26 @@ pub struct MaItem {
     pub base64_key: bool,
 }
 
+/// Root certificates used to verify a TLS server.
 #[derive(Default)]
 pub enum TrustStore<'a> {
+    /// Trust only the system trust store (or the bundled roots for rustls).
     #[default]
     SystemOnly,
+    /// Trust only the certificates in the given PEM file.
     CustomOnly(&'a str),
+    /// Trust the system trust store and the certificates in the given PEM file.
     SystemAndCustom(&'a str),
 }
 
+/// Server certificate verification policy.
 pub enum ServerVerification<'a> {
+    /// Verify the server certificate using the given trust store.
     Verify(TrustStore<'a>),
+    /// Accept any certificate and hostname.
+    ///
+    /// Available only with the `insecure-tls` feature. Intended for local
+    /// testing only.
     #[cfg(feature = "insecure-tls")]
     DangerAcceptAll,
 }
@@ -813,21 +825,34 @@ impl Default for ServerVerification<'_> {
     }
 }
 
+/// Client certificate chain and private key in PEM format.
 pub struct ClientIdentity<'a> {
+    /// Path to the PEM-encoded client certificate chain.
     pub cert_chain_path: &'a str,
+    /// Path to the PEM-encoded private key.
     pub private_key_path: &'a str,
 }
 
+/// TLS settings for [`Connection::tls_connect`].
+///
+/// [`TlsConfig::new`] verifies the server against the system trust store and
+/// does not present a client certificate. Use the builder-style methods to
+/// customize verification and mutual TLS.
 #[derive(Default)]
 pub struct TlsConfig<'a> {
+    /// How the server certificate is verified.
     pub verification: ServerVerification<'a>,
+    /// Optional client certificate chain and private key.
     pub identity: Option<ClientIdentity<'a>>,
 }
 impl<'a> TlsConfig<'a> {
+    /// Creates a configuration that verifies the server against the system
+    /// trust store.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Creates a configuration that trusts only the certificates in `ca_path`.
     pub fn with_custom_ca_only(ca_path: &'a str) -> Self {
         Self {
             verification: ServerVerification::Verify(TrustStore::CustomOnly(ca_path)),
@@ -835,6 +860,8 @@ impl<'a> TlsConfig<'a> {
         }
     }
 
+    /// Creates a configuration that trusts the system roots and the
+    /// certificates in `ca_path`.
     pub fn with_additional_ca(ca_path: &'a str) -> Self {
         Self {
             verification: ServerVerification::Verify(TrustStore::SystemAndCustom(ca_path)),
@@ -842,6 +869,11 @@ impl<'a> TlsConfig<'a> {
         }
     }
 
+    /// Creates a configuration that accepts any server certificate and
+    /// hostname.
+    ///
+    /// Available only with the `insecure-tls` feature. Intended for local
+    /// testing only.
     #[cfg(feature = "insecure-tls")]
     pub fn danger_accept_all() -> Self {
         Self {
@@ -850,6 +882,9 @@ impl<'a> TlsConfig<'a> {
         }
     }
 
+    /// Presents a client certificate chain and private key for mutual TLS.
+    ///
+    /// Both files must be PEM-encoded.
     pub fn with_client_identity(
         mut self,
         cert_chain_path: &'a str,
@@ -2755,6 +2790,14 @@ impl Connection {
         Ok(Connection::Udp(s, fastrand::u16(..)))
     }
 
+    /// Connects to a TLS-enabled Memcached server.
+    ///
+    /// `tls_config` controls certificate verification and optional mutual TLS.
+    /// [`TlsConfig::new`] verifies the server against the system trust store;
+    /// use [`TlsConfig::with_custom_ca_only`] or
+    /// [`TlsConfig::with_additional_ca`] to trust a private CA, and
+    /// [`TlsConfig::with_client_identity`] to present a client certificate.
+    ///
     /// # rustls CryptoProvider
     ///
     /// With a rustls backend, [`mcmc-rs`](crate) does not select or install a
@@ -2766,27 +2809,61 @@ impl Connection {
     ///
     /// # Example
     ///
+    /// The example exercises every supported verification mode, both with and
+    /// without a client identity, against the test servers. Port 11218 requires
+    /// SASL authentication but no client certificate, while port 11216 requires
+    /// a client certificate. `TlsConfig::new()` only trusts the system roots, so
+    /// it cannot verify the private test CA.
+    ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
-    /// let mut conn = Connection::tls_connect(
-    ///     "localhost",
-    ///     11216,
-    ///     Some("sets/ca.crt"),
-    ///     Some(("sets/client.crt", "sets/client.key")),
-    ///     false,
-    /// )
-    /// .await?;
-    /// assert_eq!(
-    ///     conn.set(b"doc_conn_tls_connect", 0, 0, false, b"value")
-    ///         .await?,
-    ///     StorageResult::Stored
-    /// );
-    /// assert_eq!(
-    ///     conn.get(b"doc_conn_tls_connect").await?.unwrap().data_block,
-    ///     b"value"
+    /// let ca = "sets/ca.crt";
+    /// let cert = "sets/client.crt";
+    /// let key = "sets/client.key";
+    ///
+    /// let mut cases = vec![
+    ///     // Trust only the test CA.
+    ///     (11218, TlsConfig::with_custom_ca_only(ca), true),
+    ///     (
+    ///         11216,
+    ///         TlsConfig::with_custom_ca_only(ca).with_client_identity(cert, key),
+    ///         false,
+    ///     ),
+    ///     // Trust the system roots and the test CA.
+    ///     (11218, TlsConfig::with_additional_ca(ca), true),
+    ///     (
+    ///         11216,
+    ///         TlsConfig::with_additional_ca(ca).with_client_identity(cert, key),
+    ///         false,
+    ///     ),
+    /// ];
+    ///
+    /// // `danger_accept_all` is available only with the `insecure-tls` feature.
+    /// cases.extend([
+    ///     (11218, TlsConfig::danger_accept_all(), true),
+    ///     (
+    ///         11216,
+    ///         TlsConfig::danger_accept_all().with_client_identity(cert, key),
+    ///         false,
+    ///     ),
+    /// ]);
+    ///
+    /// for (port, config, needs_auth) in cases {
+    ///     let mut conn = Connection::tls_connect("localhost", port, config).await?;
+    ///     if needs_auth {
+    ///         conn.auth(b"a", b"a").await?;
+    ///     }
+    ///     assert!(!conn.version().await?.is_empty());
+    /// }
+    ///
+    /// // The private test CA is not in the system trust store.
+    /// assert!(
+    ///     Connection::tls_connect("localhost", 11218, TlsConfig::new())
+    ///         .await
+    ///         .is_err()
     /// );
     /// #     Ok::<(), mcmc_rs::MemcachedError>(())
     /// # }).unwrap()
@@ -2811,7 +2888,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -2822,9 +2899,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -2854,7 +2930,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -2865,9 +2941,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -2895,7 +2970,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -2903,7 +2978,12 @@ impl Connection {
     ///     Connection::tcp_connect("127.0.0.1:11213").await?,
     ///     Connection::unix_connect("/tmp/memcached1.sock").await?,
     ///     Connection::udp_connect("127.0.0.1:0", "127.0.0.1:11215").await?,
-    ///     Connection::tls_connect("localhost", 11217, Some("sets/ca.crt"), None, false).await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11217,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     assert_eq!(c.shutdown(true).await?, ());
     /// }
@@ -2929,7 +3009,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -2940,9 +3020,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -2970,7 +3049,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -2981,9 +3060,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3019,7 +3097,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use mcmc_rs::{Connection, Item, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3030,9 +3108,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3132,7 +3209,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3143,9 +3220,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3242,7 +3318,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3253,9 +3329,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3362,7 +3437,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3373,9 +3448,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3480,7 +3554,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3491,9 +3565,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3600,7 +3673,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3611,9 +3684,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3721,14 +3793,19 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// for mut c in [
     ///     Connection::tcp_connect("127.0.0.1:11212").await?,
     ///     Connection::unix_connect("/tmp/memcached2.sock").await?,
-    ///     Connection::tls_connect("localhost", 11218, Some("sets/ca.crt"), None, false).await?,
+    ///     Connection::tls_connect(
+    ///         "localhost",
+    ///         11218,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt"),
+    ///     )
+    ///     .await?,
     /// ] {
     ///     c.auth(b"a", b"a").await?;
     ///     assert!(!c.version().await?.is_empty());
@@ -3761,7 +3838,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, DeleteResult, StorageResult};
+    /// # use mcmc_rs::{Connection, DeleteResult, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3772,9 +3849,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3817,7 +3893,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, IncrDecrResult, StorageResult};
+    /// # use mcmc_rs::{Connection, IncrDecrResult, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3828,9 +3904,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3881,7 +3956,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, IncrDecrResult, StorageResult};
+    /// # use mcmc_rs::{Connection, IncrDecrResult, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3892,9 +3967,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -3945,7 +4019,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult, TouchResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig, TouchResult};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -3956,9 +4030,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4006,7 +4079,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use mcmc_rs::{Connection, Item, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4017,9 +4090,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4062,7 +4134,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4073,9 +4145,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4118,7 +4189,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4129,9 +4200,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4179,7 +4249,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4190,9 +4260,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4245,7 +4314,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use mcmc_rs::{Connection, Item, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4255,9 +4324,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4339,7 +4407,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4349,9 +4417,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4425,7 +4492,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item, StorageResult};
+    /// # use mcmc_rs::{Connection, Item, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4435,9 +4502,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4524,7 +4590,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4534,9 +4600,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4608,7 +4673,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StatsArg};
+    /// # use mcmc_rs::{Connection, StatsArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4619,9 +4684,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4655,7 +4719,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, SlabsAutomoveArg, StatsArg};
+    /// # use mcmc_rs::{Connection, SlabsAutomoveArg, StatsArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4666,9 +4730,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4698,7 +4761,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4709,9 +4772,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4741,7 +4803,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4752,9 +4814,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4788,7 +4849,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, StatsArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4799,9 +4860,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4835,7 +4895,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerCrawlArg};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerCrawlArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4846,9 +4906,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4879,7 +4938,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4890,9 +4949,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4924,7 +4982,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMetadumpArg, StorageResult};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMetadumpArg, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4934,9 +4992,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -4971,7 +5028,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMgdumpArg, StorageResult};
+    /// # use mcmc_rs::{Connection, LruCrawlerArg, LruCrawlerMgdumpArg, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -4981,9 +5038,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5018,7 +5074,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection};
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5029,9 +5085,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5059,7 +5114,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult};
+    /// # use mcmc_rs::{Connection, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5070,9 +5125,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5107,7 +5161,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult, WatchArg};
+    /// # use mcmc_rs::{Connection, StorageResult, WatchArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5121,17 +5175,15 @@ impl Connection {
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("sets/ca.crt"),
-    ///             Some(("sets/client.crt", "sets/client.key")),
-    ///             false,
+    ///             TlsConfig::with_additional_ca("sets/ca.crt")
+    ///                 .with_client_identity("sets/client.crt", "sets/client.key"),
     ///         )
     ///         .await?,
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("sets/ca.crt"),
-    ///             Some(("sets/client.crt", "sets/client.key")),
-    ///             false,
+    ///             TlsConfig::with_additional_ca("sets/ca.crt")
+    ///                 .with_client_identity("sets/client.crt", "sets/client.key"),
     ///         )
     ///         .await?,
     ///     ),
@@ -5213,7 +5265,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MgFlag, MgStatus, StorageResult};
+    /// # use mcmc_rs::{Connection, MgFlag, MgStatus, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5224,9 +5276,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5280,7 +5331,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MsFlag, MsMode, StorageResult};
+    /// # use mcmc_rs::{Connection, MsFlag, MsMode, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5291,9 +5342,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5348,7 +5398,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MdFlag, MdStatus, StorageResult};
+    /// # use mcmc_rs::{Connection, MdFlag, MdStatus, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5359,9 +5409,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5398,7 +5447,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, MaFlag, MaMode, MaStatus, StorageResult};
+    /// # use mcmc_rs::{Connection, MaFlag, MaMode, MaStatus, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5409,9 +5458,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5467,7 +5515,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, LruArg, LruMode};
+    /// # use mcmc_rs::{Connection, LruArg, LruMode, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5478,9 +5526,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5508,7 +5555,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, VerbosityArg};
+    /// # use mcmc_rs::{Connection, VerbosityArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5519,9 +5566,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5550,7 +5596,7 @@ impl Connection {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::Connection;
+    /// # use mcmc_rs::{Connection, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5561,9 +5607,8 @@ impl Connection {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -5594,7 +5639,7 @@ impl WatchStream {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, StorageResult, WatchArg};
+    /// # use mcmc_rs::{Connection, StorageResult, WatchArg, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -5608,17 +5653,15 @@ impl WatchStream {
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("sets/ca.crt"),
-    ///             Some(("sets/client.crt", "sets/client.key")),
-    ///             false,
+    ///             TlsConfig::with_additional_ca("sets/ca.crt")
+    ///                 .with_client_identity("sets/client.crt", "sets/client.key"),
     ///         )
     ///         .await?,
     ///         Connection::tls_connect(
     ///             "localhost",
     ///             11216,
-    ///             Some("sets/ca.crt"),
-    ///             Some(("sets/client.crt", "sets/client.key")),
-    ///             false,
+    ///             TlsConfig::with_additional_ca("sets/ca.crt")
+    ///                 .with_client_identity("sets/client.crt", "sets/client.key"),
     ///         )
     ///         .await?,
     ///     ),
@@ -7453,7 +7496,7 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult};
+    /// # use mcmc_rs::{Connection, Item, PipelineResponse, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
@@ -7463,9 +7506,8 @@ impl<'a> Pipeline<'a> {
     ///     Connection::tls_connect(
     ///         "localhost",
     ///         11216,
-    ///         Some("sets/ca.crt"),
-    ///         Some(("sets/client.crt", "sets/client.key")),
-    ///         false,
+    ///         TlsConfig::with_additional_ca("sets/ca.crt")
+    ///             .with_client_identity("sets/client.crt", "sets/client.key"),
     ///     )
     ///     .await?,
     /// ] {
@@ -7561,16 +7603,15 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ```
-    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult};
+    /// # use mcmc_rs::{Connection, PipelineResponse, StorageResult, TlsConfig};
     /// # use smol::block_on;
     /// #
     /// # block_on(async {
     /// let mut conn = Connection::tls_connect(
     ///     "localhost",
     ///     11216,
-    ///     Some("sets/ca.crt"),
-    ///     Some(("sets/client.crt", "sets/client.key")),
-    ///     false,
+    ///     TlsConfig::with_additional_ca("sets/ca.crt")
+    ///         .with_client_identity("sets/client.crt", "sets/client.key"),
     /// )
     /// .await?;
     /// assert_eq!(

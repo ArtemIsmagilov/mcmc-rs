@@ -68,9 +68,27 @@ features to verify public certificates:
 mcmc-rs = { version = "0.17.0", features = ["smol-rustls-tls", "webpki-roots-tls"] }
 ```
 
-Certificates passed through `ca_path` to `Connection::tls_connect` are always
-added to the root store. The native-tls backend uses the platform trust store
-automatically.
+`TlsConfig` selects which roots are trusted:
+`TlsConfig::with_custom_ca_only` uses only the given PEM file,
+`TlsConfig::with_additional_ca` adds it to the system roots, and
+`TlsConfig::new` uses the system roots alone. The native-tls backend uses the
+platform trust store automatically.
+
+```rust,no_run
+use mcmc_rs::{Connection, TlsConfig};
+
+async fn connect() -> mcmc_rs::Result<()> {
+    let mut conn = Connection::tls_connect(
+        "localhost",
+        11216,
+        TlsConfig::with_additional_ca("ca.crt")
+            .with_client_identity("client.crt", "client.key"),
+    )
+    .await?;
+    let _version = conn.version().await?;
+    Ok(())
+}
+```
 
 ### rustls CryptoProvider
 
@@ -89,8 +107,8 @@ do not use a rustls `CryptoProvider`.
 
 ### Insecure TLS
 
-`insecure-tls` allows `danger_insecure = true` in `Connection::tls_connect`,
-disabling certificate and hostname verification. Use it only for local testing.
+`insecure-tls` enables `TlsConfig::danger_accept_all()`, which disables
+certificate and hostname verification. Use it only for local testing.
 
 ## Quick start
 
