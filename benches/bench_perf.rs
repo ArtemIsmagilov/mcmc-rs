@@ -1,10 +1,12 @@
-use gungraun::prelude::*;
 use std::hint::black_box;
+
+use futures_lite::future::block_on;
+use gungraun::prelude::*;
 
 use mcmc_rs::{Connection, Item, TlsConfig};
 
 fn expensive_setup(n: &str) -> Connection {
-    smol::block_on(async {
+    block_on(async {
         let mut c = match n {
             "tcp" => Connection::default().await.unwrap(),
             "unix" => Connection::unix_connect("/tmp/memcached0.sock")
@@ -31,7 +33,7 @@ fn expensive_setup(n: &str) -> Connection {
 #[library_benchmark]
 #[benches::with_setup(args = ["unix", "tls", "tcp", "udp"], setup = expensive_setup)]
 fn bench_processing(mut c: Connection) -> Item {
-    black_box(smol::block_on(async {
+    black_box(block_on(async {
         c.get(black_box(b"key0")).await.unwrap().unwrap()
     }))
 }

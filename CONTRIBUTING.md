@@ -29,7 +29,7 @@ samply record cargo bench --bench bench_prof --features smol-rt
 * with flamegraph-rs
 
 ```bash
-cargo flamegraph --bench bench_prof --features smol-rt
+cargo flamegraph --bench bench_prof --features smol-rt --post-process "grep 'bench_prof::main'"
 ```
 
 ## Test coverage
@@ -95,4 +95,10 @@ cargo hack check \
           smol-rt,tokio-rt \
           --at-least-one-of \
           smol-rt,tokio-rt
+```
+
+## Show alloc
+
+```bash
+cargo bench --bench bench_alloc -F smol-rt
 ```

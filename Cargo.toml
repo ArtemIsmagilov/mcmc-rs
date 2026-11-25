@@ -59,6 +59,7 @@ smol = "2.0"
 rustls = { version = "0.23", default-features = false, features = [
   "aws-lc-rs",
 ] }
+dhat = "0.3"
 
 [profile.bench]
 debug = true
@@ -91,4 +92,9 @@ required-features = ["smol-rustls-tls"]
 [[bench]]
 harness = false
 name = "bench_prof"
+required-features = ["smol-rt"]
+
+[[bench]]
+harness = false
+name = "bench_alloc"
 required-features = ["smol-rt"]

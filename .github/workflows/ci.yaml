@@ -163,7 +163,7 @@ jobs:
       - name: Generate flamegraph
         run: |
           echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
-          cargo flamegraph --bench bench_prof --features smol-rt
+          cargo flamegraph --bench bench_prof --features smol-rt --post-process "grep 'bench_prof::main'"
       - name: Upload flamegraph artifact
         uses: actions/upload-artifact@v7
         with:
@@ -230,3 +230,16 @@ jobs:
           --no-dev-deps \
           --mutually-exclusive-features smol-rt,tokio-rt \
           --at-least-one-of smol-rt,tokio-rt
+
+  bench-alloc:
+    name: Run bench perf
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+      - name: Run servers
+        run: docker compose up md-tcp0 -d
+      - name: Cache job
+        uses: Swatinem/rust-cache@v2
+      - name: Run bench
+        run: cargo bench --bench bench_alloc -F smol-rt
