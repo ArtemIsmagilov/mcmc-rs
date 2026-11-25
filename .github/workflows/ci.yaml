@@ -212,7 +212,8 @@ jobs:
             git \
             curl \
             tar \
-            xz
+            xz \
+            perl
       - name: Checkout source
         uses: actions/checkout@v7
       - name: Install cargo hack
