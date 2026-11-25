@@ -11,6 +11,7 @@ An async Memcached client with a typed API and complete text-protocol support.
 * Client-side validation of keys and meta-flag tokens.
 * `TCP_NODELAY` is enabled automatically for TCP and TLS connections.
 * Built-in cluster clients: modulo, consistent hash ring and rendezvous hashing.
+* Cross-platform support on `Linux`/`MacOS`/`Windows`/`Alpine`
 
 ## Features
 
