@@ -2602,24 +2602,16 @@ async fn get_tls_stream_from_native_tls(
     let mut builder = native_tls::TlsConnector::builder();
     builder.use_sni(use_sni);
     match tls_config.verification {
-        ServerVerification::Verify(s) => match s {
-            TrustStore::SystemOnly => {}
-            TrustStore::CustomOnly(i) => {
+        ServerVerification::Verify(s) => {
+            if matches!(s, TrustStore::CustomOnly(_)) {
                 builder.disable_built_in_roots(true);
-                native_tls::Certificate::stack_from_pem(&fs::read(i)?)?
-                    .into_iter()
-                    .for_each(|cert| {
-                        builder.add_root_certificate(cert);
-                    });
             }
-            TrustStore::SystemAndCustom(i) => {
-                native_tls::Certificate::stack_from_pem(&fs::read(i)?)?
-                    .into_iter()
-                    .for_each(|cert| {
-                        builder.add_root_certificate(cert);
-                    });
+            if let TrustStore::CustomOnly(i) | TrustStore::SystemAndCustom(i) = s {
+                for cert in native_tls::Certificate::stack_from_pem(&fs::read(i)?)? {
+                    builder.add_root_certificate(cert);
+                }
             }
-        },
+        }
         #[cfg(feature = "insecure-tls")]
         ServerVerification::DangerAcceptAll => {
             builder
