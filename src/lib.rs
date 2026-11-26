@@ -7644,7 +7644,6 @@ impl<'a, T: ServerSelector + ?Sized> ClusterPipeline<'a, T> {
                 PendingOp::Single { key, cmd, expect } => {
                     let shard_idx = key_to_shard[key.as_slice()];
                     let cmd_idx = shard_cmds[shard_idx].len();
-                    // Переносим или клонируем expect и cmd
                     shard_cmds[shard_idx].push((cmd.clone(), *expect));
                     slots.push(ResultSlot::Single(shard_idx, cmd_idx));
                 }
