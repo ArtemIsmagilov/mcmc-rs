@@ -5,3 +5,4 @@ perf.data*
 profile.json.gz
 out/
 heaptrack*
+dhat-heap.json

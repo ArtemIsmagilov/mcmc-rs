@@ -178,6 +178,9 @@
 //! # Pipelines, watchers and clusters
 //!
 //! - [`Pipeline`] batches several commands and executes them in one round trip;
+//! - [`ClusterPipeline`] routes a batch of keyed commands across cluster
+//!   connections, executes each shard concurrently in one round trip, and
+//!   returns results in insertion order;
 //! - [`WatchStream`] exposes Memcached watch events;
 //! - [`ClientModN`] distributes keys across connections with modulo hashing;
 //! - [`ClientHashRing`] uses a consistent hash ring with weighted virtual nodes;
@@ -647,6 +650,7 @@ pub enum PipelineResponse {
     SlabsReassignResult(SlabsReassignResult),
 }
 
+#[derive(Clone, Copy)]
 pub enum PipelineExpect {
     RetrievalOne,
     RetrievalMulti,
@@ -5770,6 +5774,10 @@ pub trait ServerSelector: Send + Sync {
         keys: &'a [&'a [u8]],
     ) -> Result<Vec<(&mut Connection, Vec<&'a [u8]>)>>;
 
+    fn pipeline(&mut self) -> ClusterPipeline<'_, Self> {
+        ClusterPipeline::new(self)
+    }
+
     /// # Example
     ///
     /// ```
@@ -7476,6 +7484,1373 @@ impl<S: BuildHasher + Clone + Send + Sync> ServerSelector for ClientRendezvous<S
                     .map(|shard_keys| (conn, shard_keys))
             })
             .collect())
+    }
+}
+
+enum PendingOp {
+    Single {
+        key: Vec<u8>,
+        cmd: Vec<u8>,
+        expect: PipelineExpect,
+    },
+    Multi {
+        command_name: &'static [u8],
+        exptime: Option<i64>,
+        keys: Vec<Vec<u8>>,
+    },
+}
+
+pub struct ClusterPipeline<'a, T: ServerSelector + ?Sized> {
+    selector: &'a mut T,
+    ops: Vec<PendingOp>,
+    err: Option<MemcachedError>,
+}
+
+impl<'a, T: ServerSelector + ?Sized> ClusterPipeline<'a, T> {
+    pub fn new(selector: &'a mut T) -> Self {
+        Self {
+            selector,
+            ops: Vec::new(),
+            err: None,
+        }
+    }
+
+    fn push_single(&mut self, key: &[u8], cmd: Result<Vec<u8>>, expect: PipelineExpect) {
+        if self.err.is_some() {
+            return;
+        }
+        match cmd {
+            Ok(bytes) => self.ops.push(PendingOp::Single {
+                key: key.to_vec(),
+                cmd: bytes,
+                expect,
+            }),
+            Err(e) => self.err = Some(e),
+        }
+    }
+
+    fn push_multi(
+        &mut self,
+        command_name: &'static [u8],
+        exptime: Option<i64>,
+        keys: &[impl AsRef<[u8]>],
+    ) {
+        if self.err.is_some() {
+            return;
+        }
+        let mut owned_keys = Vec::with_capacity(keys.len());
+        for k in keys {
+            let kb = k.as_ref();
+            if let Err(e) = validate_key(kb) {
+                self.err = Some(e);
+                return;
+            }
+            owned_keys.push(kb.to_vec());
+        }
+        self.ops.push(PendingOp::Multi {
+            command_name,
+            exptime,
+            keys: owned_keys,
+        });
+    }
+
+    /// Sends all queued commands to their target servers concurrently and
+    /// returns one result per command in insertion order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let result = client
+    ///     .pipeline()
+    ///     .set(b"doc_cpipeline_execute", 0, 0, false, b"value")
+    ///     .get(b"doc_cpipeline_execute")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::OptionItem(Some(Item {
+    ///             key: "doc_cpipeline_execute".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"value".to_vec()
+    ///         }))
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub async fn execute(self) -> Result<Vec<Result<PipelineResponse>>> {
+        if let Some(err) = self.err {
+            return Err(err);
+        }
+        if self.ops.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut all_keys: Vec<&[u8]> = Vec::new();
+        for op in &self.ops {
+            match op {
+                PendingOp::Single { key, .. } => all_keys.push(key.as_slice()),
+                PendingOp::Multi { keys, .. } => {
+                    for k in keys {
+                        all_keys.push(k.as_slice());
+                    }
+                }
+            }
+        }
+
+        if all_keys.is_empty() {
+            return Ok(self
+                .ops
+                .into_iter()
+                .map(|_| Ok(PipelineResponse::VecItem(Vec::new())))
+                .collect());
+        }
+
+        let routed = self.selector.select_servers(&all_keys)?;
+
+        let mut key_to_shard: HashMap<&[u8], usize> = HashMap::with_capacity(all_keys.len());
+        let mut conns: Vec<&mut Connection> = Vec::with_capacity(routed.len());
+
+        for (shard_idx, (conn, shard_keys)) in routed.into_iter().enumerate() {
+            conns.push(conn);
+            for k in shard_keys {
+                key_to_shard.insert(k, shard_idx);
+            }
+        }
+
+        enum ResultSlot {
+            Single(usize, usize),
+            Multi(Vec<(usize, usize)>),
+        }
+
+        let mut shard_cmds: Vec<Vec<(Vec<u8>, PipelineExpect)>> =
+            (0..conns.len()).map(|_| Vec::new()).collect();
+        let mut slots = Vec::with_capacity(self.ops.len());
+
+        for op in &self.ops {
+            match op {
+                PendingOp::Single { key, cmd, expect } => {
+                    let shard_idx = key_to_shard[key.as_slice()];
+                    let cmd_idx = shard_cmds[shard_idx].len();
+                    // Переносим или клонируем expect и cmd
+                    shard_cmds[shard_idx].push((cmd.clone(), *expect));
+                    slots.push(ResultSlot::Single(shard_idx, cmd_idx));
+                }
+                PendingOp::Multi {
+                    command_name,
+                    exptime,
+                    keys,
+                } => {
+                    if keys.is_empty() {
+                        slots.push(ResultSlot::Multi(Vec::new()));
+                        continue;
+                    }
+                    let mut by_shard: HashMap<usize, Vec<&[u8]>> = HashMap::new();
+                    let mut order = Vec::new();
+                    for k in keys {
+                        let shard_idx = key_to_shard[k.as_slice()];
+                        by_shard
+                            .entry(shard_idx)
+                            .or_insert_with(|| {
+                                order.push(shard_idx);
+                                Vec::new()
+                            })
+                            .push(k.as_slice());
+                    }
+                    let mut locs = Vec::with_capacity(order.len());
+                    for shard_idx in order {
+                        let bytes =
+                            build_retrieval_cmd(command_name, *exptime, &by_shard[&shard_idx])?;
+                        let cmd_idx = shard_cmds[shard_idx].len();
+                        shard_cmds[shard_idx].push((bytes, PipelineExpect::RetrievalMulti));
+                        locs.push((shard_idx, cmd_idx));
+                    }
+                    slots.push(ResultSlot::Multi(locs));
+                }
+            }
+        }
+
+        let futs: Vec<_> = conns
+            .into_iter()
+            .zip(shard_cmds.iter())
+            .map(|(conn, cmds)| async move {
+                match conn {
+                    Connection::Tcp(s) => execute_cmd(s, cmds).await,
+                    #[cfg(unix)]
+                    Connection::Unix(s) => execute_cmd(s, cmds).await,
+                    Connection::Udp(_s, _r) => panic!("pipeline not work with udp!"),
+                    #[cfg(any(
+                        feature = "smol-rustls-tls",
+                        feature = "tokio-rustls-tls",
+                        feature = "smol-native-tls-tls",
+                        feature = "tokio-native-tls-tls"
+                    ))]
+                    Connection::Tls(s) => execute_cmd(s, cmds).await,
+                }
+            })
+            .collect();
+
+        let shard_results = try_join_all(futs).await?;
+
+        let mut shard_slots: Vec<Vec<Option<Result<PipelineResponse>>>> = shard_results
+            .into_iter()
+            .map(|v| v.into_iter().map(Some).collect())
+            .collect();
+
+        let mut final_results = Vec::with_capacity(slots.len());
+        for slot in slots {
+            match slot {
+                ResultSlot::Single(shard_idx, cmd_idx) => {
+                    final_results.push(shard_slots[shard_idx][cmd_idx].take().unwrap());
+                }
+                ResultSlot::Multi(locs) => {
+                    let mut merged = Vec::new();
+                    let mut first_err = None;
+                    for (shard_idx, cmd_idx) in locs {
+                        match shard_slots[shard_idx][cmd_idx].take().unwrap() {
+                            Ok(PipelineResponse::VecItem(items)) if first_err.is_none() => {
+                                merged.extend(items);
+                            }
+                            Err(e) if first_err.is_none() => first_err = Some(e),
+                            _ => {}
+                        }
+                    }
+                    if let Some(e) = first_err {
+                        final_results.push(Err(e));
+                    } else {
+                        final_results.push(Ok(PipelineResponse::VecItem(merged)));
+                    }
+                }
+            }
+        }
+
+        Ok(final_results)
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let result = client
+    ///     .pipeline()
+    ///     .set(b"doc_cpipeline_set", 0, 0, false, b"value")
+    ///     .set(b"doc_cpipeline_set_noreply", 0, 0, true, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::StorageResult(StorageResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn set(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_storage_cmd(
+                b"set",
+                k,
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_add", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .add(b"doc_cpipeline_add", 0, 0, false, b"first")
+    ///     .add(b"doc_cpipeline_add", 0, 0, false, b"second")
+    ///     .add(b"doc_cpipeline_add_noreply", 0, 0, true, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::StorageResult(StorageResult::NotStored),
+    ///         PipelineResponse::StorageResult(StorageResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn add(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_storage_cmd(
+                b"add",
+                k,
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_replace", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .replace(b"doc_cpipeline_replace", 0, 0, false, b"value")
+    ///     .set(b"doc_cpipeline_replace", 0, 0, false, b"first")
+    ///     .replace(b"doc_cpipeline_replace", 0, 0, false, b"second")
+    ///     .replace(b"doc_cpipeline_replace", 0, 0, true, b"noreply")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::StorageResult(StorageResult::NotStored),
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::StorageResult(StorageResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn replace(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_storage_cmd(
+                b"replace",
+                k,
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_append", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .append(b"doc_cpipeline_append", 0, 0, false, b"-tail")
+    ///     .set(b"doc_cpipeline_append", 0, 0, false, b"base")
+    ///     .append(b"doc_cpipeline_append", 0, 0, false, b"-tail")
+    ///     .get(b"doc_cpipeline_append")
+    ///     .append(b"doc_cpipeline_append", 0, 0, true, b"-noreply")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(result[0], PipelineResponse::StorageResult(StorageResult::NotStored));
+    /// assert_eq!(result[1], PipelineResponse::StorageResult(StorageResult::Stored));
+    /// assert_eq!(result[2], PipelineResponse::StorageResult(StorageResult::Stored));
+    /// assert_eq!(
+    ///     result[3],
+    ///     PipelineResponse::OptionItem(Some(Item {
+    ///         key: "doc_cpipeline_append".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"base-tail".to_vec()
+    ///     }))
+    /// );
+    /// assert_eq!(result[4], PipelineResponse::StorageResult(StorageResult::NoReply));
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn append(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_storage_cmd(
+                b"append",
+                k,
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_prepend", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .prepend(b"doc_cpipeline_prepend", 0, 0, false, b"head-")
+    ///     .set(b"doc_cpipeline_prepend", 0, 0, false, b"base")
+    ///     .prepend(b"doc_cpipeline_prepend", 0, 0, false, b"head-")
+    ///     .get(b"doc_cpipeline_prepend")
+    ///     .prepend(b"doc_cpipeline_prepend", 0, 0, true, b"noreply-")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(result[0], PipelineResponse::StorageResult(StorageResult::NotStored));
+    /// assert_eq!(result[1], PipelineResponse::StorageResult(StorageResult::Stored));
+    /// assert_eq!(result[2], PipelineResponse::StorageResult(StorageResult::Stored));
+    /// assert_eq!(
+    ///     result[3],
+    ///     PipelineResponse::OptionItem(Some(Item {
+    ///         key: "doc_cpipeline_prepend".to_string(),
+    ///         flags: 0,
+    ///         cas_unique: None,
+    ///         data_block: b"head-base".to_vec()
+    ///     }))
+    /// );
+    /// assert_eq!(result[4], PipelineResponse::StorageResult(StorageResult::NoReply));
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn prepend(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_storage_cmd(
+                b"prepend",
+                k,
+                flags,
+                exptime,
+                None,
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_cas", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .cas(b"doc_cpipeline_cas", 0, 0, 0, false, b"value")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NotFound)]
+    /// );
+    /// client.set(b"doc_cpipeline_cas", 0, 0, false, b"base").await?;
+    /// let cas = client
+    ///     .gets(b"doc_cpipeline_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// let result = client
+    ///     .pipeline()
+    ///     .cas(b"doc_cpipeline_cas", 0, 0, cas, false, b"new")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::Stored)]
+    /// );
+    /// let cas = client
+    ///     .gets(b"doc_cpipeline_cas")
+    ///     .await?
+    ///     .unwrap()
+    ///     .cas_unique
+    ///     .unwrap();
+    /// let result = client
+    ///     .pipeline()
+    ///     .cas(b"doc_cpipeline_cas", 0, 0, cas, true, b"noreply")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [PipelineResponse::StorageResult(StorageResult::NoReply)]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn cas(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: u32,
+        exptime: i64,
+        cas_unique: u64,
+        noreply: bool,
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_storage_cmd(
+                b"cas",
+                k,
+                flags,
+                exptime,
+                Some(cas_unique),
+                noreply,
+                data_block.as_ref(),
+            ),
+            PipelineExpect::Storage { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, DeleteResult, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client
+    ///     .set(b"doc_cpipeline_delete", 0, 0, false, b"value")
+    ///     .await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .delete(b"doc_cpipeline_delete", false)
+    ///     .delete(b"doc_cpipeline_delete", false)
+    ///     .delete(b"doc_cpipeline_delete", true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::DeleteResult(DeleteResult::Deleted),
+    ///         PipelineResponse::DeleteResult(DeleteResult::NotFound),
+    ///         PipelineResponse::DeleteResult(DeleteResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn delete(mut self, key: impl AsRef<[u8]>, noreply: bool) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_delete_cmd(k, noreply),
+            PipelineExpect::Delete { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, IncrDecrResult, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_incr", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .incr(b"doc_cpipeline_incr", 1, false)
+    ///     .set(b"doc_cpipeline_incr", 0, 0, false, b"10")
+    ///     .incr(b"doc_cpipeline_incr", 5, false)
+    ///     .incr(b"doc_cpipeline_incr", 1, true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::IncrDecrResult(IncrDecrResult::NotFound),
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::IncrDecrResult(IncrDecrResult::Value(15)),
+    ///         PipelineResponse::IncrDecrResult(IncrDecrResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn incr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_incr_decr_cmd(b"incr", k, value, noreply),
+            PipelineExpect::IncrDecr { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, IncrDecrResult, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_decr", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .decr(b"doc_cpipeline_decr", 1, false)
+    ///     .set(b"doc_cpipeline_decr", 0, 0, false, b"10")
+    ///     .decr(b"doc_cpipeline_decr", 5, false)
+    ///     .decr(b"doc_cpipeline_decr", 1, true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::IncrDecrResult(IncrDecrResult::NotFound),
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::IncrDecrResult(IncrDecrResult::Value(5)),
+    ///         PipelineResponse::IncrDecrResult(IncrDecrResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn decr(mut self, key: impl AsRef<[u8]>, value: u64, noreply: bool) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_incr_decr_cmd(b"decr", k, value, noreply),
+            PipelineExpect::IncrDecr { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult, TouchResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_touch", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .touch(b"doc_cpipeline_touch", 60, false)
+    ///     .set(b"doc_cpipeline_touch", 0, 0, false, b"value")
+    ///     .touch(b"doc_cpipeline_touch", 60, false)
+    ///     .touch(b"doc_cpipeline_touch", 60, true)
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::TouchResult(TouchResult::NotFound),
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::TouchResult(TouchResult::Touched),
+    ///         PipelineResponse::TouchResult(TouchResult::NoReply),
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn touch(mut self, key: impl AsRef<[u8]>, exptime: i64, noreply: bool) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_touch_cmd(k, exptime, noreply),
+            PipelineExpect::Touch { noreply },
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_get", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .get(b"doc_cpipeline_get")
+    ///     .set(b"doc_cpipeline_get", 0, 0, false, b"value")
+    ///     .get(b"doc_cpipeline_get")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// assert_eq!(
+    ///     result,
+    ///     [
+    ///         PipelineResponse::OptionItem(None),
+    ///         PipelineResponse::StorageResult(StorageResult::Stored),
+    ///         PipelineResponse::OptionItem(Some(Item {
+    ///             key: "doc_cpipeline_get".to_string(),
+    ///             flags: 0,
+    ///             cas_unique: None,
+    ///             data_block: b"value".to_vec()
+    ///         }))
+    ///     ]
+    /// );
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn get(mut self, key: impl AsRef<[u8]>) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_retrieval_cmd(b"get", None, &[k]),
+            PipelineExpect::RetrievalOne,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client
+    ///     .set(b"doc_cpipeline_gets", 0, 0, false, b"value")
+    ///     .await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .gets(b"doc_cpipeline_gets")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionItem(Some(item)) => {
+    ///         assert_eq!(item.key, "doc_cpipeline_gets");
+    ///         assert_eq!(item.data_block, b"value");
+    ///         assert!(item.cas_unique.is_some());
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gets(mut self, key: impl AsRef<[u8]>) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_retrieval_cmd(b"gets", None, &[k]),
+            PipelineExpect::RetrievalOne,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client
+    ///     .set(b"doc_cpipeline_gat", 7, 0, false, b"value")
+    ///     .await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .gat(60, b"doc_cpipeline_gat")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionItem(Some(item)) => {
+    ///         assert_eq!(item.key, "doc_cpipeline_gat");
+    ///         assert_eq!(item.flags, 7);
+    ///         assert_eq!(item.data_block, b"value");
+    ///         assert_eq!(item.cas_unique, None);
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gat(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_retrieval_cmd(b"gat", Some(exptime), &[k]),
+            PipelineExpect::RetrievalOne,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client
+    ///     .set(b"doc_cpipeline_gats", 7, 0, false, b"value")
+    ///     .await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .gats(60, b"doc_cpipeline_gats")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionItem(Some(item)) => {
+    ///         assert_eq!(item.key, "doc_cpipeline_gats");
+    ///         assert_eq!(item.flags, 7);
+    ///         assert_eq!(item.data_block, b"value");
+    ///         assert!(item.cas_unique.is_some());
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gats(mut self, exptime: i64, key: impl AsRef<[u8]>) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_retrieval_cmd(b"gats", Some(exptime), &[k]),
+            PipelineExpect::RetrievalOne,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_get_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_cpipeline_get_multi_b", 0, 0, false, b"b").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .get_multi(&[b"doc_cpipeline_get_multi_a", b"doc_cpipeline_get_multi_b"])
+    ///     .execute()
+    ///     .await?;
+    /// let mut result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &mut result[0] {
+    ///     PipelineResponse::VecItem(items) => {
+    ///         items.sort_by(|a, b| a.key.cmp(&b.key));
+    ///         assert_eq!(
+    ///             *items,
+    ///             vec![
+    ///                 Item {
+    ///                     key: "doc_cpipeline_get_multi_a".to_string(),
+    ///                     flags: 0,
+    ///                     cas_unique: None,
+    ///                     data_block: b"a".to_vec()
+    ///                 },
+    ///                 Item {
+    ///                     key: "doc_cpipeline_get_multi_b".to_string(),
+    ///                     flags: 0,
+    ///                     cas_unique: None,
+    ///                     data_block: b"b".to_vec()
+    ///                 }
+    ///             ]
+    ///         );
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn get_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.push_multi(b"get", None, keys);
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_gets_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_cpipeline_gets_multi_b", 0, 0, false, b"b").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .gets_multi(&[b"doc_cpipeline_gets_multi_a", b"doc_cpipeline_gets_multi_b"])
+    ///     .execute()
+    ///     .await?;
+    /// let mut result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &mut result[0] {
+    ///     PipelineResponse::VecItem(items) => {
+    ///         items.sort_by(|a, b| a.key.cmp(&b.key));
+    ///         assert_eq!(items.len(), 2);
+    ///         assert_eq!(items[0].key, "doc_cpipeline_gets_multi_a");
+    ///         assert_eq!(items[1].key, "doc_cpipeline_gets_multi_b");
+    ///         assert!(items.iter().all(|item| item.cas_unique.is_some()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gets_multi(mut self, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.push_multi(b"gets", None, keys);
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, Item, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_gat_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_cpipeline_gat_multi_b", 0, 0, false, b"b").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .gat_multi(
+    ///         60,
+    ///         &[b"doc_cpipeline_gat_multi_a", b"doc_cpipeline_gat_multi_b"],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// let mut result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &mut result[0] {
+    ///     PipelineResponse::VecItem(items) => {
+    ///         items.sort_by(|a, b| a.key.cmp(&b.key));
+    ///         assert_eq!(
+    ///             *items,
+    ///             vec![
+    ///                 Item {
+    ///                     key: "doc_cpipeline_gat_multi_a".to_string(),
+    ///                     flags: 0,
+    ///                     cas_unique: None,
+    ///                     data_block: b"a".to_vec()
+    ///                 },
+    ///                 Item {
+    ///                     key: "doc_cpipeline_gat_multi_b".to_string(),
+    ///                     flags: 0,
+    ///                     cas_unique: None,
+    ///                     data_block: b"b".to_vec()
+    ///                 }
+    ///             ]
+    ///         );
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gat_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.push_multi(b"gat", Some(exptime), keys);
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_gats_multi_a", 0, 0, false, b"a").await?;
+    /// client.set(b"doc_cpipeline_gats_multi_b", 0, 0, false, b"b").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .gats_multi(
+    ///         60,
+    ///         &[b"doc_cpipeline_gats_multi_a", b"doc_cpipeline_gats_multi_b"],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// let mut result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &mut result[0] {
+    ///     PipelineResponse::VecItem(items) => {
+    ///         items.sort_by(|a, b| a.key.cmp(&b.key));
+    ///         assert_eq!(items.len(), 2);
+    ///         assert_eq!(items[0].key, "doc_cpipeline_gats_multi_a");
+    ///         assert_eq!(items[1].key, "doc_cpipeline_gats_multi_b");
+    ///         assert!(items.iter().all(|item| item.cas_unique.is_some()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn gats_multi(mut self, exptime: i64, keys: &[impl AsRef<[u8]>]) -> Self {
+        self.push_multi(b"gats", Some(exptime), keys);
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_me", 0, 0, false, b"value").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .me(b"doc_cpipeline_me")
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::OptionString(Some(info)) => assert!(info.starts_with("doc_cpipeline_me ")),
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn me(mut self, key: impl AsRef<[u8]>) -> Self {
+        let k = key.as_ref();
+        self.push_single(k, build_me_cmd(k), PipelineExpect::Me);
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, MgFlag, MgStatus, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_mg", 7, 0, false, b"hello").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .mg(
+    ///         b"doc_cpipeline_mg",
+    ///         &[
+    ///             MgFlag::ReturnKey,
+    ///             MgFlag::ReturnFlags,
+    ///             MgFlag::ReturnSize,
+    ///             MgFlag::ReturnValue,
+    ///         ],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaGet(item) => {
+    ///         assert_eq!(item.status, MgStatus::WithBody);
+    ///         assert_eq!(item.key, Some("doc_cpipeline_mg".to_string()));
+    ///         assert_eq!(item.flags, Some(7));
+    ///         assert_eq!(item.size, Some(5));
+    ///         assert_eq!(item.data_block, Some(b"hello".to_vec()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn mg(mut self, key: impl AsRef<[u8]>, flags: &[MgFlag]) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_mg_flags(flags).and_then(|f| build_mc_cmd(b"mg", k, &f, None)),
+            PipelineExpect::MetaGet,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, MsFlag, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let result = client
+    ///     .pipeline()
+    ///     .ms(
+    ///         b"doc_cpipeline_ms",
+    ///         &[MsFlag::ReturnKey, MsFlag::ReturnSize],
+    ///         b"hello",
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaSet(item) => {
+    ///         assert_eq!(item.status, StorageResult::Stored);
+    ///         assert_eq!(item.key, Some("doc_cpipeline_ms".to_string()));
+    ///         assert_eq!(item.size, Some(5));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn ms(
+        mut self,
+        key: impl AsRef<[u8]>,
+        flags: &[MsFlag],
+        data_block: impl AsRef<[u8]>,
+    ) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_ms_flags(flags)
+                .and_then(|f| build_mc_cmd(b"ms", k, &f, Some(data_block.as_ref()))),
+            PipelineExpect::MetaSet,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, MdFlag, MdStatus, PipelineResponse, ServerSelector, StorageResult};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// client.set(b"doc_cpipeline_md", 0, 0, false, b"value").await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .md(b"doc_cpipeline_md", &[MdFlag::ReturnKey])
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaDelete(item) => {
+    ///         assert_eq!(item.status, MdStatus::Deleted);
+    ///         assert_eq!(item.key, Some("doc_cpipeline_md".to_string()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn md(mut self, key: impl AsRef<[u8]>, flags: &[MdFlag]) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_md_flags(flags).and_then(|f| build_mc_cmd(b"md", k, &f, None)),
+            PipelineExpect::MetaDelete,
+        );
+        self
+    }
+
+    /// # Example
+    ///
+    /// ```
+    /// # use mcmc_rs::{ClientHashRing, Connection, MaFlag, MaMode, MaStatus, PipelineResponse, ServerSelector};
+    /// # use smol::block_on;
+    /// #
+    /// # block_on(async {
+    /// let mut client = ClientHashRing::new([
+    ///     ("node1", Connection::default().await?),
+    ///     ("node2", Connection::unix_connect("/tmp/memcached0.sock").await?),
+    /// ]);
+    /// let _ = client.delete(b"doc_cpipeline_ma", false).await?;
+    /// let result = client
+    ///     .pipeline()
+    ///     .ma(
+    ///         b"doc_cpipeline_ma",
+    ///         &[
+    ///             MaFlag::AutoCreate(0),
+    ///             MaFlag::InitValue(5),
+    ///             MaFlag::Mode(MaMode::Incr),
+    ///             MaFlag::ReturnValue,
+    ///             MaFlag::ReturnKey,
+    ///         ],
+    ///     )
+    ///     .execute()
+    ///     .await?;
+    /// let result = result.into_iter().collect::<mcmc_rs::Result<Vec<_>>>()?;
+    /// match &result[0] {
+    ///     PipelineResponse::MetaArithmetic(item) => {
+    ///         assert_eq!(item.status, MaStatus::WithBody);
+    ///         assert_eq!(item.number, Some(5));
+    ///         assert_eq!(item.key, Some("doc_cpipeline_ma".to_string()));
+    ///     }
+    ///     other => panic!("unexpected response: {other:?}"),
+    /// }
+    /// #     Ok::<(), mcmc_rs::MemcachedError>(())
+    /// # }).unwrap()
+    /// ```
+    pub fn ma(mut self, key: impl AsRef<[u8]>, flags: &[MaFlag]) -> Self {
+        let k = key.as_ref();
+        self.push_single(
+            k,
+            build_ma_flags(flags).and_then(|f| build_mc_cmd(b"ma", k, &f, None)),
+            PipelineExpect::MetaArithmetic,
+        );
+        self
     }
 }
 
